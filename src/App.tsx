@@ -375,7 +375,7 @@ export default function PachinkoCalculatorComplete() {
   const autosaveTimerRef=useRef(null);
   const skipAutosaveRef=useRef(false);
   const [judgeForm,setJudgeForm]=useState({observedRate:'',border:'',note:''});
-  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1' });
+  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:'' });
 
   useEffect(()=>{
@@ -463,13 +463,16 @@ export default function PachinkoCalculatorComplete() {
   function deleteSession(id) { setSessions(p=>p.filter(x=>x.id!==id)); }
   async function addPhotos(files) { const list=Array.from(files||[]).slice(0,6); const images=[]; for(const f of list){const d=await readFileAsDataUrl(f); images.push({id:uid(),name:f.name,dataUrl:d,createdAt:Date.now()});} applyFormUpdate(p=>({...p,photos:[...(p.photos||[]),...images].slice(0,12)})); }
   function saveMachine() { if(!machineDraft.name.trim())return; const p={id:uid(),name:machineDraft.name.trim(),shopDefault:machineDraft.shopDefault.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:numberOrZero(machineDraft.border40),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),memo:machineDraft.memo}; setMachines(p=>[p,...p]); setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:''}); }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1'}); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
+  function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
     const label=firstHitForm.label||`初当たり${(form.firstHits||[]).length+1}回目`;
     const crl=getChainResultLabel(firstHitForm.chainCount);
-    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl};
-    const ml=`[${label}] ${hit.rounds}R / 獲得${Math.round(hit.gainedBalls)}玉 / 1R ${hit.oneRound.toFixed(1)} / ${crl}`;
+    const rh=numberOrZero(firstHitForm.remainingHolds);
+    const rhStr=rh>0?` / 残り保留${rh}個`:'';
+    const ml=`[${label}] ${firstHitMetrics.rounds}R / 獲得${Math.round(firstHitMetrics.gainedBalls)}玉 / 1R ${Number(firstHitMetrics.oneRound.toFixed(1))} / ${crl}${rhStr}`;
+    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml};
     applyFormUpdate(prev=>{
       const nb={...prev,firstHits:[...(prev.firstHits||[]),hit],notes:appendLine(prev.notes,ml)};
       if(!restartAfter)return nb;
@@ -487,7 +490,7 @@ export default function PachinkoCalculatorComplete() {
     });
     setFirstHitDialogOpen(false);
   }
-  function removeFirstHit(hid) { applyFormUpdate(p=>({...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid)})); }
+  function removeFirstHit(hid) { applyFormUpdate(p=>{ const hit=(p.firstHits||[]).find(h=>h.id===hid); const newNotes=hit?.memoLine?p.notes.split('\n').filter(l=>l!==hit.memoLine).join('\n'):p.notes; return {...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid),notes:newNotes}; }); }
   function exportData() { const blob=new Blob([JSON.stringify({machines,sessions,settings},null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`pachinko-complete-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); }
   function importData(file) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(String(r.result||'{}')); if(Array.isArray(d.machines))setMachines(d.machines); if(Array.isArray(d.sessions))setSessions(d.sessions); if(d.settings)setSettings({...defaultSettings,...d.settings}); } catch { alert('JSONの読み込みに失敗したぜ'); } }; r.readAsText(file); }
   function moveMonth(delta) { const d=new Date(`${currentMonth}-01T00:00:00`); d.setMonth(d.getMonth()+delta); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
@@ -495,19 +498,19 @@ export default function PachinkoCalculatorComplete() {
 
   /* ─── スタイル定数 ─── */
   const cardStyle={ background:C.card, border:`1px solid ${C.border}`, borderRadius:24, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.07)' };
-  const inputStyle={ background:'white', border:`1.5px solid ${C.border}`, borderRadius:14, padding:'9px 14px', fontSize:14, color:C.textPrimary, width:'100%', boxSizing:'border-box', outline:'none' };
-  const labelStyle={ fontSize:12, fontWeight:600, color:C.textSecondary, display:'block', marginBottom:5 };
-  const btnPrimary={ background:C.primary, color:'white', border:'none', borderRadius:14, padding:'10px 18px', fontWeight:700, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
-  const btnSecondary={ background:C.primaryLight, color:C.primary, border:`1.5px solid ${C.primaryMid}`, borderRadius:14, padding:'10px 18px', fontWeight:700, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
-  const btnOutline={ background:'white', color:C.textSecondary, border:`1.5px solid ${C.border}`, borderRadius:14, padding:'10px 18px', fontWeight:600, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
+  const inputStyle={ background:'white', border:`1.5px solid ${C.border}`, borderRadius:14, padding:'13px 16px', fontSize:16, color:C.textPrimary, width:'100%', boxSizing:'border-box', outline:'none' };
+  const labelStyle={ fontSize:13, fontWeight:600, color:C.textSecondary, display:'block', marginBottom:6 };
+  const btnPrimary={ background:C.primary, color:'white', border:'none', borderRadius:14, padding:'14px 20px', fontWeight:700, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
+  const btnSecondary={ background:C.primaryLight, color:C.primary, border:`1.5px solid ${C.primaryMid}`, borderRadius:14, padding:'14px 20px', fontWeight:700, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
+  const btnOutline={ background:'white', color:C.textSecondary, border:`1.5px solid ${C.border}`, borderRadius:14, padding:'14px 20px', fontWeight:600, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
 
   // 指標カード（ライト版）
   function MetricBox({ label, value, sub, color }) {
     return (
-      <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
-        <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>{label}</div>
-        <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:color||C.primary }}>{value}</div>
-        {sub&&<div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>{sub}</div>}
+      <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'14px 16px' }}>
+        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>{label}</div>
+        <div style={{ marginTop:5, fontSize:20, fontWeight:700, color:color||C.primary }}>{value}</div>
+        {sub&&<div style={{ marginTop:3, fontSize:11, color:C.textMuted }}>{sub}</div>}
       </div>
     );
   }
@@ -524,7 +527,7 @@ export default function PachinkoCalculatorComplete() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary }}>
-      <div style={{ maxWidth:520, margin:'0 auto', padding:'12px 12px 120px' }}>
+      <div style={{ maxWidth:520, margin:'0 auto', padding:'14px 14px 130px' }}>
 
         {/* ─── ヘッダー ─── */}
         <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:16}}>
@@ -603,7 +606,7 @@ export default function PachinkoCalculatorComplete() {
                 </div>
               </div>
 
-              <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+              <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:16 }}>
                 {/* 台データ設定アコーディオン */}
                 <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
                   <button onClick={()=>setMachinePanelOpen(p=>!p)} style={{ width:'100%', background:C.primaryLight, border:'none', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
@@ -878,6 +881,14 @@ export default function PachinkoCalculatorComplete() {
                           <div><Label>連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>setFirstHitForm(p=>({...p,chainCount:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="1"/></div>
                         </div>
                         <div>
+                          <Label style={{display:'flex',alignItems:'center',gap:6}}>
+                            残り保留数
+                            <span style={{fontSize:11,color:'#0369a1',background:'#e0f2fe',borderRadius:6,padding:'1px 7px',fontWeight:600}}>メモ自動記入</span>
+                          </Label>
+                          <Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="例: 3"/>
+                          <div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>大当たり終了時に残っていた保留数。回転率計算の参考になるぜ。</div>
+                        </div>
+                        <div>
                           <Label>再スタート理由</Label>
                           <Select value={firstHitForm.restartReason} onValueChange={v=>setFirstHitForm(p=>({...p,restartReason:v}))}>
                             <SelectTrigger className="mt-1 rounded-2xl"><span>{getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote)}</span></SelectTrigger>
@@ -891,7 +902,7 @@ export default function PachinkoCalculatorComplete() {
                       </div>
                       <div className="rounded-2xl bg-slate-50 p-4 space-y-2 text-sm">
                         <div className="font-semibold">計算結果</div>
-                        {[['獲得出玉',fmtBall(firstHitMetrics.gainedBalls)],['合計R',String(firstHitMetrics.rounds||0)],['1R出玉',fmtRate(firstHitMetrics.oneRound)],['連チャン',getChainResultLabel(firstHitForm.chainCount)]].map(([l,v])=>(
+                        {[['獲得出玉',fmtBall(firstHitMetrics.gainedBalls)],['合計R',String(firstHitMetrics.rounds||0)],['1R出玉',fmtRate(firstHitMetrics.oneRound)],['連チャン',getChainResultLabel(firstHitForm.chainCount)],['残り保留',firstHitForm.remainingHolds?`${firstHitForm.remainingHolds}個`:'-']].map(([l,v])=>(
                           <div key={l} className="flex justify-between"><span className="text-muted-foreground">{l}</span><span className="font-bold">{v}</span></div>
                         ))}
                       </div>
@@ -948,21 +959,30 @@ export default function PachinkoCalculatorComplete() {
 
                 {(form.firstHits||[]).length>0&&(
                   <div>
-                    <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:8, fontSize:14 }}>初当たり履歴</div>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                      <div style={{ fontWeight:700, color:C.textPrimary, fontSize:15 }}>初当たり履歴</div>
+                      <button
+                        onClick={undoLastFirstHit}
+                        style={{ background:'#fff7ed', color:'#c2410c', border:'1.5px solid #fed7aa', borderRadius:10, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}
+                      >
+                        ↩ 最後の1件を取り消す
+                      </button>
+                    </div>
                     {(form.firstHits||[]).map(hit=>(
-                      <div key={hit.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px', marginBottom:6 }}>
+                      <div key={hit.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px 16px', marginBottom:8 }}>
                         <div>
-                          <div style={{ fontWeight:600, color:C.textPrimary }}>{hit.label}</div>
-                          <div style={{ fontSize:11, color:C.textSecondary, marginTop:2 }}>{hit.rounds}R / 獲得{Math.round(hit.gainedBalls)}玉 / 1R {hit.oneRound.toFixed(1)} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
+                          <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14 }}>{hit.label}</div>
+                          <div style={{ fontSize:12, color:C.textSecondary, marginTop:3 }}>{hit.rounds}R / 獲得{Math.round(hit.gainedBalls)}玉 / 1R {hit.oneRound.toFixed(1)} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
+                          {hit.remainingHolds>0&&<div style={{ fontSize:12, color:'#0369a1', marginTop:2, fontWeight:600 }}>残り保留: {hit.remainingHolds}個</div>}
                         </div>
-                        <button onClick={()=>removeFirstHit(hit.id)} style={{ width:28,height:28,borderRadius:8,border:`1px solid ${C.border}`,background:'white',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><Trash2 size={13} color={C.textMuted}/></button>
+                        <button onClick={()=>removeFirstHit(hit.id)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:'white',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}><Trash2 size={15} color={C.textMuted}/></button>
                       </div>
                     ))}
                   </div>
                 )}
 
                 <div>
-                  <label style={labelStyle}>メモ</label>
+                  <label style={labelStyle}>初当たりメモ</label>
                   <Textarea value={form.notes} onChange={e=>updateForm('notes',e.target.value)} className="rounded-2xl min-h-[80px]" placeholder="初当たり結果は自動追記されるぜ"/>
                 </div>
 
