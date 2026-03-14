@@ -1431,15 +1431,17 @@ export default function PachinkoCalculatorComplete() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="flex h-auto w-full gap-1 overflow-x-auto rounded-2xl p-1">
-            <TabsTrigger value="rate" className="rounded-2xl whitespace-nowrap">回転率</TabsTrigger>
-            <TabsTrigger value="expect" className="rounded-2xl whitespace-nowrap">期待収支</TabsTrigger>
-            <TabsTrigger value="judge" className="rounded-2xl whitespace-nowrap">稼働判定</TabsTrigger>
-            <TabsTrigger value="calendar" className="rounded-2xl whitespace-nowrap">日別</TabsTrigger>
-            <TabsTrigger value="analysis" className="rounded-2xl whitespace-nowrap">集計</TabsTrigger>
-            <TabsTrigger value="history" className="rounded-2xl whitespace-nowrap">履歴</TabsTrigger>
-            <TabsTrigger value="settings" className="rounded-2xl whitespace-nowrap">設定</TabsTrigger>
-          </TabsList>
+          <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <TabsList className="inline-flex h-auto min-w-max gap-2 rounded-2xl p-1.5">
+              <TabsTrigger value="rate" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">回転率</TabsTrigger>
+              <TabsTrigger value="expect" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">期待収支</TabsTrigger>
+              <TabsTrigger value="judge" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">稼働判定</TabsTrigger>
+              <TabsTrigger value="calendar" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">日別</TabsTrigger>
+              <TabsTrigger value="analysis" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">まとめ</TabsTrigger>
+              <TabsTrigger value="history" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">履歴</TabsTrigger>
+              <TabsTrigger value="settings" className="min-w-fit flex-none rounded-2xl px-4 py-2 whitespace-nowrap">設定</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="rate" className="space-y-4">
             <Card className="overflow-hidden rounded-[28px] border-0 bg-slate-900 text-white shadow-md">
@@ -1469,22 +1471,22 @@ export default function PachinkoCalculatorComplete() {
                   </button>
                   {machinePanelOpen ? (
                     <div className="space-y-3 px-1 pb-1 pt-2">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <Label className="text-slate-300">日付</Label>
-                          <Input type="date" value={form.date} onChange={(e) => updateForm('date', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" />
+                          <Input type="date" value={form.date} onChange={(e) => updateForm('date', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" />
                         </div>
                         <div>
                           <Label className="text-slate-300">店舗名</Label>
-                          <Input value={form.shop} onChange={(e) => applyShopValue(e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" placeholder="未入力でも可" />
+                          <Input value={form.shop} onChange={(e) => applyShopValue(e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" placeholder="未入力でも可" />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <Label className="text-slate-300">機種</Label>
                           <Select value={form.machineId || '__none__'} onValueChange={selectMachine}>
-                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="__none__">未選択</SelectItem>
                               {machines.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
@@ -1493,13 +1495,13 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                         <div>
                           <Label className="text-slate-300">台番号</Label>
-                          <Input value={form.machineNumber} onChange={(e) => updateForm('machineNumber', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" placeholder="任意" />
+                          <Input value={form.machineNumber} onChange={(e) => updateForm('machineNumber', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" placeholder="任意" />
                         </div>
                       </div>
 
                       <div>
                         <Label className="text-slate-300">機種名フリー入力</Label>
-                        <Input value={form.machineFreeName} onChange={(e) => updateForm('machineFreeName', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" placeholder="未登録時用" />
+                        <Input value={form.machineFreeName} onChange={(e) => updateForm('machineFreeName', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" placeholder="未登録時用" />
                       </div>
 
                       {(recentShopPresets.length > 0 || recentMachinePresets.length > 0) ? (
@@ -1508,7 +1510,7 @@ export default function PachinkoCalculatorComplete() {
                           {recentShopPresets.length > 0 ? (
                             <div className="mb-3">
                               <div className="mb-1 text-[11px] text-slate-400">店舗</div>
-                              <div className="flex flex-wrap gap-2">
+                              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                 {recentShopPresets.map((shopName) => (
                                   <Button key={shopName} type="button" size="sm" variant="secondary" className="rounded-2xl" onClick={() => applyShopValue(shopName)}>{shopName}</Button>
                                 ))}
@@ -1518,7 +1520,7 @@ export default function PachinkoCalculatorComplete() {
                           {recentMachinePresets.length > 0 ? (
                             <div>
                               <div className="mb-1 text-[11px] text-slate-400">機種</div>
-                              <div className="flex flex-wrap gap-2">
+                              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                 {recentMachinePresets.map((machine) => (
                                   <Button key={machine.id} type="button" size="sm" variant="secondary" className="rounded-2xl" onClick={() => selectMachine(machine.id)}>{machine.name}</Button>
                                 ))}
@@ -1532,7 +1534,7 @@ export default function PachinkoCalculatorComplete() {
                         <div className="rounded-2xl bg-white/5 p-3 text-xs text-slate-300 space-y-3">
                           <div>
                             <div className="mb-2 font-semibold text-white">登録ボーダー一覧</div>
-                            <div className="grid grid-cols-5 gap-2 text-center">
+                            <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                               {EXCHANGE_ORDER.map((category) => (
                                 <div key={category} className="rounded-xl bg-white/5 p-2">
                                   <div>{getExchangePreset(category).short}</div>
@@ -1569,46 +1571,46 @@ export default function PachinkoCalculatorComplete() {
                           <div className="space-y-3">
                             <div>
                               <Label>機種名</Label>
-                              <Input value={machineDraft.name} onChange={(e) => setMachineDraft((p) => ({ ...p, name: e.target.value }))} className="mt-1 rounded-2xl" />
+                              <Input value={machineDraft.name} onChange={(e) => setMachineDraft((p) => ({ ...p, name: e.target.value }))} className="mt-1 rounded-2xl min-w-0" />
                             </div>
                             <div>
                               <Label>よく行く店舗(任意)</Label>
-                              <Input value={machineDraft.shopDefault} onChange={(e) => setMachineDraft((p) => ({ ...p, shopDefault: e.target.value }))} className="mt-1 rounded-2xl" />
+                              <Input value={machineDraft.shopDefault} onChange={(e) => setMachineDraft((p) => ({ ...p, shopDefault: e.target.value }))} className="mt-1 rounded-2xl min-w-0" />
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                               <div>
                                 <Label>25個(等価)</Label>
-                                <Input value={machineDraft.border25} onChange={(e) => setMachineDraft((p) => ({ ...p, border25: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" />
+                                <Input value={machineDraft.border25} onChange={(e) => setMachineDraft((p) => ({ ...p, border25: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" />
                               </div>
                               <div>
                                 <Label>28個</Label>
-                                <Input value={machineDraft.border28} onChange={(e) => setMachineDraft((p) => ({ ...p, border28: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" />
+                                <Input value={machineDraft.border28} onChange={(e) => setMachineDraft((p) => ({ ...p, border28: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" />
                               </div>
                               <div>
                                 <Label>30個</Label>
-                                <Input value={machineDraft.border30} onChange={(e) => setMachineDraft((p) => ({ ...p, border30: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" />
+                                <Input value={machineDraft.border30} onChange={(e) => setMachineDraft((p) => ({ ...p, border30: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" />
                               </div>
                               <div>
                                 <Label>33個</Label>
-                                <Input value={machineDraft.border33} onChange={(e) => setMachineDraft((p) => ({ ...p, border33: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" />
+                                <Input value={machineDraft.border33} onChange={(e) => setMachineDraft((p) => ({ ...p, border33: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" />
                               </div>
                               <div>
                                 <Label>40個</Label>
-                                <Input value={machineDraft.border40} onChange={(e) => setMachineDraft((p) => ({ ...p, border40: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" />
+                                <Input value={machineDraft.border40} onChange={(e) => setMachineDraft((p) => ({ ...p, border40: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" />
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                               <div>
                                 <Label>1R出玉</Label>
-                                <Input value={machineDraft.payoutPerRound} onChange={(e) => setMachineDraft((p) => ({ ...p, payoutPerRound: e.target.value }))} className="mt-1 rounded-2xl" inputMode="numeric" />
+                                <Input value={machineDraft.payoutPerRound} onChange={(e) => setMachineDraft((p) => ({ ...p, payoutPerRound: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" />
                               </div>
                               <div>
                                 <Label>平均獲得出玉</Label>
-                                <Input value={machineDraft.expectedBallsPerHit} onChange={(e) => setMachineDraft((p) => ({ ...p, expectedBallsPerHit: e.target.value }))} className="mt-1 rounded-2xl" inputMode="numeric" />
+                                <Input value={machineDraft.expectedBallsPerHit} onChange={(e) => setMachineDraft((p) => ({ ...p, expectedBallsPerHit: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" />
                               </div>
                               <div className="col-span-2">
                                 <Label>トータル確率</Label>
-                                <Input value={machineDraft.totalProbability} onChange={(e) => setMachineDraft((p) => ({ ...p, totalProbability: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" placeholder="例: 99.9 / 127.5" />
+                                <Input value={machineDraft.totalProbability} onChange={(e) => setMachineDraft((p) => ({ ...p, totalProbability: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" placeholder="例: 99.9 / 127.5" />
                               </div>
                             </div>
                             <div>
@@ -1623,7 +1625,7 @@ export default function PachinkoCalculatorComplete() {
                   ) : null}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Button variant={form.exchangeCategory === '25' ? 'default' : 'secondary'} className="h-12 rounded-2xl" onClick={() => applyFormUpdate((prev) => ({ ...prev, exchangeCategory: '25', sessionBorderOverride: '' }))}>等価</Button>
                   <Button variant={form.exchangeCategory !== '25' ? 'default' : 'secondary'} className="h-12 rounded-2xl" onClick={() => applyFormUpdate((prev) => ({ ...prev, exchangeCategory: prev.exchangeCategory === '25' ? '28' : prev.exchangeCategory, sessionBorderOverride: '' }))}>非等価</Button>
                 </div>
@@ -1631,7 +1633,7 @@ export default function PachinkoCalculatorComplete() {
                   <div>
                     <Label>非等価種別</Label>
                     <Select value={form.exchangeCategory} onValueChange={(value) => applyFormUpdate((prev) => ({ ...prev, exchangeCategory: value, sessionBorderOverride: '' }))}>
-                      <SelectTrigger className="mt-1 rounded-2xl"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 rounded-2xl min-w-0"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="28">28個</SelectItem>
                         <SelectItem value="30">30個</SelectItem>
@@ -1642,7 +1644,7 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <div className="rounded-2xl bg-white/10 p-3">
                     <div className="text-[10px] text-slate-300">累計回転数</div>
                     <div className="mt-1 text-xl font-bold">{Math.round(formMetrics.totalSpins)}</div>
@@ -1702,7 +1704,7 @@ export default function PachinkoCalculatorComplete() {
                   回転単価は 1回転あたり期待値、仕事量(理論)は 回転単価×通常回転数 で算出するぜ。トータル確率・平均獲得出玉・1R出玉を機種データへ入れると自動反映される。
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Button variant={form.currentInputMode === 'cash' ? 'default' : 'secondary'} className="h-12 rounded-2xl" onClick={() => setCurrentInputMode('cash')}>現金</Button>
                   <Button variant={form.currentInputMode === 'balls' ? 'default' : 'secondary'} className="h-12 rounded-2xl" onClick={() => setCurrentInputMode('balls')}>持ち玉</Button>
                 </div>
@@ -1717,12 +1719,12 @@ export default function PachinkoCalculatorComplete() {
                   </button>
                   {advancedInvestOpen ? (
                     <div className="space-y-3 px-1 pb-1 pt-2">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div><Label className="text-slate-300">現金標準</Label><Input value={settings.defaultCashUnitYen} onChange={(e) => setSettings((p) => ({ ...p, defaultCashUnitYen: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                        <div><Label className="text-slate-300">500円用</Label><Input value={settings.subCashUnitYen} onChange={(e) => setSettings((p) => ({ ...p, subCashUnitYen: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                        <div><Label className="text-slate-300">持ち玉標準</Label><Input value={settings.defaultBallUnit} onChange={(e) => setSettings((p) => ({ ...p, defaultBallUnit: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div><Label className="text-slate-300">現金標準</Label><Input value={settings.defaultCashUnitYen} onChange={(e) => setSettings((p) => ({ ...p, defaultCashUnitYen: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                        <div><Label className="text-slate-300">500円用</Label><Input value={settings.subCashUnitYen} onChange={(e) => setSettings((p) => ({ ...p, subCashUnitYen: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                        <div><Label className="text-slate-300">持ち玉標準</Label><Input value={settings.defaultBallUnit} onChange={(e) => setSettings((p) => ({ ...p, defaultBallUnit: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <Button variant="secondary" className="rounded-2xl" onClick={() => addRateEntry('cash', numberOrZero(settings.subCashUnitYen) || 500)}>+500円行</Button>
                         <Button variant="secondary" className="rounded-2xl" onClick={() => addRateEntry('balls', numberOrZero(settings.defaultBallUnit) || 250)}>+持ち玉行</Button>
                       </div>
@@ -1779,7 +1781,7 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Button variant="secondary" className="h-12 rounded-2xl" onClick={() => addRateEntry(form.currentInputMode, form.currentInputMode === 'balls' ? numberOrZero(settings.defaultBallUnit) || 250 : numberOrZero(settings.defaultCashUnitYen) || 1000)}>+入力行</Button>
                   <div className="rounded-2xl bg-white/5 p-3 text-xs text-slate-300">入力完了で次へ移動。最後なら次の行も自動追加だぜ。</div>
                 </div>
@@ -1798,23 +1800,23 @@ export default function PachinkoCalculatorComplete() {
                   <DialogContent className="max-w-sm rounded-3xl border-0 bg-slate-900 text-white">
                     <DialogHeader><DialogTitle className="flex items-center gap-2 text-white"><Star className="h-4 w-4 text-yellow-400" />{firstHitForm.label}</DialogTitle></DialogHeader>
                     <div className="space-y-4">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <Button variant={firstHitForm.rounds === '10' ? 'default' : 'secondary'} className="rounded-2xl" onClick={() => setFirstHitForm((p) => ({ ...p, rounds: '10' }))}>10R</Button>
                         <Button variant={firstHitForm.rounds === '20' ? 'default' : 'secondary'} className="rounded-2xl" onClick={() => setFirstHitForm((p) => ({ ...p, rounds: '20' }))}>20R</Button>
                         <Input value={firstHitForm.rounds} onChange={(e) => setFirstHitForm((p) => ({ ...p, rounds: e.target.value }))} className="rounded-2xl border-white/10 bg-white/5 text-white text-center" inputMode="numeric" placeholder="直入力" />
                       </div>
                       <div className="space-y-3 rounded-2xl border border-white/10 p-3">
-                        <div><Label className="text-slate-300">開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, startBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                        <div><Label className="text-slate-300">開始上皿玉数（任意）</Label><Input value={firstHitForm.upperBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, upperBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                        <div><Label className="text-slate-300">終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, endBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><Label className="text-slate-300">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={(e) => setFirstHitForm((p) => ({ ...p, restartRotation: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" placeholder="0" /></div>
-                          <div><Label className="text-slate-300">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={(e) => setFirstHitForm((p) => ({ ...p, chainCount: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" placeholder="1" /></div>
+                        <div><Label className="text-slate-300">開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, startBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                        <div><Label className="text-slate-300">開始上皿玉数（任意）</Label><Input value={firstHitForm.upperBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, upperBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                        <div><Label className="text-slate-300">終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={(e) => setFirstHitForm((p) => ({ ...p, endBalls: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div><Label className="text-slate-300">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={(e) => setFirstHitForm((p) => ({ ...p, restartRotation: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" placeholder="0" /></div>
+                          <div><Label className="text-slate-300">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={(e) => setFirstHitForm((p) => ({ ...p, chainCount: e.target.value }))} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" placeholder="1" /></div>
                         </div>
                         <div>
                           <Label className="text-slate-300">再スタート理由</Label>
                           <Select value={firstHitForm.restartReason} onValueChange={(value) => setFirstHitForm((p) => ({ ...p, restartReason: value }))}>
-                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="single">単発後</SelectItem>
                               <SelectItem value="st">確変/ST後</SelectItem>
@@ -1836,7 +1838,7 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                       </div>
                       {selectedMachine ? <Button variant="secondary" className="w-full rounded-2xl" onClick={applyFirstHitOneRoundToMachine}>この1R出玉を機種へ反映</Button> : <div className="text-xs text-amber-300">機種選択中なら、計算した1R出玉をその機種データへ反映できるぜ。</div>}
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <Button variant="secondary" className="rounded-2xl" onClick={() => setFirstHitDialogOpen(false)}>キャンセル</Button>
                         <Button className="rounded-2xl" onClick={() => completeFirstHit(false)}>大当たり終了</Button>
                       </div>
@@ -1845,16 +1847,16 @@ export default function PachinkoCalculatorComplete() {
                   </DialogContent>
                 </Dialog>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label className="text-slate-300">回収玉</Label><Input value={form.returnedBalls} onChange={(e) => updateForm('returnedBalls', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" /></div>
-                  <div><Label className="text-slate-300">実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={(e) => updateForm('actualBalanceYen', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" placeholder="未入力なら自動計算" /></div>
-                  <div><Label className="text-slate-300">稼働時間</Label><Input value={form.hours} onChange={(e) => updateForm('hours', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" inputMode="numeric" placeholder="例: 3.5" /></div>
-                  <div><Label className="text-slate-300">タグ</Label><Input value={form.tags} onChange={(e) => updateForm('tags', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white" placeholder="特日, 強イベ" /></div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div><Label className="text-slate-300">回収玉</Label><Input value={form.returnedBalls} onChange={(e) => updateForm('returnedBalls', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" /></div>
+                  <div><Label className="text-slate-300">実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={(e) => updateForm('actualBalanceYen', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" placeholder="未入力なら自動計算" /></div>
+                  <div><Label className="text-slate-300">稼働時間</Label><Input value={form.hours} onChange={(e) => updateForm('hours', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" inputMode="numeric" placeholder="例: 3.5" /></div>
+                  <div><Label className="text-slate-300">タグ</Label><Input value={form.tags} onChange={(e) => updateForm('tags', e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0" placeholder="特日, 強イベ" /></div>
                 </div>
 
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-white">
                   <div className="mb-2 text-sm font-semibold">続行 / 移動 の簡易比較</div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div>
                       <Label className="text-slate-300">候補台回転率</Label>
                       <Input value={compareCandidateRate} onChange={(e) => setCompareCandidateRate(e.target.value)} className="mt-1 rounded-2xl border-white/10 bg-transparent text-white" inputMode="decimal" placeholder="18.2" />
@@ -1908,21 +1910,21 @@ export default function PachinkoCalculatorComplete() {
                       <DialogTitle>稼働結果</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <SummaryMetric title="総回転数" value={`${Math.round(resultPreviewMetrics.totalSpins)}回`} sub={`累積率 ${fmtRate(resultPreviewMetrics.spinPerThousand)}`} />
                         <SummaryMetric title="1R出玉" value={selectedMachine ? fmtRate(selectedMachine.payoutPerRound) : '-'} sub={`持ち玉比率 ${fmtRate(resultPreviewMetrics.holdBallRatio)}%`} />
                         <SummaryMetric title="期待値" value={fmtYen(resultPreviewMetrics.estimatedEVYen)} positive={resultPreviewMetrics.estimatedEVYen >= 0} sub={`仕事量 ${Math.round(getWorkVolumeBalls(resultPreviewMetrics)).toLocaleString()}玉`} />
                         <SummaryMetric title="収支" value={fmtYen(resultPreviewMetrics.balanceYen)} positive={resultPreviewMetrics.balanceYen >= 0} sub={`時給 ${resultPreviewMetrics.yph ? fmtYen(resultPreviewMetrics.yph) : '-'}`} />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <div>
                           <Label>終了時持ち玉</Label>
-                          <Input value={form.endingBalls} onChange={(e) => updateForm('endingBalls', e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="0" />
+                          <Input value={form.endingBalls} onChange={(e) => updateForm('endingBalls', e.target.value)} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" placeholder="0" />
                         </div>
                         <div>
                           <Label>終了時上皿玉数</Label>
-                          <Input value={form.endingUpperBalls} onChange={(e) => updateForm('endingUpperBalls', e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="0" />
+                          <Input value={form.endingUpperBalls} onChange={(e) => updateForm('endingUpperBalls', e.target.value)} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" placeholder="0" />
                         </div>
                         <div>
                           <Label>自動回収玉</Label>
@@ -1930,11 +1932,11 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                         <div>
                           <Label>実収支(任意上書き)</Label>
-                          <Input value={form.actualBalanceYen} onChange={(e) => updateForm('actualBalanceYen', e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="未入力なら自動計算" />
+                          <Input value={form.actualBalanceYen} onChange={(e) => updateForm('actualBalanceYen', e.target.value)} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" placeholder="未入力なら自動計算" />
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <Button variant={showResultRateGraph ? 'default' : 'outline'} className="rounded-2xl" onClick={() => setShowResultRateGraph((prev) => !prev)}>回転率推移グラフ</Button>
                         <Button variant={showMoneySwitchGraph ? 'default' : 'outline'} className="rounded-2xl" onClick={() => setShowMoneySwitchGraph((prev) => !prev)}>持ち玉/現金グラフ</Button>
                       </div>
@@ -1983,7 +1985,7 @@ export default function PachinkoCalculatorComplete() {
                         <Textarea value={form.resultBadMemo} onChange={(e) => updateForm('resultBadMemo', e.target.value)} className="mt-1 min-h-[80px] rounded-2xl" placeholder="ヘソが閉まった、寄りが悪い、店移動理由など" />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <Button variant="secondary" className="rounded-2xl" onClick={() => setResultDialogOpen(false)}>戻る</Button>
                         <Button className="rounded-2xl" onClick={finalizeSession}>結果を保存して終了</Button>
                       </div>
@@ -2004,11 +2006,11 @@ export default function PachinkoCalculatorComplete() {
               </div>
               <CardContent className="space-y-4 p-4">
                 {!selectedMachine ? <div className="rounded-2xl border bg-muted/20 p-4 text-sm text-muted-foreground">期待収支は、機種データの 25/28/30/33/40 ボーダーを直参照する。まずは機種を選んでくれ。</div> : null}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <Label>稼働時間</Label>
                     <Select value={String(expectedHours)} onValueChange={(v) => setSettings((p) => ({ ...p, expectedHours: Number(v) }))}>
-                      <SelectTrigger className="mt-1 rounded-2xl"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 rounded-2xl min-w-0"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Array.from({ length: 10 }, (_, i) => i + 1).map((h) => <SelectItem key={h} value={String(h)}>{h}時間</SelectItem>)}
                       </SelectContent>
@@ -2043,7 +2045,7 @@ export default function PachinkoCalculatorComplete() {
 
                 <div className="rounded-2xl border p-3">
                   <div className="mb-2 text-sm font-semibold">回転率クイック選択</div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {Array.from({ length: 15 }, (_, i) => 16 + i).map((rate) => (
                       <Button key={rate} variant={expectDetailBaseRate === rate ? 'default' : currentObservedBaseRate === rate ? 'secondary' : 'outline'} className="rounded-2xl" onClick={() => setExpectDetailBaseRate((prev) => prev === rate ? null : rate)}>{rate}回</Button>
                     ))}
@@ -2119,7 +2121,7 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <SummaryMetric title="今の累積回転率" value={fmtRate(formMetrics.spinPerThousand)} sub="回転率ページ参照" />
                   <SummaryMetric title="参照機種" value={selectedMachine?.name || form.machineFreeName || '未設定'} sub={`現在選択 ${getExchangePreset(form.exchangeCategory || '25').short}`}></SummaryMetric>
                 </div>
@@ -2132,11 +2134,11 @@ export default function PachinkoCalculatorComplete() {
               <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Gauge className="h-5 w-5" />稼働判定</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-2xl border bg-muted/20 p-3 text-sm text-muted-foreground">回転率計算の数値を参照して、今の台が打てるかざっくり判断するページだぜ。</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div><Label>観測回転率</Label><Input value={judgeForm.observedRate} onChange={(e) => setJudgeForm((p) => ({ ...p, observedRate: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" /></div>
-                  <div><Label>ボーダー</Label><Input value={judgeForm.border} onChange={(e) => setJudgeForm((p) => ({ ...p, border: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" /></div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div><Label>観測回転率</Label><Input value={judgeForm.observedRate} onChange={(e) => setJudgeForm((p) => ({ ...p, observedRate: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" /></div>
+                  <div><Label>ボーダー</Label><Input value={judgeForm.border} onChange={(e) => setJudgeForm((p) => ({ ...p, border: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Button variant="secondary" className="rounded-2xl" onClick={() => setJudgeForm((p) => ({ ...p, observedRate: formMetrics.spinPerThousand ? String(Number(formMetrics.spinPerThousand.toFixed(2))) : '', border: formMetrics.machineBorder ? String(formMetrics.machineBorder || '') : p.border }))}>今の回転率を取り込む</Button>
                   <Button variant="secondary" className="rounded-2xl" onClick={() => setActiveTab('rate')}>回転率ページへ戻る</Button>
                 </div>
@@ -2169,7 +2171,7 @@ export default function PachinkoCalculatorComplete() {
                       </summary>
 
                       <div className="space-y-4 border-t px-4 py-4">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div className="rounded-2xl border p-3">
                             <div className="text-xs text-muted-foreground">収支</div>
                             <div className={`mt-1 text-xl font-bold ${s.metrics.balanceYen >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtYen(s.metrics.balanceYen)}</div>
@@ -2245,7 +2247,7 @@ export default function PachinkoCalculatorComplete() {
                   <Badge className="rounded-xl" variant={monthlyReport.totals.balance >= 0 ? 'default' : 'destructive'}>{fmtYen(monthlyReport.totals.balance)}</Badge>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl bg-white/10 p-3">
                     <div className="text-xs text-slate-300">月間収支</div>
                     <div className={`mt-1 text-2xl font-bold ${monthlyReport.totals.balance >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{fmtYen(monthlyReport.totals.balance)}</div>
@@ -2268,7 +2270,7 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl bg-white/5 p-3 text-center">
                     <div className="text-xs text-slate-400">プラス日</div>
                     <div className="mt-1 text-xl font-bold text-emerald-300">{monthlyReport.plusDays}日</div>
@@ -2317,11 +2319,11 @@ export default function PachinkoCalculatorComplete() {
                               {s.resultGoodMemo ? <div className="mt-1">良かった点: {s.resultGoodMemo}</div> : null}
                               {s.resultBadMemo ? <div className="mt-1">悪かった点: {s.resultBadMemo}</div> : null}
                             </div>
-                          ) : null}<div className="grid grid-cols-2 gap-2"><Button variant="outline" className="rounded-2xl" onClick={() => continueSession(s)}><Pencil className="mr-2 h-4 w-4" />続き入力</Button><Button variant="outline" className="rounded-2xl" onClick={() => duplicateSession(s)}><Copy className="mr-2 h-4 w-4" />複製</Button><Button variant="secondary" className="rounded-2xl" onClick={() => continueSession(s)}>詳細編集</Button><Button variant="destructive" className="rounded-2xl" onClick={() => deleteSession(s.id)}><Trash2 className="mr-2 h-4 w-4" />削除</Button></div></CardContent></Card></motion.div>)}</CardContent></Card>
+                          ) : null}<div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Button variant="outline" className="rounded-2xl" onClick={() => continueSession(s)}><Pencil className="mr-2 h-4 w-4" />続き入力</Button><Button variant="outline" className="rounded-2xl" onClick={() => duplicateSession(s)}><Copy className="mr-2 h-4 w-4" />複製</Button><Button variant="secondary" className="rounded-2xl" onClick={() => continueSession(s)}>詳細編集</Button><Button variant="destructive" className="rounded-2xl" onClick={() => deleteSession(s.id)}><Trash2 className="mr-2 h-4 w-4" />削除</Button></div></CardContent></Card></motion.div>)}</CardContent></Card>
           </TabsContent>
 
           <TabsContent value="settings" className="space-y-4">
-            <Card className="rounded-3xl shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Settings className="h-5 w-5" />期待値計算の詳細設定</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-2 gap-3"><div><Label>持ち玉標準(玉)</Label><Input value={settings.defaultBallUnit} onChange={(e) => setSettings((p) => ({ ...p, defaultBallUnit: e.target.value }))} className="mt-1 rounded-2xl" inputMode="numeric" /></div><div><Label>通常時回転/h</Label><Input value={settings.spinsPerHour} onChange={(e) => setSettings((p) => ({ ...p, spinsPerHour: e.target.value }))} className="mt-1 rounded-2xl" inputMode="numeric" /></div></div><div className="grid grid-cols-2 gap-3"><div><Label>打てる基準差</Label><Input value={settings.judgePlayDiff} onChange={(e) => setSettings((p) => ({ ...p, judgePlayDiff: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" /></div><div><Label>様子見基準差</Label><Input value={settings.judgeWatchDiff} onChange={(e) => setSettings((p) => ({ ...p, judgeWatchDiff: e.target.value }))} className="mt-1 rounded-2xl" inputMode="decimal" /></div></div><div><Label>期待値算出モード</Label><Select value={settings.evCalcMode} onValueChange={(v) => setSettings((p) => ({ ...p, evCalcMode: v }))}><SelectTrigger className="mt-1 rounded-2xl"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="borderDiff">ボーダー差の比率で計算</SelectItem><SelectItem value="customCoef">1回転差ごとの係数で計算</SelectItem></SelectContent></Select></div>{settings.evCalcMode === 'customCoef' ? <div><Label>1回転差あたり係数(円/1000円)</Label><Input value={settings.customEvPerSpinDiffPer1000Yen} onChange={(e) => setSettings((p) => ({ ...p, customEvPerSpinDiffPer1000Yen: e.target.value }))} className="mt-1 rounded-2xl" inputMode="numeric" /></div> : null}</CardContent></Card>
+            <Card className="rounded-3xl shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Settings className="h-5 w-5" />期待値計算の詳細設定</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><div><Label>持ち玉標準(玉)</Label><Input value={settings.defaultBallUnit} onChange={(e) => setSettings((p) => ({ ...p, defaultBallUnit: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" /></div><div><Label>通常時回転/h</Label><Input value={settings.spinsPerHour} onChange={(e) => setSettings((p) => ({ ...p, spinsPerHour: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" /></div></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><div><Label>打てる基準差</Label><Input value={settings.judgePlayDiff} onChange={(e) => setSettings((p) => ({ ...p, judgePlayDiff: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" /></div><div><Label>様子見基準差</Label><Input value={settings.judgeWatchDiff} onChange={(e) => setSettings((p) => ({ ...p, judgeWatchDiff: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="decimal" /></div></div><div><Label>期待値算出モード</Label><Select value={settings.evCalcMode} onValueChange={(v) => setSettings((p) => ({ ...p, evCalcMode: v }))}><SelectTrigger className="mt-1 rounded-2xl min-w-0"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="borderDiff">ボーダー差の比率で計算</SelectItem><SelectItem value="customCoef">1回転差ごとの係数で計算</SelectItem></SelectContent></Select></div>{settings.evCalcMode === 'customCoef' ? <div><Label>1回転差あたり係数(円/1000円)</Label><Input value={settings.customEvPerSpinDiffPer1000Yen} onChange={(e) => setSettings((p) => ({ ...p, customEvPerSpinDiffPer1000Yen: e.target.value }))} className="mt-1 rounded-2xl min-w-0" inputMode="numeric" /></div> : null}</CardContent></Card>
             <Card className="rounded-3xl shadow-sm">
               <CardHeader><CardTitle className="flex items-center gap-2 text-lg"><Store className="h-5 w-5" />店舗ごとの換金率自動設定</CardTitle></CardHeader>
               <CardContent className="space-y-4">
