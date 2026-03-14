@@ -799,55 +799,105 @@ export default function PachinkoCalculatorComplete() {
                   <input value={form.startRotation} onChange={e=>updateForm('startRotation',e.target.value)} style={{ ...inputStyle, border:`1.5px solid ${C.primaryMid}` }} inputMode="numeric" placeholder="124"/>
                 </div>
 
-                {/* 回転率入力テーブル */}
+                {/* 回転率入力テーブル（コンパクト版） */}
                 <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'60px 1fr 48px 58px 64px 34px', gap:6, background:C.primary, padding:'10px 12px' }}>
-                    {['前回転','現在回転','回転数','回転率','期待値',''].map((h,i)=><div key={i} style={{ fontSize:11, color:'rgba(255,255,255,0.85)', fontWeight:600 }}>{h}</div>)}
+                  {/* ヘッダー */}
+                  <div style={{ display:'grid', gridTemplateColumns:'80px 1fr 60px 62px 64px 32px', background:C.primary, padding:'9px 10px', gap:0 }}>
+                    {['ゲーム数','投資','回転数','回転率','期待値',''].map((h,i)=>(
+                      <div key={i} style={{ fontSize:11, color:'rgba(255,255,255,0.9)', fontWeight:700, textAlign:'center' }}>{h}</div>
+                    ))}
                   </div>
-                  <div style={{ height:360, overflowY:'auto', padding:'8px 10px', display:'flex', flexDirection:'column', gap:8 }}>
+                  {/* 行リスト */}
+                  <div style={{ maxHeight:400, overflowY:'auto' }}>
                     {form.rateEntries.map((entry,index)=>{
                       const prevR=index===0?numberOrZero(form.startRotation):numberOrZero(form.rateEntries[index-1]?.reading);
                       const curR=numberOrZero(entry.reading);
-                      const spins=curR>0&&curR>=prevR?curR-prevR:0;
+                      const hasReading=curR>0&&curR>=prevR;
+                      const spins=hasReading?curR-prevR:0;
                       const amount=numberOrZero(entry.amount);
                       const entryInvestYen=entry.kind==='balls'?amount*formMetrics.exchangeRate:amount;
-                      const rate=entryInvestYen>0?spins/(entryInvestYen/1000):0;
+                      const rate=entryInvestYen>0&&spins>0?spins/(entryInvestYen/1000):0;
                       const border=numberOrZero(formMetrics.machineBorder);
                       const diff=rate-border;
-                      const ev=border>0?calcEvYenFromRate(rate,border,entryInvestYen,settings):0;
                       const tone=getRateTone(diff,border);
+                      const ev=border>0&&rate>0?calcEvYenFromRate(rate,border,entryInvestYen,settings):0;
+                      const isFocused=flashReadingId===entry.id;
                       return (
-                        <div key={entry.id} style={{ display:'grid', gridTemplateColumns:'60px 1fr 48px 58px 64px 34px', gap:6, alignItems:'center', background:tone.bg, border:`1.5px solid ${tone.border}`, borderRadius:12, padding:'8px 10px' }}>
-                          <div style={{ textAlign:'center', fontSize:12, color:C.textMuted }}>{prevR||0}</div>
-                          <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                        <div
+                          key={entry.id}
+                          style={{
+                            display:'grid',
+                            gridTemplateColumns:'80px 1fr 60px 62px 64px 32px',
+                            alignItems:'center',
+                            borderBottom:`1px solid ${C.border}`,
+                            background:isFocused?'#ecfdf5':hasReading?tone.bg:'white',
+                            transition:'background 0.15s',
+                            gap:0,
+                          }}
+                        >
+                          {/* ゲーム数入力 */}
+                          <div style={{ padding:'6px 6px', borderRight:`1px solid ${C.border}` }}>
                             <input
                               ref={el=>{readingInputRefs.current[index]=el;}}
                               value={entry.reading}
                               onChange={e=>{const v=e.target.value; updateRateEntry(entry.id,'reading',v); moveFocusToNextReading(entry.id,index,v);}}
-                              style={{ ...inputStyle, textAlign:'center', fontSize:26, fontWeight:800, padding:'8px 6px', border:`2px solid ${flashReadingId===entry.id?'#10b981':C.border}`, background:flashReadingId===entry.id?'#ecfdf5':'white', color:C.textPrimary, transition:'all 0.15s' }}
-                              inputMode="numeric" enterKeyHint="next" placeholder="142"
+                              style={{
+                                width:'100%', boxSizing:'border-box',
+                                textAlign:'center', fontSize:17, fontWeight:800,
+                                border:`2px solid ${isFocused?'#10b981':C.border}`,
+                                borderRadius:8, padding:'7px 4px',
+                                background:'white', color:C.textPrimary,
+                                outline:'none', transition:'border-color 0.15s',
+                              }}
+                              inputMode="numeric" enterKeyHint="next" placeholder="—"
                             />
-                            <div style={{ display:'flex', gap:4 }}>
-                              <div style={{ width:56, height:32, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:600, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent }}>
-                                {entry.kind==='balls'?'持ち玉':'現金'}
-                              </div>
-                              <input value={entry.amount} onChange={e=>updateRateEntry(entry.id,'amount',e.target.value)} style={{ ...inputStyle, flex:1, textAlign:'center', fontSize:13, padding:'6px 8px' }} inputMode="numeric" enterKeyHint="done" placeholder={entry.kind==='balls'?'250':'1000'}/>
+                          </div>
+                          {/* 投資額＋種別 */}
+                          <div style={{ padding:'6px 6px', borderRight:`1px solid ${C.border}`, display:'flex', flexDirection:'column', gap:3 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                              <span style={{ fontSize:10, fontWeight:700, padding:'2px 5px', borderRadius:4, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent, flexShrink:0 }}>
+                                {entry.kind==='balls'?'持':'現'}
+                              </span>
+                              <input
+                                value={entry.amount}
+                                onChange={e=>updateRateEntry(entry.id,'amount',e.target.value)}
+                                style={{ flex:1, textAlign:'right', fontSize:13, fontWeight:600, border:`1.5px solid ${C.border}`, borderRadius:6, padding:'5px 6px', background:'white', color:C.textPrimary, outline:'none', width:'100%', boxSizing:'border-box' }}
+                                inputMode="numeric" enterKeyHint="done"
+                                placeholder={entry.kind==='balls'?'250':'1000'}
+                              />
                             </div>
                           </div>
-                          <div style={{ textAlign:'center', fontWeight:700, fontSize:13, color:C.accent }}>{spins||0}</div>
-                          <div style={{ textAlign:'center', fontSize:12, color:tone.text, fontWeight:600 }}>{fmtRate(rate)}</div>
-                          <div style={{ textAlign:'center', fontSize:12, fontWeight:700, color:ev>=0?C.positive:C.negative }}>{border>0?`¥${Math.round(ev)}`:'-'}</div>
-                          <button onClick={()=>removeRateEntry(entry.id)} style={{ width:28, height:28, borderRadius:8, border:`1px solid ${C.border}`, background:'white', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={13} color={C.textMuted}/></button>
+                          {/* 回転数 */}
+                          <div style={{ textAlign:'center', fontSize:14, fontWeight:700, color:hasReading?C.accent:C.textMuted, borderRight:`1px solid ${C.border}`, padding:'0 4px' }}>
+                            {hasReading?spins:'—'}
+                          </div>
+                          {/* 回転率 */}
+                          <div style={{ textAlign:'center', fontSize:13, fontWeight:700, color:hasReading?tone.text:C.textMuted, borderRight:`1px solid ${C.border}`, padding:'0 4px' }}>
+                            {hasReading?fmtRate(rate):'—'}
+                          </div>
+                          {/* 期待値 */}
+                          <div style={{ textAlign:'center', fontSize:12, fontWeight:700, color:!hasReading?C.textMuted:ev>=0?C.positive:C.negative, borderRight:`1px solid ${C.border}`, padding:'0 4px' }}>
+                            {hasReading&&border>0?`¥${Math.round(ev)}`:'—'}
+                          </div>
+                          {/* 削除 */}
+                          <div style={{ display:'flex', justifyContent:'center', padding:'0 4px' }}>
+                            <button onClick={()=>removeRateEntry(entry.id)} style={{ width:26, height:26, borderRadius:6, border:`1px solid ${C.border}`, background:'white', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                              <Trash2 size={12} color={C.textMuted}/>
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </div>
 
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                  <button onClick={()=>addRateEntry(form.currentInputMode,form.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000)} style={{ ...btnSecondary, padding:'12px' }}>＋入力行</button>
-                  <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:14, padding:'10px 12px', fontSize:11, color:'#0369a1' }}>入力完了で次へ移動。最後なら次行も自動追加だぜ。</div>
-                </div>
+                {/* ＋行追加 */}
+                <button
+                  onClick={()=>addRateEntry(form.currentInputMode, form.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000)}
+                  style={{ ...btnSecondary, padding:'12px', width:'100%' }}
+                >
+                  ＋投資行を追加
+                </button>
 
                 {/* スティッキーサマリー */}
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 16px rgba(0,0,0,0.08)' }}>
