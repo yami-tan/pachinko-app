@@ -661,6 +661,7 @@ export default function PachinkoCalculatorComplete() {
   const [saveStatus, setSaveStatus] = useState('saved');
   const [expectDisplayUnit, setExpectDisplayUnit] = useState('balls');
   const [expectDetailBaseRate, setExpectDetailBaseRate] = useState(null);
+  const [expectManualRateInput, setExpectManualRateInput] = useState('');
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
   const [showResultRateGraph, setShowResultRateGraph] = useState(false);
   const [showMoneySwitchGraph, setShowMoneySwitchGraph] = useState(false);
@@ -726,6 +727,7 @@ export default function PachinkoCalculatorComplete() {
   const currentBorderInputValue = form.sessionBorderOverride !== '' ? form.sessionBorderOverride : (selectedMachine ? String(getMachineBorderByCategory(selectedMachine, form.exchangeCategory || '25') || '') : '');
   const currentObservedBaseRate = Math.floor(formMetrics.spinPerThousand || 0);
   const currentObservedTenthRate = Number((Math.round((formMetrics.spinPerThousand || 0) * 10) / 10).toFixed(1));
+  const expectTargetTenthRate = Number((Math.round(((numberOrZero(expectManualRateInput) || formMetrics.spinPerThousand || 0) * 10)) / 10).toFixed(1));
   const sessionTrendData = useMemo(() => getSessionTrendData(form, settings), [form, settings]);
   const moneySwitchData = useMemo(() => sessionTrendData.map((point) => ({
     label: point.label,
@@ -1486,7 +1488,9 @@ export default function PachinkoCalculatorComplete() {
                         <div>
                           <Label className="text-slate-300">機種</Label>
                           <Select value={form.machineId || '__none__'} onValueChange={selectMachine}>
-                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0">
+                              <span className="truncate">{selectedMachine?.name || '未選択'}</span>
+                            </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="__none__">未選択</SelectItem>
                               {machines.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
@@ -1816,7 +1820,9 @@ export default function PachinkoCalculatorComplete() {
                         <div>
                           <Label className="text-slate-300">再スタート理由</Label>
                           <Select value={firstHitForm.restartReason} onValueChange={(value) => setFirstHitForm((p) => ({ ...p, restartReason: value }))}>
-                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-1 rounded-2xl border-white/10 bg-white/5 text-white min-w-0">
+                              <span>{getRestartReasonLabel(firstHitForm.restartReason, firstHitForm.restartReasonNote)}</span>
+                            </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="single">単発後</SelectItem>
                               <SelectItem value="st">確変/ST後</SelectItem>
@@ -2005,30 +2011,64 @@ export default function PachinkoCalculatorComplete() {
                 </div>
               </div>
               <CardContent className="space-y-4 p-4">
-                {!selectedMachine ? <div className="rounded-2xl border bg-muted/20 p-4 text-sm text-muted-foreground">期待収支は、機種データの 25/28/30/33/40 ボーダーを直参照する。まずは機種を選んでくれ。</div> : null}
+                {!selectedMachine ? (
+                  <div className="rounded-2xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                    期待収支は、機種データの 25/28/30/33/40 ボーダーを直参照する。まずは機種を選んでくれ。
+                  </div>
+                ) : null}
+
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <Label>稼働時間</Label>
                     <Select value={String(expectedHours)} onValueChange={(v) => setSettings((p) => ({ ...p, expectedHours: Number(v) }))}>
-                      <SelectTrigger className="mt-1 rounded-2xl min-w-0"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-1 rounded-2xl min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        {Array.from({ length: 10 }, (_, i) => i + 1).map((h) => <SelectItem key={h} value={String(h)}>{h}時間</SelectItem>)}
+                        {Array.from({ length: 10 }, (_, i) => i + 1).map((h) => (
+                          <SelectItem key={h} value={String(h)}>{h}時間</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label>表示単位</Label>
-                    <div className="mt-1 grid grid-cols-2 gap-2">
+                    <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Button variant={expectDisplayUnit === 'balls' ? 'default' : 'outline'} className="rounded-2xl" onClick={() => setExpectDisplayUnit('balls')}>玉</Button>
                       <Button variant={expectDisplayUnit === 'yen' ? 'default' : 'outline'} className="rounded-2xl" onClick={() => setExpectDisplayUnit('yen')}>円</Button>
                     </div>
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>回転率を入力</Label>
+                    <Input
+                      value={expectManualRateInput}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        setExpectManualRateInput(nextValue);
+                        const parsed = Number(nextValue);
+                        if (Number.isFinite(parsed) && parsed > 0) {
+                          setExpectDetailBaseRate(Math.floor(parsed));
+                        }
+                      }}
+                      className="mt-1 rounded-2xl min-w-0"
+                      inputMode="decimal"
+                      placeholder={formMetrics.spinPerThousand ? fmtRate(formMetrics.spinPerThousand) : '17.5'}
+                    />
+                    <div className="mt-1 text-xs text-muted-foreground">未入力なら現在の累積回転率を基準にするぜ。</div>
+                  </div>
+                  <div>
+                    <Label>今の累積回転率</Label>
+                    <div className="mt-1 rounded-2xl border bg-muted/20 px-3 py-3 text-lg font-bold text-cyan-700">{fmtRate(formMetrics.spinPerThousand)}</div>
+                  </div>
+                </div>
+
                 {selectedMachine ? (
                   <div className="rounded-2xl border p-3">
                     <div className="mb-2 text-sm font-semibold">参照ボーダー一覧</div>
-                    <div className="grid grid-cols-5 gap-2 text-center text-sm">
+                    <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                       {EXCHANGE_ORDER.map((category) => (
                         <div key={category} className="rounded-2xl bg-muted/30 p-3">
                           <div className="text-xs text-muted-foreground">{getExchangePreset(category).short}</div>
@@ -2047,7 +2087,14 @@ export default function PachinkoCalculatorComplete() {
                   <div className="mb-2 text-sm font-semibold">回転率クイック選択</div>
                   <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {Array.from({ length: 15 }, (_, i) => 16 + i).map((rate) => (
-                      <Button key={rate} variant={expectDetailBaseRate === rate ? 'default' : currentObservedBaseRate === rate ? 'secondary' : 'outline'} className="rounded-2xl" onClick={() => setExpectDetailBaseRate((prev) => prev === rate ? null : rate)}>{rate}回</Button>
+                      <Button
+                        key={rate}
+                        variant={expectDetailBaseRate === rate ? 'default' : currentObservedBaseRate === rate ? 'secondary' : 'outline'}
+                        className="min-w-fit flex-none rounded-2xl whitespace-nowrap"
+                        onClick={() => setExpectDetailBaseRate((prev) => prev === rate ? null : rate)}
+                      >
+                        {rate}回
+                      </Button>
                     ))}
                   </div>
                 </div>
@@ -2076,7 +2123,11 @@ export default function PachinkoCalculatorComplete() {
                           <td className="border bg-slate-100 p-2 font-bold">{row.rate}回</td>
                           {row.values.map((v) => {
                             const displayValue = expectDisplayUnit === 'yen' ? v.evYen : v.evBalls;
-                            return <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>{formatExpectationValue(displayValue, expectDisplayUnit)}</td>;
+                            return (
+                              <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                                {formatExpectationValue(displayValue, expectDisplayUnit)}
+                              </td>
+                            );
                           })}
                         </tr>
                       ))}
@@ -2107,11 +2158,15 @@ export default function PachinkoCalculatorComplete() {
                         </thead>
                         <tbody>
                           {expectationDetailRows.map((row) => (
-                            <tr key={row.rate} className={currentObservedTenthRate === row.rate ? 'bg-amber-100' : ''}>
+                            <tr key={row.rate} className={expectTargetTenthRate === row.rate ? 'bg-amber-100' : ''}>
                               <td className="border bg-slate-100 p-2 font-bold">{row.rate.toFixed(1)}回</td>
                               {row.values.map((v) => {
                                 const displayValue = expectDisplayUnit === 'yen' ? v.evYen : v.evBalls;
-                                return <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>{formatExpectationValue(displayValue, expectDisplayUnit)}</td>;
+                                return (
+                                  <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                                    {formatExpectationValue(displayValue, expectDisplayUnit)}
+                                  </td>
+                                );
                               })}
                             </tr>
                           ))}
@@ -2123,7 +2178,7 @@ export default function PachinkoCalculatorComplete() {
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <SummaryMetric title="今の累積回転率" value={fmtRate(formMetrics.spinPerThousand)} sub="回転率ページ参照" />
-                  <SummaryMetric title="参照機種" value={selectedMachine?.name || form.machineFreeName || '未設定'} sub={`現在選択 ${getExchangePreset(form.exchangeCategory || '25').short}`}></SummaryMetric>
+                  <SummaryMetric title="参照機種" value={selectedMachine?.name || form.machineFreeName || '未設定'} sub={`現在選択 ${getExchangePreset(form.exchangeCategory || '25').short}`} />
                 </div>
               </CardContent>
             </Card>
