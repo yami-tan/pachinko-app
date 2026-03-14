@@ -58,6 +58,9 @@ const EXCHANGE_PRESETS = {
 
 const EXCHANGE_ORDER = ['25', '28', '30', '33', '40'];
 
+// ★ 機種未選択時のデフォルトボーダー
+const DEFAULT_BORDER = 17;
+
 const defaultSettings = {
   evCalcMode: 'borderDiff',
   customEvPerSpinDiffPer1000Yen: 800,
@@ -411,8 +414,7 @@ function readFileAsDataUrl(file) {
 
 function appendLine(existing, line) {
   if (!line) return existing || '';
-  return existing ? `${existing}
-${line}` : line;
+  return existing ? `${existing}\n${line}` : line;
 }
 
 function calcEvYenFromRate(rate, border, investYen, settings) {
@@ -813,28 +815,34 @@ export default function PachinkoCalculatorComplete() {
 
   const expectedHours = clampNumber(settings.expectedHours, 1, 10) || 4;
   const expectedSpins = expectedHours * (numberOrZero(settings.spinsPerHour) || 200);
+
+  // ★ 修正: 機種未選択時はDEFAULT_BORDER(17)を使用
   const expectationRows = useMemo(() => Array.from({ length: 15 }, (_, i) => 16 + i).map((rate) => ({
     rate,
     values: EXCHANGE_ORDER.map((category) => {
       const preset = getExchangePreset(category);
-      const border = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+      const machineBorder = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+      // 機種未選択 or ボーダー0のとき、DEFAULT_BORDERを使用
+      const border = machineBorder > 0 ? machineBorder : DEFAULT_BORDER;
       const investYen = rate > 0 ? (expectedSpins / rate) * 1000 : 0;
-      const evYen = border > 0 ? calcEvYenFromRate(rate, border, investYen, settings) : null;
-      const evBalls = evYen !== null ? evYen / preset.yenPerBall : null;
+      const evYen = calcEvYenFromRate(rate, border, investYen, settings);
+      const evBalls = evYen / preset.yenPerBall;
       return { category, preset, border, evYen, evBalls };
     }),
   })), [expectedSpins, selectedMachine, settings]);
 
+  // ★ 修正: 詳細テーブルも同様に修正
   const expectationDetailRows = useMemo(() => {
     if (expectDetailBaseRate === null) return [];
     return Array.from({ length: 10 }, (_, i) => Number((expectDetailBaseRate + i / 10).toFixed(1))).map((rate) => ({
       rate,
       values: EXCHANGE_ORDER.map((category) => {
         const preset = getExchangePreset(category);
-        const border = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+        const machineBorder = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+        const border = machineBorder > 0 ? machineBorder : DEFAULT_BORDER;
         const investYen = rate > 0 ? (expectedSpins / rate) * 1000 : 0;
-        const evYen = border > 0 ? calcEvYenFromRate(rate, border, investYen, settings) : null;
-        const evBalls = evYen !== null ? evYen / preset.yenPerBall : null;
+        const evYen = calcEvYenFromRate(rate, border, investYen, settings);
+        const evBalls = evYen / preset.yenPerBall;
         return { category, preset, border, evYen, evBalls };
       }),
     }));
@@ -1445,6 +1453,7 @@ export default function PachinkoCalculatorComplete() {
             </TabsList>
           </div>
 
+          {/* 回転率タブ（変更なし） */}
           <TabsContent value="rate" className="space-y-4">
             <Card className="overflow-hidden rounded-[28px] border-0 bg-slate-900 text-white shadow-md">
               <CardContent className="space-y-4 p-4">
@@ -2002,6 +2011,7 @@ export default function PachinkoCalculatorComplete() {
             </Card>
           </TabsContent>
 
+          {/* ★ 期待収支タブ（修正箇所） */}
           <TabsContent value="expect" className="space-y-4">
             <Card className="overflow-hidden rounded-[28px] shadow-sm">
               <div className="bg-red-600 px-4 py-3 text-white">
@@ -2011,9 +2021,11 @@ export default function PachinkoCalculatorComplete() {
                 </div>
               </div>
               <CardContent className="space-y-4 p-4">
+
+                {/* ★ 機種未選択のとき警告ではなくお知らせに変更 */}
                 {!selectedMachine ? (
-                  <div className="rounded-2xl border bg-muted/20 p-4 text-sm text-muted-foreground">
-                    期待収支は、機種データの 25/28/30/33/40 ボーダーを直参照する。まずは機種を選んでくれ。
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                    機種未選択のため、全交換率のボーダーを <span className="font-bold">{DEFAULT_BORDER}回転</span> として計算しているぜ。機種を選ぶと実際のボーダーで表示されるぜ。
                   </div>
                 ) : null}
 
@@ -2099,19 +2111,24 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border">
-                  <table className="w-full min-w-[760px] border-collapse text-center text-sm">
+                {/* ★ テーブル: スマホ横スクロール修正 - overflow-x-auto をネイティブスタイルで強制 */}
+                <div
+                  className="rounded-2xl border"
+                  style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+                >
+                  <table style={{ minWidth: '560px', width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.875rem' }}>
                     <thead>
                       <tr className="bg-sky-700 text-white">
-                        <th className="border p-2">回転率</th>
+                        <th style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'nowrap' }}>回転率</th>
                         {EXCHANGE_ORDER.map((category) => {
                           const preset = getExchangePreset(category);
-                          const border = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+                          const machineBorder = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+                          const border = machineBorder > 0 ? machineBorder : DEFAULT_BORDER;
                           return (
-                            <th key={category} className="border p-2">
+                            <th key={category} style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'nowrap' }}>
                               <div>{preset.label}</div>
-                              <div className="text-xs">({preset.short})</div>
-                              <div className="text-[10px] opacity-80">B {fmtRate(border)}</div>
+                              <div style={{ fontSize: '0.7rem' }}>({preset.short})</div>
+                              <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>B {fmtRate(border)}</div>
                             </th>
                           );
                         })}
@@ -2119,12 +2136,12 @@ export default function PachinkoCalculatorComplete() {
                     </thead>
                     <tbody>
                       {expectationRows.map((row) => (
-                        <tr key={row.rate} className={currentObservedBaseRate === row.rate ? 'bg-amber-100' : ''}>
-                          <td className="border bg-slate-100 p-2 font-bold">{row.rate}回</td>
+                        <tr key={row.rate} style={{ background: currentObservedBaseRate === row.rate ? '#fef3c7' : undefined }}>
+                          <td style={{ border: '1px solid #e5e7eb', background: '#f1f5f9', padding: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{row.rate}回</td>
                           {row.values.map((v) => {
                             const displayValue = expectDisplayUnit === 'yen' ? v.evYen : v.evBalls;
                             return (
-                              <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                              <td key={`${row.rate}-${v.category}`} style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: 'bold', color: Number(displayValue) >= 0 ? '#dc2626' : '#1d4ed8', whiteSpace: 'nowrap' }}>
                                 {formatExpectationValue(displayValue, expectDisplayUnit)}
                               </td>
                             );
@@ -2138,19 +2155,24 @@ export default function PachinkoCalculatorComplete() {
                 {expectDetailBaseRate !== null ? (
                   <div className="space-y-3">
                     <div className="text-sm font-semibold">{expectDetailBaseRate}回台の詳細（0.1刻み）</div>
-                    <div className="overflow-x-auto rounded-2xl border">
-                      <table className="w-full min-w-[760px] border-collapse text-center text-sm">
+                    {/* ★ 詳細テーブルも同様に修正 */}
+                    <div
+                      className="rounded-2xl border"
+                      style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+                    >
+                      <table style={{ minWidth: '560px', width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '0.875rem' }}>
                         <thead>
-                          <tr className="bg-slate-800 text-white">
-                            <th className="border p-2">回転率</th>
+                          <tr style={{ background: '#1e293b', color: 'white' }}>
+                            <th style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'nowrap' }}>回転率</th>
                             {EXCHANGE_ORDER.map((category) => {
                               const preset = getExchangePreset(category);
-                              const border = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+                              const machineBorder = selectedMachine ? getMachineBorderByCategory(selectedMachine, category) : 0;
+                              const border = machineBorder > 0 ? machineBorder : DEFAULT_BORDER;
                               return (
-                                <th key={`detail-${category}`} className="border p-2">
+                                <th key={`detail-${category}`} style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'nowrap' }}>
                                   <div>{preset.label}</div>
-                                  <div className="text-xs">({preset.short})</div>
-                                  <div className="text-[10px] opacity-80">B {fmtRate(border)}</div>
+                                  <div style={{ fontSize: '0.7rem' }}>({preset.short})</div>
+                                  <div style={{ fontSize: '0.65rem', opacity: 0.85 }}>B {fmtRate(border)}</div>
                                 </th>
                               );
                             })}
@@ -2158,12 +2180,12 @@ export default function PachinkoCalculatorComplete() {
                         </thead>
                         <tbody>
                           {expectationDetailRows.map((row) => (
-                            <tr key={row.rate} className={expectTargetTenthRate === row.rate ? 'bg-amber-100' : ''}>
-                              <td className="border bg-slate-100 p-2 font-bold">{row.rate.toFixed(1)}回</td>
+                            <tr key={row.rate} style={{ background: expectTargetTenthRate === row.rate ? '#fef3c7' : undefined }}>
+                              <td style={{ border: '1px solid #e5e7eb', background: '#f1f5f9', padding: '8px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{row.rate.toFixed(1)}回</td>
                               {row.values.map((v) => {
                                 const displayValue = expectDisplayUnit === 'yen' ? v.evYen : v.evBalls;
                                 return (
-                                  <td key={`${row.rate}-${v.category}`} className={`border p-2 font-bold ${Number(displayValue) >= 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                                  <td key={`${row.rate}-${v.category}`} style={{ border: '1px solid #e5e7eb', padding: '8px', fontWeight: 'bold', color: Number(displayValue) >= 0 ? '#dc2626' : '#1d4ed8', whiteSpace: 'nowrap' }}>
                                     {formatExpectationValue(displayValue, expectDisplayUnit)}
                                   </td>
                                 );
@@ -2178,7 +2200,7 @@ export default function PachinkoCalculatorComplete() {
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <SummaryMetric title="今の累積回転率" value={fmtRate(formMetrics.spinPerThousand)} sub="回転率ページ参照" />
-                  <SummaryMetric title="参照機種" value={selectedMachine?.name || form.machineFreeName || '未設定'} sub={`現在選択 ${getExchangePreset(form.exchangeCategory || '25').short}`} />
+                  <SummaryMetric title="参照機種" value={selectedMachine?.name || form.machineFreeName || `デフォルト(B:${DEFAULT_BORDER})`} sub={`現在選択 ${getExchangePreset(form.exchangeCategory || '25').short}`} />
                 </div>
               </CardContent>
             </Card>
