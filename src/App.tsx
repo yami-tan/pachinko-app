@@ -358,6 +358,7 @@ export default function PachinkoCalculatorComplete() {
   const [selectedDate,setSelectedDate]=useState(todayStr());
   const [machinePanelOpen,setMachinePanelOpen]=useState(false);
   const [advancedInvestOpen,setAdvancedInvestOpen]=useState(false);
+  const [metricsPanelOpen,setMetricsPanelOpen]=useState(false);
   const [firstHitDialogOpen,setFirstHitDialogOpen]=useState(false);
   const [flashReadingId,setFlashReadingId]=useState('');
   const [undoStack,setUndoStack]=useState([]);
@@ -726,41 +727,68 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 )}
 
-                {/* 指標グリッド */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                  <MetricBox label="累計回転数" value={Math.round(formMetrics.totalSpins)} sub={`現在区間 ${Math.round(formMetrics.currentSpins)}回`}/>
-                  <MetricBox label="累積回転率" value={fmtRate(formMetrics.spinPerThousand)} sub={`現在区間 ${fmtRate(formMetrics.currentSpinPerThousand)}`} color={C.accent}/>
-                  <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
-                    <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>現在ボーダー</div>
-                    <input value={currentBorderInputValue} onChange={e=>updateForm('sessionBorderOverride',e.target.value)} style={{ ...inputStyle, border:`1.5px solid ${C.primaryMid}`, background:'white', textAlign:'center', fontWeight:700, fontSize:18, color:C.primary, padding:'6px 10px' }} inputMode="decimal" placeholder="18.00"/>
-                    <div style={{ marginTop:4, display:'flex', justifyContent:'space-between', fontSize:10, color:C.textMuted }}>
-                      <span>{getExchangePreset(form.exchangeCategory||'25').short}</span>
-                      {selectedMachine&&<button onClick={syncBorderToMachine} style={{ background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:10, fontWeight:600 }}>機種へ反映</button>}
+                {/* 指標グリッド（折りたたみ） */}
+                <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
+                  {/* ヘッダー：常時表示の主要2指標＋開閉ボタン */}
+                  <button
+                    onClick={()=>setMetricsPanelOpen(p=>!p)}
+                    style={{ width:'100%', background:C.primaryLight, border:'none', padding:'13px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}
+                  >
+                    <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+                      <div style={{ textAlign:'left' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>累積回転率</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.spinPerThousand)}</div>
+                      </div>
+                      <div style={{ textAlign:'left' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>収支</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
+                      </div>
                     </div>
-                  </div>
-                  <MetricBox label="持ち玉比率" value={`${fmtRate(formMetrics.holdBallRatio)}%`} sub={getExchangePreset(form.exchangeCategory||'25').label}/>
-                  <MetricBox label="仕事量(理論)" value={theoreticalMetrics.workVolumeYen!==null?fmtYen(theoreticalMetrics.workVolumeYen):'-'} sub={theoreticalMetrics.workVolumeBalls!==null?`${Math.round(theoreticalMetrics.workVolumeBalls).toLocaleString()}玉`:'確率入力待ち'} color={C.positive}/>
-                  <MetricBox label="1R出玉" value={selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-'} sub={selectedMachine?.expectedBallsPerHit?`平均 ${Math.round(numberOrZero(selectedMachine.expectedBallsPerHit)).toLocaleString()}玉`:'-'} color={C.amber}/>
-                  <MetricBox label="通常回転時速" value={theoreticalMetrics.normalSpinsPerHour?fmtRate(theoreticalMetrics.normalSpinsPerHour):'-'} sub="h あたり通常回転"/>
-                  <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
-                    <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>回転単価</div>
-                    <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:theoreticalMetrics.mixedUnitPriceYen===null?C.textMuted:numberOrZero(theoreticalMetrics.mixedUnitPriceYen)>=0?C.positive:C.negative }}>{theoreticalMetrics.mixedUnitPriceYen!==null?`${theoreticalMetrics.mixedUnitPriceYen>=0?'+':''}${fmtRate(theoreticalMetrics.mixedUnitPriceYen)}円`:'-'}</div>
-                    <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>持玉/現金比率反映</div>
-                  </div>
-                  <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
-                    <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>時給(理論)</div>
-                    <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:theoreticalMetrics.theoreticalHourlyYen===null?C.textMuted:numberOrZero(theoreticalMetrics.theoreticalHourlyYen)>=0?C.positive:C.negative }}>{theoreticalMetrics.theoreticalHourlyYen!==null?fmtYen(theoreticalMetrics.theoreticalHourlyYen):'-'}</div>
-                    <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>回転単価×時速</div>
-                  </div>
-                  <div style={{ background:formMetrics.balanceYen>=0?C.positiveBg:C.negativeBg, border:`1px solid ${formMetrics.balanceYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:16, padding:'12px 14px' }}>
-                    <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>収支</div>
-                    <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
-                    <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>実収支/自動計算</div>
-                  </div>
-                </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontSize:12, color:C.primary, fontWeight:600 }}>{metricsPanelOpen?'閉じる':'詳細'}</span>
+                      <ChevronDown size={16} color={C.primary} style={{ transform:metricsPanelOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    </div>
+                  </button>
 
-                <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'10px 14px', fontSize:11, color:'#0369a1' }}>
-                  回転単価は1回転あたり期待値。仕事量(理論)は回転単価×通常回転数。トータル確率・平均獲得出玉・1R出玉を機種データへ入れると自動反映されるぜ。
+                  {/* 展開時：全指標グリッド */}
+                  {metricsPanelOpen&&(
+                    <div style={{ padding:'12px 12px 14px', display:'flex', flexDirection:'column', gap:8, borderTop:`1px solid ${C.border}` }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                        <MetricBox label="累計回転数" value={Math.round(formMetrics.totalSpins)} sub={`現在区間 ${Math.round(formMetrics.currentSpins)}回`}/>
+                        <MetricBox label="累積回転率" value={fmtRate(formMetrics.spinPerThousand)} sub={`現在区間 ${fmtRate(formMetrics.currentSpinPerThousand)}`} color={C.accent}/>
+                        <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>現在ボーダー</div>
+                          <input value={currentBorderInputValue} onChange={e=>updateForm('sessionBorderOverride',e.target.value)} style={{ ...inputStyle, border:`1.5px solid ${C.primaryMid}`, background:'white', textAlign:'center', fontWeight:700, fontSize:18, color:C.primary, padding:'6px 10px' }} inputMode="decimal" placeholder="18.00"/>
+                          <div style={{ marginTop:4, display:'flex', justifyContent:'space-between', fontSize:10, color:C.textMuted }}>
+                            <span>{getExchangePreset(form.exchangeCategory||'25').short}</span>
+                            {selectedMachine&&<button onClick={syncBorderToMachine} style={{ background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:10, fontWeight:600 }}>機種へ反映</button>}
+                          </div>
+                        </div>
+                        <MetricBox label="持ち玉比率" value={`${fmtRate(formMetrics.holdBallRatio)}%`} sub={getExchangePreset(form.exchangeCategory||'25').label}/>
+                        <MetricBox label="仕事量(理論)" value={theoreticalMetrics.workVolumeYen!==null?fmtYen(theoreticalMetrics.workVolumeYen):'-'} sub={theoreticalMetrics.workVolumeBalls!==null?`${Math.round(theoreticalMetrics.workVolumeBalls).toLocaleString()}玉`:'確率入力待ち'} color={C.positive}/>
+                        <MetricBox label="1R出玉" value={selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-'} sub={selectedMachine?.expectedBallsPerHit?`平均 ${Math.round(numberOrZero(selectedMachine.expectedBallsPerHit)).toLocaleString()}玉`:'-'} color={C.amber}/>
+                        <MetricBox label="通常回転時速" value={theoreticalMetrics.normalSpinsPerHour?fmtRate(theoreticalMetrics.normalSpinsPerHour):'-'} sub="h あたり通常回転"/>
+                        <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>回転単価</div>
+                          <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:theoreticalMetrics.mixedUnitPriceYen===null?C.textMuted:numberOrZero(theoreticalMetrics.mixedUnitPriceYen)>=0?C.positive:C.negative }}>{theoreticalMetrics.mixedUnitPriceYen!==null?`${theoreticalMetrics.mixedUnitPriceYen>=0?'+':''}${fmtRate(theoreticalMetrics.mixedUnitPriceYen)}円`:'-'}</div>
+                          <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>持玉/現金比率反映</div>
+                        </div>
+                        <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>時給(理論)</div>
+                          <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:theoreticalMetrics.theoreticalHourlyYen===null?C.textMuted:numberOrZero(theoreticalMetrics.theoreticalHourlyYen)>=0?C.positive:C.negative }}>{theoreticalMetrics.theoreticalHourlyYen!==null?fmtYen(theoreticalMetrics.theoreticalHourlyYen):'-'}</div>
+                          <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>回転単価×時速</div>
+                        </div>
+                        <div style={{ background:formMetrics.balanceYen>=0?C.positiveBg:C.negativeBg, border:`1px solid ${formMetrics.balanceYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:16, padding:'12px 14px' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>収支</div>
+                          <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
+                          <div style={{ marginTop:2, fontSize:10, color:C.textMuted }}>実収支/自動計算</div>
+                        </div>
+                      </div>
+                      <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'10px 14px', fontSize:11, color:'#0369a1' }}>
+                        回転単価は1回転あたり期待値。仕事量(理論)は回転単価×通常回転数。トータル確率・平均獲得出玉・1R出玉を機種データへ入れると自動反映されるぜ。
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 現金/持ち玉 */}
