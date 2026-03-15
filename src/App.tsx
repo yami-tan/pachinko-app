@@ -553,6 +553,7 @@ export default function PachinkoCalculatorComplete() {
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
+  const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
@@ -630,7 +631,9 @@ export default function PachinkoCalculatorComplete() {
     const endTime=nowTimeStr();
     const elapsed=calcElapsedHours(form.startTime,endTime);
     applyFormUpdate(p=>({...p, endTime, hours:elapsed!==null?String(Math.round(elapsed*10)/10):p.hours}));
-    setShowResultRateGraph(false); setShowMoneySwitchGraph(false); setResultDialogOpen(true);
+    // キーボードを確実に閉じてからダイアログを開く
+    if(document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setTimeout(()=>{ setShowResultRateGraph(false); setShowMoneySwitchGraph(false); setResultDialogOpen(true); }, 50);
   }
   function finalizeSession() { setSaveStatus('saving'); const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:appendLine(appendLine(form.notes,form.resultGoodMemo?`【良かった点】${form.resultGoodMemo}`:''),form.resultBadMemo?`【悪かった点】${form.resultBadMemo}`:'')  },'completed'); upsertSession(p); setSelectedDate(p.date); setCurrentMonth(monthKey(p.date)); setCurrentYear(yearKey(p.date)); skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history'); }
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
@@ -743,6 +746,26 @@ export default function PachinkoCalculatorComplete() {
   function createNewSession() { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate'); }
   function saveDraftNow() { setSaveStatus('saving'); const p=buildPersistedSession(form,'draft'); upsertSession(p); skipAutosaveRef.current=true; setForm(p); setSaveStatus('saved'); }
   function continueSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s}); setActiveTab('rate'); }
+
+  function continueSessionWithInherit(s, inherit) {
+    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
+    if(inherit && s.metrics.currentBalls!==null && s.metrics.currentBalls>0) {
+      // 持ち玉を引き継いで新枠開始
+      const newSession={
+        ...emptySession(settings),
+        ...s,
+        currentInputMode:'balls',
+        rateEntries:[{ id:uid(), kind:'balls', amount:String(s.metrics.currentBalls), reading:'' }],
+        // 前回の現金投資をメモに記録
+        notes: s.notes ? s.notes + `\n【引継ぎ】前回現金投資 ${fmtYen(s.metrics.cashInvestYen)} / 引継ぎ持ち玉 ${s.metrics.currentBalls}玉` : `【引継ぎ】前回現金投資 ${fmtYen(s.metrics.cashInvestYen)} / 引継ぎ持ち玉 ${s.metrics.currentBalls}玉`,
+      };
+      setForm(newSession);
+    } else {
+      setForm({...emptySession(settings),...s});
+    }
+    setInheritConfirmSessionId(null);
+    setActiveTab('rate');
+  }
   function completeSessionById(s) {
     const p=buildPersistedSession({...s},'completed');
     upsertSession(p);
@@ -1712,6 +1735,8 @@ export default function PachinkoCalculatorComplete() {
                 <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
                   <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                     <DialogHeader><DialogTitle className="text-base">稼働結果</DialogTitle></DialogHeader>
+                    {/* フォーカス受け皿（キーボード自動表示防止） */}
+                    <span tabIndex={0} style={{ position:'absolute', opacity:0, pointerEvents:'none', width:0, height:0 }} aria-hidden="true"/>
                     <div className="space-y-2 max-h-[82vh] overflow-y-auto pr-1">
                       {/* 時刻サマリー */}
                       {(form.startTime||form.endTime)&&(
@@ -1748,8 +1773,8 @@ export default function PachinkoCalculatorComplete() {
                       </div>
                       {/* 入力欄 2列 */}
                       <div className="grid grid-cols-2 gap-2">
-                        <div><Label className="text-xs">終了時持ち玉</Label><Input value={form.endingBalls} onChange={e=>updateForm('endingBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
-                        <div><Label className="text-xs">終了時上皿玉数</Label><Input value={form.endingUpperBalls} onChange={e=>updateForm('endingUpperBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
+                        <div><Label className="text-xs">終了時持ち玉</Label><Input value={form.endingBalls} onChange={e=>updateForm('endingBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0" autoComplete="off" onFocus={e=>e.target.blur()===undefined&&undefined}/></div>
+                        <div><Label className="text-xs">終了時上皿玉数</Label><Input value={form.endingUpperBalls} onChange={e=>updateForm('endingUpperBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0" autoComplete="off"/></div>
                         <div><Label className="text-xs">自動回収玉</Label><Input value={resultReturnedBalls} readOnly className="mt-1 rounded-xl h-9 text-sm bg-muted/40"/></div>
                         <div><Label className="text-xs">実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={e=>updateForm('actualBalanceYen',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="未入力なら自動"/></div>
                       </div>
@@ -2523,6 +2548,8 @@ export default function PachinkoCalculatorComplete() {
                 ):todaySessions.map(s=>{
                   const machineName=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定';
                   const hasBalls=s.metrics.currentBalls!==null;
+                  const hasInheritData=hasBalls&&s.metrics.currentBalls>0;
+                  const showInheritConfirm=inheritConfirmSessionId===s.id;
                   return (
                     <div key={s.id} style={{ border:`1.5px solid ${s.status==='completed'?C.positiveBorder:C.primaryMid}`, borderRadius:16, overflow:'hidden', background:C.card }}>
                       {/* ステータスバー */}
@@ -2538,16 +2565,16 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14, marginBottom:4 }}>{machineName}</div>
                         <div style={{ fontSize:11, color:C.textMuted, marginBottom:10 }}>{s.shop||'店舗未入力'} / 台{s.machineNumber||'-'}</div>
 
-                        {/* 主要指標グリッド */}
+                        {/* 主要指標グリッド（収支・持ち玉・平均回転率） */}
                         <div style={{ display:'grid', gridTemplateColumns:`repeat(${hasBalls?3:2},1fr)`, gap:6, marginBottom:10 }}>
                           <div style={{ background:s.metrics.balanceYen>=0?C.positiveBg:C.negativeBg, borderRadius:10, padding:'8px', textAlign:'center', border:`1px solid ${s.metrics.balanceYen>=0?C.positiveBorder:C.negativeBorder}` }}>
                             <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>収支</div>
                             <div style={{ fontSize:15, fontWeight:800, color:s.metrics.balanceYen>=0?C.positive:C.negative, marginTop:2 }}>{fmtYen(s.metrics.balanceYen)}</div>
                           </div>
                           {hasBalls&&(
-                            <div style={{ background:C.amberBg, borderRadius:10, padding:'8px', textAlign:'center', border:`1px solid ${C.amberBorder}` }}>
+                            <div style={{ background:s.metrics.currentBalls>0?C.amberBg:isDark?C.card:'#f8fafc', borderRadius:10, padding:'8px', textAlign:'center', border:`1px solid ${s.metrics.currentBalls>0?C.amberBorder:C.border}` }}>
                               <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>持ち玉</div>
-                              <div style={{ fontSize:15, fontWeight:800, color:C.amber, marginTop:2 }}>{s.metrics.currentBalls.toLocaleString()}玉</div>
+                              <div style={{ fontSize:15, fontWeight:800, color:s.metrics.currentBalls>0?C.amber:C.textMuted, marginTop:2 }}>{s.metrics.currentBalls.toLocaleString()}玉</div>
                             </div>
                           )}
                           <div style={{ background:C.accentLight, borderRadius:10, padding:'8px', textAlign:'center', border:`1px solid #bae6fd` }}>
@@ -2568,9 +2595,40 @@ export default function PachinkoCalculatorComplete() {
                           )}
                         </div>
 
+                        {/* 引き継ぎ確認バナー */}
+                        {showInheritConfirm&&(
+                          <div style={{ background:isDark?'rgba(251,191,36,0.12)':'#fffbeb', border:`1.5px solid ${C.amberBorder}`, borderRadius:12, padding:'12px 14px', marginBottom:10 }}>
+                            <div style={{ fontWeight:700, color:C.amber, fontSize:13, marginBottom:6 }}>📋 データを引き継ぎますか？</div>
+                            <div style={{ fontSize:12, color:C.textSecondary, marginBottom:10, lineHeight:1.6 }}>
+                              <div>💰 前回の現金投資: <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
+                              {s.metrics.currentBalls>0&&<div>🎰 引継ぎ持ち玉: <span style={{ fontWeight:700, color:C.amber }}>{s.metrics.currentBalls.toLocaleString()}玉</span></div>}
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                              <button onClick={()=>continueSessionWithInherit(s,false)}
+                                style={{ padding:'9px', borderRadius:10, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:600, fontSize:12, cursor:'pointer' }}>
+                                引き継がない
+                              </button>
+                              <button onClick={()=>continueSessionWithInherit(s,true)}
+                                style={{ padding:'9px', borderRadius:10, border:'none', background:C.amber, color:'white', fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                                🎰 持ち玉を引き継ぐ
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         {/* ボタン */}
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
-                          <button onClick={()=>continueSession(s)} style={{ ...btnOutline, padding:'8px', fontSize:12 }}><Pencil size={13}/>編集</button>
+                          <button
+                            onClick={()=>{
+                              if(hasInheritData&&!showInheritConfirm) {
+                                setInheritConfirmSessionId(s.id);
+                              } else if(!hasInheritData) {
+                                continueSession(s);
+                              }
+                            }}
+                            style={{ ...btnOutline, padding:'8px', fontSize:12 }}>
+                            <Pencil size={13}/>{showInheritConfirm?'確認中':'編集'}
+                          </button>
                           {s.status!=='completed'&&(
                             <button onClick={()=>completeSessionById(s)}
                               style={{ background:C.positive, color:'white', border:'none', borderRadius:14, padding:'8px', fontSize:12, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:4, fontWeight:700 }}>
