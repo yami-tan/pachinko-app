@@ -225,44 +225,48 @@ function calcRateMetrics(session,machine,settings) {
 
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
-  const allTotalInvestYen= logTotals.investYen + totalInvestYen;
-  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen;
+  const allTotalInvestYen= logTotals.investYen + totalInvestYen;   // 回転率計算用（現金+持ち玉）
+  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen;    // 表示・収支用（現金のみ）
   const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
   const allBallInvestYen = logTotals.ballYen   + ballInvestYen;
   const allEstimatedEVYen= logTotals.evYen     + estimatedEVYen;
-  // 全計測合算の回転率・持ち玉比率をメイン値として使う
+  // 回転率は現金＋持ち玉の合計で計算（実際の消費量ベース）
   const allSpinPerThousand=allTotalInvestYen>0?allTotalSpins/(allTotalInvestYen/1000):spinPerThousand;
   const allHoldBallRatio=allTotalInvestYen>0?(allBallInvestYen/allTotalInvestYen)*100:holdBallRatio;
 
-  // ── 持ち玉残枚数（全投資を引いた残り） ──
+  // ── 持ち玉残枚数（全持ち玉投資を差し引いた残り） ──
   const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
   const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
   const currentBalls=lastEndBalls>0?Math.max(0,lastEndBalls-allBallInvestBalls):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
-  // ── 収支（全計測ぶんを合算） ──
+  // ── 収支：残り持ち玉の価値 − 現金投資のみ ──
+  // 例: 持ち玉5620玉(等価22480円) - 現金34000円 = -11520円
   const autoBalanceYen=currentBalls!==null
-    ? (currentBallsYen - allCashInvestYen)
-    : (returnYen - allTotalInvestYen);
+    ? (currentBallsYen - allCashInvestYen)          // 持ち玉あり: 残り玉価値 − 現金
+    : (returnYen - allCashInvestYen);                // 持ち玉なし: 回収玉価値 − 現金
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?allEstimatedEVYen/hours:0;
 
   return {
     exchangeRate, exchangeCategory:session.exchangeCategory||'25',
     startRotation,
-    // ── メイン表示は全計測合算 ──
+    // ── メイン表示 ──
     totalSpins:     allTotalSpins,
-    totalInvestYen: allTotalInvestYen,
+    totalInvestYen: allCashInvestYen,      // ★ 表示は現金のみ
     cashInvestYen:  allCashInvestYen,
     ballInvestBalls:allBallInvestBalls,
     ballInvestYen:  allBallInvestYen,
     holdBallRatio:  allHoldBallRatio,
-    spinPerThousand:allSpinPerThousand,
+    spinPerThousand:allSpinPerThousand,    // 回転率は現金+持ち玉で計算
     avgSpinPerThousand: allSpinPerThousand,
     estimatedEVYen: allEstimatedEVYen,
+    // ── 回転率計算専用（内部用） ──
+    totalInvestYenForRate: allTotalInvestYen,
     // ── 現在枠のみ（詳細・行計算用） ──
     currentFrameSpins:    totalSpins,
     currentFrameInvestYen:totalInvestYen,
+    currentFrameRate:     spinPerThousand,
     currentFrameRate:     spinPerThousand,
     allTotalSpins, allTotalInvestYen, allCashInvestYen, allBallInvestBalls, allBallInvestYen,
     machineBorder, rateDiff:allSpinPerThousand-machineBorder,
@@ -1188,8 +1192,8 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:8 }}>今日の1台サマリー</div>
                   <div style={{ display:'grid', gridTemplateColumns:`repeat(${formMetrics.currentBalls!==null?5:4},1fr)`, gap:4, textAlign:'center' }}>
                     {[
-                      ['総回転', Math.round(formMetrics.allTotalSpins)+'回', null],
-                      ['総投資', fmtYen(formMetrics.allTotalInvestYen), null],
+                      ['総回転', Math.round(formMetrics.totalSpins)+'回', null],
+                      ['現金投資', fmtYen(formMetrics.totalInvestYen), null],
                       ['平均率', fmtRate(formMetrics.avgSpinPerThousand), C.accent],
                       ...(formMetrics.currentBalls!==null?[['持ち玉', formMetrics.currentBalls.toLocaleString()+'玉', C.amber]]:[]),
                       ['収支', fmtYen(formMetrics.balanceYen), formMetrics.balanceYen>=0?C.positive:C.negative],
