@@ -444,6 +444,14 @@ export default function PachinkoCalculatorComplete() {
   const autosaveTimerRef=useRef(null);
   const skipAutosaveRef=useRef(false);
   const [judgeForm,setJudgeForm]=useState({observedRate:'',border:'',note:''});
+  // ── ボーダーライン算出 ──
+  const [borderCalc,setBorderCalc]=useState({
+    oneRoundPayout:'',      // 1R平均出玉
+    totalRatePer1R:'',      // 1Rトータル確率（分母）
+    holdBallRatioInput:'',  // 持ち玉比率(%)
+    exchangeCategory:'25',  // 交換率
+    showExtended:false,     // ±5超を表示するか
+  });
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:'' });
 
@@ -712,7 +720,7 @@ export default function PachinkoCalculatorComplete() {
   const TABS = [
     {id:'rate',label:'回転率'},
     {id:'expect',label:'期待収支'},
-    {id:'judge',label:'稼働判定'},
+    {id:'judge',label:'ボーダー算出'},
     {id:'calendar',label:'日別'},
     {id:'analysis',label:'まとめ'},
     {id:'history',label:'履歴'},
@@ -1628,39 +1636,251 @@ export default function PachinkoCalculatorComplete() {
         )}
 
         {/* ══════════════════ 稼働判定タブ ══════════════════ */}
-        {activeTab==='judge'&&(
-          <div style={cardStyle}>
-            <div style={{ padding:'16px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:8 }}>
-              <Gauge size={20} color={C.primary}/>
-              <div style={{ fontWeight:700, fontSize:16, color:C.textPrimary }}>稼働判定</div>
-            </div>
-            <div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:12 }}>
-              <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'10px 14px', fontSize:12, color:'#0369a1' }}>回転率計算の数値を参照して、今の台が打てるかざっくり判断するページだぜ。</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                <div><label style={labelStyle}>観測回転率</label><input value={judgeForm.observedRate} onChange={e=>setJudgeForm(p=>({...p,observedRate:e.target.value}))} style={inputStyle} inputMode="decimal"/></div>
-                <div><label style={labelStyle}>ボーダー</label><input value={judgeForm.border} onChange={e=>setJudgeForm(p=>({...p,border:e.target.value}))} style={inputStyle} inputMode="decimal"/></div>
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                <button onClick={()=>setJudgeForm(p=>({...p,observedRate:formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):'',border:formMetrics.machineBorder?String(formMetrics.machineBorder||''):p.border}))} style={btnSecondary}>今の回転率を取り込む</button>
-                <button onClick={()=>setActiveTab('rate')} style={btnOutline}>回転率ページへ</button>
-              </div>
-              <div style={{ background:judgeMetrics.tone==='default'?C.positiveBg:judgeMetrics.tone==='destructive'?C.negativeBg:'#f8fafc', border:`1.5px solid ${judgeMetrics.tone==='default'?C.positiveBorder:judgeMetrics.tone==='destructive'?C.negativeBorder:C.border}`, borderRadius:16, padding:'16px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                  <div style={{ fontSize:12, color:C.textMuted }}>判定</div>
-                  <span style={{ background:judgeMetrics.tone==='default'?C.positive:judgeMetrics.tone==='destructive'?C.negative:C.textSecondary, color:'white', borderRadius:8, padding:'4px 12px', fontSize:13, fontWeight:700 }}>{judgeMetrics.verdict}</span>
+        {activeTab==='judge'&&(()=>{
+          // ── ボーダーライン算出ロジック ──
+          const bc=borderCalc;
+          // 係数：等価250 / 28個280 / 30個300 / 33個330
+          const COEFF={'25':250,'28':280,'30':300,'33':330};
+          const coeff=COEFF[bc.exchangeCategory]||250;
+          const oneR=numberOrZero(bc.oneRoundPayout);
+          const totalRateDenom=numberOrZero(bc.totalRatePer1R);
+          // 等価ボーダー = 係数 / (1R平均出玉 / 1Rトータル確率分母)
+          const equivBorder=(oneR>0&&totalRateDenom>0)
+            ? 250/(oneR/totalRateDenom) : 0;
+          const cashBorder=(oneR>0&&totalRateDenom>0)
+            ? coeff/(oneR/totalRateDenom) : 0;
+          // 持ち玉比率考慮ボーダー
+          const holdRatio=numberOrZero(bc.holdBallRatioInput)/100;
+          const mixedBorder=(equivBorder>0&&cashBorder>0)
+            ? equivBorder*holdRatio + cashBorder*(1-holdRatio) : cashBorder;
+          // 現在の回転率（回転率タブから連携）
+          const currentRate=formMetrics.avgSpinPerThousand||0;
+          const displayBorder=bc.exchangeCategory==='25'?equivBorder:mixedBorder;
+          // 期待値計算：稼働予定を4時間200回転/h=800回転として
+          const planSpins=800;
+          const planInvestYen=displayBorder>0?(planSpins/displayBorder)*1000:0;
+          function calcEVForRate(rate){
+            if(displayBorder<=0||rate<=0) return null;
+            const investYen=(planSpins/rate)*1000;
+            return calcEvYenFromRate(rate,displayBorder,investYen,settings);
+          }
+          // 表示行：デフォルト ±5、拡張で ±10
+          const maxRange=bc.showExtended?10:5;
+          const rateRows=[];
+          if(displayBorder>0){
+            for(let delta=-maxRange;delta<=maxRange;delta+=0.5){
+              rateRows.push(Number((displayBorder+delta).toFixed(1)));
+            }
+          }
+
+          return (
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {/* ヘッダー */}
+            <div style={{ ...cardStyle, overflow:'hidden' }}>
+              <div style={{ background:`linear-gradient(135deg,#7c3aed,#4f46e5)`, padding:'16px 18px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Gauge size={22} color="white"/>
+                  <div>
+                    <div style={{ fontSize:18, fontWeight:800, color:'white' }}>ボーダーライン算出</div>
+                    <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)', marginTop:2 }}>1R平均出玉 × トータル確率から正確に算出するぜ</div>
+                  </div>
                 </div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12, fontSize:13 }}>
-                  <div style={{ color:C.textSecondary }}>ボーダー差 <span style={{ fontWeight:700, color:judgeMetrics.diff>=0?C.positive:C.negative }}>{judgeMetrics.diff>=0?'+':''}{fmtRate(judgeMetrics.diff)}</span></div>
-                  <div style={{ color:C.textSecondary }}>信頼度 <span style={{ fontWeight:700, color:C.textPrimary }}>{judgeMetrics.reliability}</span></div>
-                  <div style={{ color:C.textSecondary }}>総回転 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(formMetrics.totalSpins)}回</span></div>
-                  <div style={{ color:C.textSecondary }}>機種 <span style={{ fontWeight:700, color:C.textPrimary }}>{selectedMachine?.name||'-'}</span></div>
+              </div>
+              <div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:14 }}>
+
+                {/* 計算式説明 */}
+                <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'11px 14px', fontSize:12, color:'#0369a1', lineHeight:1.7 }}>
+                  <div style={{ fontWeight:700, marginBottom:4 }}>📐 算出式（正確なボーダーライン）</div>
+                  <div>等価(25個)： <b>250 ÷ (1R平均出玉 ÷ 1Rトータル確率分母)</b></div>
+                  <div>非等価28個： <b>280 ÷ (1R平均出玉 ÷ 1Rトータル確率分母)</b></div>
+                  <div>非等価30個： <b>300 ÷ 〃</b> ／ 非等価33個： <b>330 ÷ 〃</b></div>
+                  <div style={{ marginTop:4 }}>持ち玉考慮： <b>等価B×持ち玉比率 + 現金B×(1−持ち玉比率)</b></div>
                 </div>
-                <div style={{ background:'rgba(255,255,255,0.6)', borderRadius:10, padding:'10px 12px', fontSize:13, color:C.textPrimary }}>{judgeMetrics.comment}</div>
-                <div style={{ marginTop:8, fontSize:11, color:C.textMuted }}>基準: 打てる {fmtRate(settings.judgePlayDiff)}以上 / 様子見 {fmtRate(settings.judgeWatchDiff)}以上</div>
+
+                {/* 交換率切替 */}
+                <div>
+                  <label style={labelStyle}>交換率</label>
+                  <div style={{ display:'flex', gap:8 }}>
+                    {[['25','等価(25個)'],['28','28個'],['30','30個'],['33','33個']].map(([v,l])=>(
+                      <button key={v} onClick={()=>setBorderCalc(p=>({...p,exchangeCategory:v}))}
+                        style={{ flex:1, padding:'10px 4px', borderRadius:12, border:`2px solid ${bc.exchangeCategory===v?C.primary:C.border}`, background:bc.exchangeCategory===v?C.primary:'white', color:bc.exchangeCategory===v?'white':C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 入力欄 */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <div>
+                    <label style={labelStyle}>1R平均出玉（玉）</label>
+                    <input value={bc.oneRoundPayout} onChange={e=>setBorderCalc(p=>({...p,oneRoundPayout:e.target.value}))}
+                      style={inputStyle} inputMode="decimal" placeholder="例: 140"/>
+                    {selectedMachine&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                      機種登録値: {fmtRate(selectedMachine.payoutPerRound)}玉
+                      <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(selectedMachine.payoutPerRound||'')}))}
+                        style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
+                    </div>}
+                  </div>
+                  <div>
+                    <label style={labelStyle}>1Rトータル確率（分母）</label>
+                    <input value={bc.totalRatePer1R} onChange={e=>setBorderCalc(p=>({...p,totalRatePer1R:e.target.value}))}
+                      style={inputStyle} inputMode="decimal" placeholder="例: 9.49"/>
+                    {selectedMachine&&selectedMachine.totalProbability>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                      機種登録値: {fmtRate(selectedMachine.totalProbability)}
+                      <button onClick={()=>setBorderCalc(p=>({...p,totalRatePer1R:String(selectedMachine.totalProbability||'')}))}
+                        style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
+                    </div>}
+                  </div>
+                </div>
+
+                {bc.exchangeCategory!=='25'&&(
+                  <div>
+                    <label style={labelStyle}>持ち玉比率（%）</label>
+                    <input value={bc.holdBallRatioInput} onChange={e=>setBorderCalc(p=>({...p,holdBallRatioInput:e.target.value}))}
+                      style={inputStyle} inputMode="decimal" placeholder="例: 60"/>
+                    <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>入力なし=現金のみ(0%)で計算。回転率タブから自動取得もできるぜ。
+                      <button onClick={()=>setBorderCalc(p=>({...p,holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio))}))}
+                        style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>回転率から取込</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 回転率連携ボタン */}
+                <button onClick={()=>setBorderCalc(p=>({...p,
+                  exchangeCategory:form.exchangeCategory||'25',
+                  holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio)),
+                  oneRoundPayout:selectedMachine?String(selectedMachine.payoutPerRound||''):p.oneRoundPayout,
+                  totalRatePer1R:selectedMachine&&selectedMachine.totalProbability>0?String(selectedMachine.totalProbability):p.totalRatePer1R,
+                }))} style={{ ...btnSecondary, width:'100%' }}>
+                  🔗 回転率タブの現在値・機種情報を全て取り込む
+                </button>
+
+                {/* 算出結果 */}
+                {displayBorder>0&&(
+                  <div style={{ background:`linear-gradient(135deg,#f5f3ff,#ede9fe)`, border:`2px solid #c4b5fd`, borderRadius:18, padding:'16px' }}>
+                    <div style={{ fontSize:13, color:'#6d28d9', fontWeight:700, marginBottom:12 }}>算出ボーダーライン</div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <div style={{ background:'white', borderRadius:12, padding:'12px', textAlign:'center' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>等価ボーダー</div>
+                        <div style={{ fontSize:24, fontWeight:800, color:'#7c3aed', marginTop:4 }}>{fmtRate(equivBorder)}</div>
+                        <div style={{ fontSize:10, color:C.textMuted }}>回転/千円</div>
+                      </div>
+                      {bc.exchangeCategory!=='25'&&(
+                        <div style={{ background:'white', borderRadius:12, padding:'12px', textAlign:'center' }}>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>現金ボーダー({bc.exchangeCategory}個)</div>
+                          <div style={{ fontSize:24, fontWeight:800, color:C.primary, marginTop:4 }}>{fmtRate(cashBorder)}</div>
+                          <div style={{ fontSize:10, color:C.textMuted }}>回転/千円</div>
+                        </div>
+                      )}
+                      {bc.exchangeCategory!=='25'&&holdRatio>0&&(
+                        <div style={{ background:'white', borderRadius:12, padding:'12px', textAlign:'center', gridColumn:'1/-1' }}>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>持ち玉比率{Math.round(holdRatio*100)}%考慮ボーダー</div>
+                          <div style={{ fontSize:28, fontWeight:800, color:'#7c3aed', marginTop:4 }}>{fmtRate(mixedBorder)}</div>
+                          <div style={{ fontSize:10, color:C.textMuted }}>回転/千円（メイン判定値）</div>
+                        </div>
+                      )}
+                    </div>
+                    {/* 現在の回転率との比較 */}
+                    {currentRate>0&&(
+                      <div style={{ marginTop:12, background:'white', borderRadius:12, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>現在の平均回転率</div>
+                          <div style={{ fontSize:22, fontWeight:800, color:C.accent }}>{fmtRate(currentRate)}</div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>ボーダー差</div>
+                          <div style={{ fontSize:22, fontWeight:800, color:currentRate>=displayBorder?C.positive:C.negative }}>
+                            {currentRate>=displayBorder?'+':''}{(currentRate-displayBorder).toFixed(2)}
+                          </div>
+                        </div>
+                        <div style={{ background:currentRate>=displayBorder?C.positiveBg:C.negativeBg, border:`1.5px solid ${currentRate>=displayBorder?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 14px', fontWeight:800, fontSize:14, color:currentRate>=displayBorder?C.positive:C.negative }}>
+                          {currentRate>=displayBorder?'▲ ボーダー超え':'▼ ボーダー未達'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* 期待値テーブル */}
+            {displayBorder>0&&(
+              <div style={cardStyle}>
+                <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>回転率別 期待値一覧</div>
+                    <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / 800回転(4h)想定 / {bc.showExtended?'±10回転':'±5回転'}表示</div>
+                  </div>
+                  <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended}))}
+                    style={{ padding:'8px 14px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:bc.showExtended?C.primary:C.primaryLight, color:bc.showExtended?'white':C.primary, fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                    {bc.showExtended?'±5回転に戻す':'±10まで広げる'}
+                  </button>
+                </div>
+                <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:4 }}>
+                  {/* ±5以内（常時表示） */}
+                  {rateRows.filter(r=>Math.abs(r-displayBorder)<=5.01).map(rate=>{
+                    const ev=calcEVForRate(rate);
+                    const diff=rate-displayBorder;
+                    const isCurrentRate=Math.abs(rate-currentRate)<0.3;
+                    const isBorder=Math.abs(diff)<0.3;
+                    return (
+                      <div key={rate} style={{ display:'grid', gridTemplateColumns:'70px 1fr 100px', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:12, border:`1.5px solid ${isBorder?'#7c3aed':ev>=0?C.positiveBorder:C.negativeBorder}`, background:isBorder?'#f5f3ff':ev>=0?C.positiveBg:C.negativeBg, outline:isCurrentRate?`2px solid ${C.accent}`:undefined }}>
+                        <div style={{ fontWeight:800, fontSize:15, color:isBorder?'#7c3aed':C.textPrimary }}>
+                          {rate.toFixed(1)}回
+                          {isBorder&&<span style={{ fontSize:10, marginLeft:4, color:'#7c3aed' }}>★B</span>}
+                          {isCurrentRate&&<span style={{ fontSize:10, marginLeft:4, color:C.accent }}>◀現在</span>}
+                        </div>
+                        <div style={{ height:8, borderRadius:4, background:ev>=0?C.positiveBorder:C.negativeBorder, overflow:'hidden' }}>
+                          <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diff/displayBorder)*100*5))}%`, background:ev>=0?C.positive:C.negative, borderRadius:4 }}/>
+                        </div>
+                        <div style={{ textAlign:'right', fontWeight:800, fontSize:15, color:ev===null?C.textMuted:ev>=0?C.positive:C.negative }}>
+                          {ev===null?'-':`${ev>=0?'+':''}${Math.round(ev).toLocaleString()}円`}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* ±5超（折りたたみ） */}
+                  {bc.showExtended&&(
+                    <>
+                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, padding:'4px 4px 2px', marginTop:4 }}>── ±5回転超 ──</div>
+                      {rateRows.filter(r=>Math.abs(r-displayBorder)>5.01).map(rate=>{
+                        const ev=calcEVForRate(rate);
+                        const diff=rate-displayBorder;
+                        const isCurrentRate=Math.abs(rate-currentRate)<0.3;
+                        return (
+                          <div key={rate} style={{ display:'grid', gridTemplateColumns:'70px 1fr 100px', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:10, border:`1px solid ${ev>=0?C.positiveBorder:C.negativeBorder}`, background:ev>=0?'#f0fdf4':'#fff5f5', opacity:0.85, outline:isCurrentRate?`2px solid ${C.accent}`:undefined }}>
+                            <div style={{ fontWeight:700, fontSize:14, color:C.textSecondary }}>
+                              {rate.toFixed(1)}回
+                              {isCurrentRate&&<span style={{ fontSize:10, marginLeft:4, color:C.accent }}>◀現在</span>}
+                            </div>
+                            <div style={{ height:6, borderRadius:4, background:'#e5e7eb', overflow:'hidden' }}>
+                              <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diff/displayBorder)*100*5))}%`, background:ev>=0?C.positive:C.negative, borderRadius:4 }}/>
+                            </div>
+                            <div style={{ textAlign:'right', fontWeight:700, fontSize:14, color:ev===null?C.textMuted:ev>=0?C.positive:C.negative }}>
+                              {ev===null?'-':`${ev>=0?'+':''}${Math.round(ev).toLocaleString()}円`}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 入力未完了メッセージ */}
+            {displayBorder<=0&&(
+              <div style={{ background:'#f8fafc', border:`1px solid ${C.border}`, borderRadius:16, padding:'28px 20px', textAlign:'center' }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📐</div>
+                <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:6 }}>1R平均出玉とトータル確率を入力してください</div>
+                <div style={{ fontSize:13, color:C.textMuted }}>機種データに登録済みの場合は「取り込む」ボタンで自動入力されるぜ。</div>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ══════════════════ 日別タブ ══════════════════ */}
         {activeTab==='calendar'&&(
