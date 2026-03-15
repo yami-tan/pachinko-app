@@ -2412,18 +2412,18 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>{monthlyReport.totals.hours>0?`時給 ${fmtYen(monthlyReport.totals.ev/monthlyReport.totals.hours)}`:'-'}</div>
                   </div>
                 </div>
-                {/* 月間仕事量 */}
+                {/* 月間仕事量（常時表示） */}
                 {(()=>{
                   const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
-                  return monthWorkYen!==0&&(
+                  return (
                     <div style={{ background:monthWorkYen>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthWorkYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                       <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間仕事量</div>
                       <div style={{ fontSize:20, fontWeight:800, color:monthWorkYen>=0?C.positive:C.negative }}>{fmtYen(Math.round(monthWorkYen))}</div>
                     </div>
                   );
                 })()}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
-                  {[['プラス日',monthlyReport.plusDays+'日',C.positive],['マイナス日',monthlyReport.minusDays+'日',C.negative],['平均回転率',monthlyReport.averageRate?fmtRate(monthlyReport.averageRate):'-',C.accent]].map(([l,v,c])=>(
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+                  {[['プラス日',monthlyReport.plusDays+'日',C.positive],['マイナス日',monthlyReport.minusDays+'日',C.negative]].map(([l,v,c])=>(
                     <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', borderRadius:10, padding:'8px', textAlign:'center' }}>
                       <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
                       <div style={{ fontSize:14, fontWeight:700, color:c, marginTop:2 }}>{v}</div>
@@ -2475,7 +2475,7 @@ export default function PachinkoCalculatorComplete() {
                       </summary>
                       <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',`${Math.round(wv).toLocaleString()}玉`,wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0],['回転数',`${Math.round(s.metrics.totalSpins).toLocaleString()}回`,null]].map(([l,v,pos])=>(
+                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0],['回転数',`${Math.round(s.metrics.totalSpins).toLocaleString()}回`,null]].map(([l,v,pos])=>(
                             <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                               <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
                               <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
@@ -2483,6 +2483,28 @@ export default function PachinkoCalculatorComplete() {
                           ))}
                         </div>
                         {td.length>0&&<div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={td}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis tick={{fontSize:11}}/><Tooltip/><Line type="monotone" dataKey="rate" stroke={C.accent} strokeWidth={2} dot={false} name="累積回転率"/></LineChart></ResponsiveContainer></div>}
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <button style={{ width:'100%', padding:'10px', borderRadius:12, border:`1.5px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                              <Trash2 size={14}/>この記録を削除
+                            </button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
+                            <DialogHeader><DialogTitle>記録を削除しますか？</DialogTitle></DialogHeader>
+                            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                              <div style={{ background:C.negativeBg, border:`1.5px solid ${C.negativeBorder}`, borderRadius:14, padding:'16px', textAlign:'center' }}>
+                                <div style={{ fontSize:28, marginBottom:8 }}>⚠️</div>
+                                <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14, marginBottom:4 }}>{mn}</div>
+                                <div style={{ fontSize:12, color:C.textSecondary }}>{s.date} / {s.shop||'店舗未入力'}</div>
+                                <div style={{ fontSize:12, color:C.textMuted, marginTop:8 }}>削除すると元に戻せないぜ。</div>
+                              </div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <DialogTrigger asChild><button style={{ padding:'12px', borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>キャンセル</button></DialogTrigger>
+                                <DialogTrigger asChild><button onClick={()=>deleteSession(s.id)} style={{ padding:'12px', borderRadius:14, border:'none', background:C.negative, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>削除する</button></DialogTrigger>
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </details>
                   );
@@ -2493,36 +2515,147 @@ export default function PachinkoCalculatorComplete() {
         )}
 
         {/* ══════════════════ まとめタブ ══════════════════ */}
-        {activeTab==='analysis'&&(
+        {activeTab==='analysis'&&(()=>{
+          // 全期間の機種・店舗集計
+          const allMMap={}, allSMap={};
+          enrichedSessions.forEach(s=>{
+            const mk=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定';
+            const sk=s.shop||'店舗未入力';
+            if(!allMMap[mk]) allMMap[mk]={name:mk,count:0,balance:0,work:0};
+            if(!allSMap[sk]) allSMap[sk]={name:sk,count:0,balance:0,work:0};
+            allMMap[mk].count+=1; allMMap[mk].balance+=s.metrics.balanceYen; allMMap[mk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+            allSMap[sk].count+=1; allSMap[sk].balance+=s.metrics.balanceYen; allSMap[sk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+          });
+          const allMRows=Object.values(allMMap), allSRows=Object.values(allSMap);
+          // 月次ランキング用
+          const ms=monthlyReport.monthSessions;
+          const mMap={}, sMap={};
+          ms.forEach(s=>{
+            const mk=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定';
+            const sk=s.shop||'店舗未入力';
+            if(!mMap[mk]) mMap[mk]={name:mk,count:0,balance:0,work:0};
+            if(!sMap[sk]) sMap[sk]={name:sk,count:0,balance:0,work:0};
+            mMap[mk].count+=1; mMap[mk].balance+=s.metrics.balanceYen; mMap[mk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+            sMap[sk].count+=1; sMap[sk].balance+=s.metrics.balanceYen; sMap[sk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+          });
+          const mRows=Object.values(mMap), sRows=Object.values(sMap);
+          const MEDALS=['🥇','🥈','🥉','4️⃣','5️⃣'];
+          const MEDAL_BG=['rgba(245,158,11,0.15)','rgba(148,163,184,0.1)','rgba(180,83,9,0.1)','rgba(100,116,139,0.08)','rgba(100,116,139,0.08)'];
+          const MEDAL_COLORS=['#f59e0b','#94a3b8','#b45309','#64748b','#64748b'];
+          function RankCard({title,sub,rows,comment,gradBg,borderColor}){
+            return (
+              <details style={{ borderRadius:14, overflow:'hidden', border:`1.5px solid ${borderColor}` }}>
+                <summary style={{ cursor:'pointer', listStyle:'none', padding:'12px 14px', background:gradBg }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14, color:C.textPrimary }}>{title}</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>{sub}</div>
+                    </div>
+                    <ChevronDown size={15} color={C.textMuted}/>
+                  </div>
+                </summary>
+                <div style={{ padding:'10px 14px', background:C.card, display:'flex', flexDirection:'column', gap:6 }}>
+                  {rows.length===0
+                    ? <div style={{ fontSize:12, color:C.textMuted, textAlign:'center', padding:'12px' }}>データなし</div>
+                    : rows.map((row,i)=>(
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:isDark?MEDAL_BG[i]:i===0?'#fffbeb':'#fafafa', border:`1px solid ${i===0?'#fde68a':C.border}` }}>
+                        <div style={{ fontSize:20, width:28, textAlign:'center', flexShrink:0 }}>{MEDALS[i]}</div>
+                        <div style={{ flex:1, fontWeight:i===0?700:500, color:i===0?MEDAL_COLORS[i]:C.textPrimary, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.name}</div>
+                        <div style={{ fontWeight:800, color:i===0?MEDAL_COLORS[i]:C.textSecondary, fontSize:14, flexShrink:0 }}>{row.value}</div>
+                      </div>
+                    ))
+                  }
+                  <div style={{ background:isDark?'rgba(99,102,241,0.15)':'#eef2ff', border:`1px solid #c7d2fe`, borderRadius:10, padding:'10px 12px', marginTop:4, fontSize:12, color:isDark?'#a5b4fc':C.primary }}>
+                    💬 {comment(rows)}
+                  </div>
+                </div>
+              </details>
+            );
+          }
+          const monthRankDefs=[
+            {title:'🎰 稼働回数ランキング',sub:'今月一番お世話になった機種',rows:[...mRows].sort((a,b)=>b.count-a.count).slice(0,5).map(r=>({name:r.name,value:`${r.count}回`})),comment:r=>r.length>0?`「${r[0].name}」が今月のエース！${r[0].value}も向き合ったぜ 💪`:'まだデータがないぜ',gradBg:isDark?'rgba(251,191,36,0.1)':'linear-gradient(135deg,#fef3c7,#fffbeb)',borderColor:'#fde68a'},
+            {title:'🏪 よく行く店舗ランキング',sub:'今月お気に入りの店はどこだ？',rows:[...sRows].sort((a,b)=>b.count-a.count).slice(0,5).map(r=>({name:r.name,value:`${r.count}回`})),comment:r=>r.length>0?`「${r[0].name}」が今月のホーム！通いすぎには注意だぜ 😏`:'まだデータがないぜ',gradBg:isDark?'rgba(14,165,233,0.1)':'linear-gradient(135deg,#e0f2fe,#f0f9ff)',borderColor:'#bae6fd'},
+            {title:'💰 仕事量ランキング',sub:'今月最も稼いだ機種はどれだ',rows:[...mRows].sort((a,b)=>b.work-a.work).slice(0,5).map(r=>({name:r.name,value:fmtYen(Math.round(r.work))})),comment:r=>r.length>0?`「${r[0].name}」が今月最大の稼ぎ頭！${r[0].value}の仕事量はさすがだぜ ✨`:'まだデータがないぜ',gradBg:isDark?'rgba(5,150,105,0.1)':'linear-gradient(135deg,#ecfdf5,#f0fdf4)',borderColor:'#a7f3d0'},
+            {title:'📈 プラス収支ランキング',sub:'今月笑顔で帰れた機種TOP5',rows:[...mRows].filter(r=>r.balance>0).sort((a,b)=>b.balance-a.balance).slice(0,5).map(r=>({name:r.name,value:fmtYen(r.balance)})),comment:r=>r.length>0?`「${r[0].name}」で${r[0].value}のプラス！この調子で頼むぜ 🎉`:'今月はプラス台なし…次は頑張れ！',gradBg:isDark?'rgba(52,211,153,0.1)':'linear-gradient(135deg,#ecfdf5,#f0fdf4)',borderColor:'#6ee7b7'},
+            {title:'📉 マイナス収支ランキング',sub:'今月お財布が泣いた機種TOP5',rows:[...mRows].filter(r=>r.balance<0).sort((a,b)=>a.balance-b.balance).slice(0,5).map(r=>({name:r.name,value:fmtYen(r.balance)})),comment:r=>r.length>0?`「${r[0].name}」が今月の刺客…${r[0].value}は痛かったぜ 😢`:'今月はマイナス台なし！完璧だぜ 🎊',gradBg:isDark?'rgba(251,113,133,0.1)':'linear-gradient(135deg,#fff1f2,#fff5f5)',borderColor:'#fecdd3'},
+          ];
+          const allTimeRankDefs=[
+            {title:'🎰 生涯稼働回数ランキング',sub:'今まで一番お世話になった機種',rows:[...allMRows].sort((a,b)=>b.count-a.count).slice(0,5).map(r=>({name:r.name,value:`${r.count}回`})),comment:r=>r.length>0?`「${r[0].name}」が生涯のエース！合計${r[0].value}の長い付き合いだぜ 👑`:'まだデータがないぜ',gradBg:isDark?'rgba(251,191,36,0.1)':'linear-gradient(135deg,#fef3c7,#fffbeb)',borderColor:'#fde68a'},
+            {title:'🏪 生涯来店回数ランキング',sub:'今まで一番通った店はどこだ',rows:[...allSRows].sort((a,b)=>b.count-a.count).slice(0,5).map(r=>({name:r.name,value:`${r.count}回`})),comment:r=>r.length>0?`「${r[0].name}」がホームグラウンド！${r[0].value}も通ったとはすごいぜ 🏠`:'まだデータがないぜ',gradBg:isDark?'rgba(14,165,233,0.1)':'linear-gradient(135deg,#e0f2fe,#f0f9ff)',borderColor:'#bae6fd'},
+            {title:'💰 生涯仕事量ランキング',sub:'今まで最も稼いだ機種TOP5',rows:[...allMRows].sort((a,b)=>b.work-a.work).slice(0,5).map(r=>({name:r.name,value:fmtYen(Math.round(r.work))})),comment:r=>r.length>0?`「${r[0].name}」が生涯最大の稼ぎ頭！総計${r[0].value}の仕事量は圧巻だぜ ✨`:'まだデータがないぜ',gradBg:isDark?'rgba(5,150,105,0.1)':'linear-gradient(135deg,#ecfdf5,#f0fdf4)',borderColor:'#a7f3d0'},
+            {title:'📈 生涯プラス収支ランキング',sub:'今まで最も笑顔をくれた機種TOP5',rows:[...allMRows].filter(r=>r.balance>0).sort((a,b)=>b.balance-a.balance).slice(0,5).map(r=>({name:r.name,value:fmtYen(r.balance)})),comment:r=>r.length>0?`「${r[0].name}」が生涯最大の功労者！${r[0].value}の恩は一生忘れないぜ 🌟`:'プラス台の記録なし',gradBg:isDark?'rgba(52,211,153,0.1)':'linear-gradient(135deg,#ecfdf5,#f0fdf4)',borderColor:'#6ee7b7'},
+            {title:'📉 生涯マイナス収支ランキング',sub:'今まで最もお財布を削った機種TOP5',rows:[...allMRows].filter(r=>r.balance<0).sort((a,b)=>a.balance-b.balance).slice(0,5).map(r=>({name:r.name,value:fmtYen(r.balance)})),comment:r=>r.length>0?`「${r[0].name}」が生涯最大の天敵…${r[0].value}の傷は深いぜ。もう許さん 😤`:'マイナス台の記録なし、完璧だぜ！',gradBg:isDark?'rgba(251,113,133,0.1)':'linear-gradient(135deg,#fff1f2,#fff5f5)',borderColor:'#fecdd3'},
+          ];
+          return (
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            {/* 年間レポート（矢印ナビ付き） */}
             <div style={{ ...cardStyle, overflow:'hidden' }}>
-              <div style={{ background:`linear-gradient(135deg, #1e293b, #334155)`, padding:'18px 20px' }}>
-                <div style={{ fontSize:10, letterSpacing:'0.2em', color:'rgba(255,255,255,0.6)', textTransform:'uppercase', fontWeight:700 }}>MONTHLY REPORT</div>
-                <div style={{ marginTop:4, fontSize:18, fontWeight:800, color:'white' }}>{currentMonth} 月間レポート</div>
+              <div style={{ background:`linear-gradient(135deg,#1e293b,#334155)`, padding:'14px 20px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <button onClick={()=>moveYear(-1)} style={{ width:34,height:34,borderRadius:10,border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.1)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronLeft size={16} color="white"/></button>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ fontSize:10, letterSpacing:'0.2em', color:'rgba(255,255,255,0.6)', textTransform:'uppercase', fontWeight:700 }}>YEARLY REPORT</div>
+                  <div style={{ marginTop:2, fontSize:17, fontWeight:800, color:'white' }}>{currentYear} 年間レポート</div>
+                </div>
+                <button onClick={()=>moveYear(1)} style={{ width:34,height:34,borderRadius:10,border:'1px solid rgba(255,255,255,0.2)',background:'rgba(255,255,255,0.1)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronRight size={16} color="white"/></button>
               </div>
               <div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:12 }}>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  {[[`月間収支`,fmtYen(monthlyReport.totals.balance),monthlyReport.totals.balance>=0,'稼働 '+monthlyReport.totals.count+'件'],[`月間期待値`,fmtYen(monthlyReport.totals.ev),monthlyReport.totals.ev>=0,monthlyReport.totals.hours>0?'時給 '+fmtYen(monthlyReport.totals.ev/monthlyReport.totals.hours):'-'],[`月間仕事量`,`${Math.round(monthlyReport.totals.workBalls).toLocaleString()}玉`,monthlyReport.totals.workBalls>=0,`総回転 ${Math.round(monthlyReport.totals.spins).toLocaleString()}回`],[`平均回転率`,monthlyReport.averageRate?fmtRate(monthlyReport.averageRate):'-',null,`総時間 ${monthlyReport.totals.hours?monthlyReport.totals.hours.toFixed(1):'0.0'}h`]].map(([t,v,pos,s])=>(
-                    <SummaryMetric key={t} title={t} value={v} positive={pos===null?undefined:pos} sub={s}/>
-                  ))}
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8 }}>
-                  {[['プラス日',monthlyReport.plusDays+'日',C.positive],['マイナス日',monthlyReport.minusDays+'日',C.negative],['トントン日',monthlyReport.evenDays+'日',C.textSecondary]].map(([l,v,c])=>(
-                    <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px', textAlign:'center' }}>
-                      <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
-                      <div style={{ fontSize:18, fontWeight:700, color:c, marginTop:4 }}>{v}</div>
+                {(()=>{
+                  const yr=enrichedSessions.filter(s=>yearKey(s.date)===currentYear);
+                  const yBal=yr.reduce((a,s)=>a+s.metrics.balanceYen,0);
+                  const yEV=yr.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
+                  const yWork=yr.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  const yHours=yr.reduce((a,s)=>a+numberOrZero(s.hours),0);
+                  const ySpins=yr.reduce((a,s)=>a+s.metrics.totalSpins,0);
+                  return (<>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <SummaryMetric title="年間収支" value={fmtYen(yBal)} positive={yBal>=0} sub={`稼働 ${yr.length}件`}/>
+                      <SummaryMetric title="年間期待値" value={fmtYen(yEV)} positive={yEV>=0} sub={yHours>0?`時給 ${fmtYen(yEV/yHours)}`:'-'}/>
                     </div>
-                  ))}
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                  {[['今月の主力店舗',monthlyReport.bestShop?.name||'-',monthlyReport.bestShop?fmtYen(monthlyReport.bestShop.ev):'-'],['今月の主力機種',monthlyReport.bestMachine?.name||'-',monthlyReport.bestMachine?fmtYen(monthlyReport.bestMachine.ev):'-']].map(([l,n,v])=>(
-                    <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
-                      <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
-                      <div style={{ fontWeight:700, color:C.textPrimary, marginTop:3, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{n}</div>
-                      <div style={{ fontSize:11, color:C.textSecondary, marginTop:2 }}>EV {v}</div>
+                    <div style={{ background:yWork>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${yWork>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>年間仕事量</div>
+                      <div style={{ fontSize:20, fontWeight:800, color:yWork>=0?C.positive:C.negative }}>{fmtYen(Math.round(yWork))}</div>
                     </div>
-                  ))}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                      {[['総回転',`${Math.round(ySpins).toLocaleString()}回`],['総時間',`${yHours.toFixed(1)}h`]].map(([l,v])=>(
+                        <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:10, padding:'10px', textAlign:'center' }}>
+                          <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
+                          <div style={{ fontWeight:700, color:C.textPrimary, marginTop:2 }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>);
+                })()}
+              </div>
+            </div>
+
+            {/* 今月のランキング */}
+            <div style={{ ...cardStyle, overflow:'hidden' }}>
+              <div style={{ background:`linear-gradient(135deg,#7c3aed,#4f46e5)`, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div>
+                  <div style={{ fontSize:16, fontWeight:800, color:'white' }}>🏆 今月のランキング</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginTop:2 }}>{currentMonth} のTOP5</div>
                 </div>
+                <button onClick={()=>moveMonth(-1)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, padding:'4px 10px', color:'white', fontSize:12, cursor:'pointer', fontWeight:600 }}>◀ 前月</button>
+              </div>
+              <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+                {ms.length===0
+                  ? <div style={{ fontSize:13, color:C.textMuted, textAlign:'center', padding:'16px' }}>今月のデータはまだないぜ。</div>
+                  : monthRankDefs.map((rk,i)=><RankCard key={i} {...rk}/>)
+                }
+              </div>
+            </div>
+
+            {/* 生涯ランキング */}
+            <div style={{ ...cardStyle, overflow:'hidden' }}>
+              <div style={{ background:`linear-gradient(135deg,#0f172a,#1e293b)`, padding:'14px 18px' }}>
+                <div style={{ fontSize:16, fontWeight:800, color:'white' }}>👑 生涯ランキング</div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.6)', marginTop:2 }}>全記録から永久保存版のTOP5だぜ</div>
+              </div>
+              <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
+                {enrichedSessions.length===0
+                  ? <div style={{ fontSize:13, color:C.textMuted, textAlign:'center', padding:'16px' }}>まだデータがないぜ。</div>
+                  : allTimeRankDefs.map((rk,i)=><RankCard key={i} {...rk}/>)
+                }
               </div>
             </div>
 
@@ -2544,41 +2677,6 @@ export default function PachinkoCalculatorComplete() {
               </div>
             </div>
 
-            {[['店舗別集計',shopAggregate,'name'],['機種別集計',machineAggregate,'name']].map(([title,rows,key])=>(
-              <div key={title} style={cardStyle}>
-                <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}><div style={{ fontWeight:700, color:C.textPrimary }}>{title}</div></div>
-                <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:8 }}>
-                  {rows.length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだデータがないぜ。</div>:rows.map(row=>(
-                    <div key={row[key]} style={{ border:`1px solid ${C.border}`, borderRadius:12, padding:'12px 14px' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, marginBottom:8 }}>
-                        <div style={{ fontWeight:700, color:C.textPrimary, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row[key]}</div>
-                        <span style={{ background:row.balance>=0?C.positiveBg:C.negativeBg, color:row.balance>=0?C.positive:C.negative, border:`1px solid ${row.balance>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:8, padding:'3px 10px', fontSize:12, fontWeight:700, whiteSpace:'nowrap' }}>{fmtYen(row.balance)}</span>
-                      </div>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, fontSize:12, color:C.textSecondary }}>
-                        <div>期待値 <span style={{ fontWeight:600, color:C.textPrimary }}>{fmtYen(row.ev)}</span></div>
-                        <div>件数 <span style={{ fontWeight:600, color:C.textPrimary }}>{row.count}件</span></div>
-                        <div>総回転 <span style={{ fontWeight:600, color:C.textPrimary }}>{Math.round(row.spins).toLocaleString()}回</span></div>
-                        <div>平均EV <span style={{ fontWeight:600, color:C.textPrimary }}>{fmtYen(row.count?row.ev/row.count:0)}</span></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            <div style={{ height:200 }}>
-              <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:8 }}>期間棒グラフ</div>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={periodMode==='year'?trendChartData:machineAggregate.slice(0,8).map(x=>({label:x.name.slice(0,8),ev:x.ev}))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
-                  <XAxis dataKey="label" tick={{fontSize:10,fill:C.textMuted}}/>
-                  <YAxis tick={{fontSize:10,fill:C.textMuted}}/>
-                  <Tooltip/>
-                  <Bar dataKey="ev" fill={C.primary} radius={[4,4,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
             <FoldSummary title="生涯収支" total={lifetimeSummary.balance} count={lifetimeSummary.count}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, fontSize:13 }}>
                 <div style={{ color:C.textSecondary }}>期待値 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(lifetimeSummary.ev)}</span></div>
@@ -2589,13 +2687,8 @@ export default function PachinkoCalculatorComplete() {
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {yearSummaryRows.length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだデータがないぜ。</div>:yearSummaryRows.map(row=>(
                   <div key={row.key} style={{ border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 12px', fontSize:13 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}>
-                      <div style={{ fontWeight:600 }}>{row.key}年</div>
-                      <div style={{ fontWeight:700, color:row.balance>=0?C.positive:C.negative }}>{fmtYen(row.balance)}</div>
-                    </div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}>
-                      <div>EV {fmtYen(row.ev)}</div><div>{row.count}件</div><div>総回転 {Math.round(row.spins).toLocaleString()}回</div>
-                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}><div style={{ fontWeight:600 }}>{row.key}</div><div style={{ fontWeight:700, color:row.balance>=0?C.positive:C.negative }}>{fmtYen(row.balance)}</div></div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}><div>EV {fmtYen(row.ev)}</div><div>{row.count}件</div></div>
                   </div>
                 ))}
               </div>
@@ -2604,13 +2697,8 @@ export default function PachinkoCalculatorComplete() {
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {monthSummaryRows.length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだデータがないぜ。</div>:monthSummaryRows.map(row=>(
                   <div key={row.key} style={{ border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 12px', fontSize:13 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between' }}>
-                      <div style={{ fontWeight:600 }}>{row.key}</div>
-                      <div style={{ fontWeight:700, color:row.balance>=0?C.positive:C.negative }}>{fmtYen(row.balance)}</div>
-                    </div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}>
-                      <div>EV {fmtYen(row.ev)}</div><div>{row.count}件</div>
-                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}><div style={{ fontWeight:600 }}>{row.key}</div><div style={{ fontWeight:700, color:row.balance>=0?C.positive:C.negative }}>{fmtYen(row.balance)}</div></div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}><div>EV {fmtYen(row.ev)}</div><div>{row.count}件</div></div>
                   </div>
                 ))}
               </div>
@@ -2636,7 +2724,8 @@ export default function PachinkoCalculatorComplete() {
               </div>
             </FoldSummary>
           </div>
-        )}
+          );
+        })()}
 
         {/* ══════════════════ 履歴タブ ══════════════════ */}
         {activeTab==='history'&&(()=>{
