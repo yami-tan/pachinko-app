@@ -25,10 +25,10 @@ const STORAGE_KEYS = {
 };
 
 const EXCHANGE_PRESETS = {
-  '25': { label: '25個(等価)', yenPerBall: 4.0, short: '等価' },
-  '28': { label: '28個', yenPerBall: 3.5, short: '28個' },
-  '30': { label: '30個', yenPerBall: 3.3, short: '30個' },
-  '33': { label: '33個', yenPerBall: 3.0, short: '33個' },
+  '25': { label: '25個(等価)', yenPerBall: 4.0,                short: '等価' },
+  '28': { label: '28個',       yenPerBall: 100/28,             short: '28個' },
+  '30': { label: '30個',       yenPerBall: 100/30,             short: '30個' },
+  '33': { label: '33個',       yenPerBall: 100/33,             short: '33個' },
 };
 const EXCHANGE_ORDER = ['25', '28', '30', '33'];
 const DEFAULT_BORDER = 17;
@@ -548,6 +548,7 @@ export default function PachinkoCalculatorComplete() {
     showExtended:false,     // ±5超を表示するか
     planHours:4,            // 稼働想定時間（1〜11h）
     selectedBorderMachineId:'', // ボーダー算出用に選んだ機種ID
+    expandedIntRows: [],    // 展開中の整数行（Set的に使用）
   });
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:'' });
@@ -2033,7 +2034,23 @@ export default function PachinkoCalculatorComplete() {
           const planHours=bc.planHours||4;
           const planSpins=planHours*spinsPerH;
           function calcEVForRate(rate){
-            if(displayBorder<=0||rate<=0) return null;
+            if(rate<=0) return null;
+            const exchangeRate=getExchangePreset(bc.exchangeCategory||'25').yenPerBall;
+            // 1R出玉とトータル確率が入力されている場合は正確な式で計算
+            if(oneR>0&&totalRateDenom>0){
+              // 大当たり1回あたりの出玉価値（円）= 1R平均出玉 × 連比 × 換金率
+              // ここでは totalRateDenom が「1Rトータル確率の分母」= 平均大当たりまでの回転数
+              const avgBallsPerHit = oneR * totalRateDenom; // 1大当たりあたり平均出玉
+              // 持ち玉1回転単価（円）= (大当たり出玉価値/確率分母 - 等価換算コスト) × 換金率
+              const holdEvPerSpin = (avgBallsPerHit / totalRateDenom) * exchangeRate - (250 / rate) * exchangeRate;
+              // 現金1回転単価（円）= 持ち玉換算 - 現金1000円あたりコスト
+              const cashEvPerSpin = (avgBallsPerHit / totalRateDenom) * exchangeRate - 1000 / rate;
+              // 混合1回転単価
+              const mixedEvPerSpin = holdRatio * holdEvPerSpin + (1 - holdRatio) * cashEvPerSpin;
+              return mixedEvPerSpin * planSpins;
+            }
+            // 入力不足の場合はボーダー差分による近似
+            if(displayBorder<=0) return null;
             const investYen=(planSpins/rate)*1000;
             return calcEvYenFromRate(rate,displayBorder,investYen,settings);
           }
@@ -2041,12 +2058,13 @@ export default function PachinkoCalculatorComplete() {
           const borderMachine=bc.selectedBorderMachineId
             ? machines.find(m=>m.id===bc.selectedBorderMachineId)||null
             : selectedMachine;
-          // 表示行：デフォルト ±5、拡張で ±10
+          // 表示する整数レンジ
           const maxRange=bc.showExtended?10:5;
-          const rateRows=[];
+          const intRows=[];
           if(displayBorder>0){
-            for(let delta=-maxRange;delta<=maxRange;delta+=0.5){
-              rateRows.push(Number((displayBorder+delta).toFixed(1)));
+            const base=Math.floor(displayBorder);
+            for(let v=base-maxRange;v<=base+maxRange+1;v++){
+              if(v>0) intRows.push(v);
             }
           }
 
@@ -2274,9 +2292,10 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                     <div>
                       <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>回転率別 期待値一覧</div>
-                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / {planHours}h（{planSpins}回転）想定 / {bc.showExtended?'±10回転':'±5回転'}表示</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / {planHours}h（{planSpins}回転）想定</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>行をタップすると0.1刻みの詳細を表示するぜ</div>
                     </div>
-                    <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended}))}
+                    <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended,expandedIntRows:[]}))}
                       style={{ padding:'8px 14px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:bc.showExtended?C.primary:C.primaryLight, color:bc.showExtended?'white':C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
                       {bc.showExtended?'±5に戻す':'±10まで'}
                     </button>
@@ -2286,62 +2305,76 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
                       {Array.from({length:11},(_,i)=>i+1).map(h=>(
                         <button key={h} onClick={()=>setBorderCalc(p=>({...p,planHours:h}))}
-                          style={{ padding:'6px 12px', borderRadius:10, border:`2px solid ${bc.planHours===h?'#7c3aed':C.border}`, background:bc.planHours===h?'#7c3aed':'white', color:bc.planHours===h?'white':C.textSecondary, fontWeight:bc.planHours===h?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
+                          style={{ padding:'6px 12px', borderRadius:10, border:`2px solid ${bc.planHours===h?'#7c3aed':C.border}`, background:bc.planHours===h?'#7c3aed':C.card, color:bc.planHours===h?'white':C.textSecondary, fontWeight:bc.planHours===h?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
                           {h}h
                         </button>
                       ))}
                     </div>
                   </div>
                 </div>
-                <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:4 }}>
-                  {/* ±5以内（常時表示） */}
-                  {rateRows.filter(r=>Math.abs(r-displayBorder)<=5.01).map(rate=>{
-                    const ev=calcEVForRate(rate);
-                    const diff=rate-displayBorder;
-                    const isCurrentRate=Math.abs(rate-currentRate)<0.3;
-                    const isBorder=Math.abs(diff)<0.3;
+                <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:3 }}>
+                  {intRows.map(intRate=>{
+                    const evInt=calcEVForRate(intRate);
+                    const diffInt=intRate-displayBorder;
+                    const isBorderRow=intRate===Math.round(displayBorder)||Math.abs(intRate-displayBorder)<1;
+                    const isExpanded=(bc.expandedIntRows||[]).includes(intRate);
+                    const isCurrentInt=Math.floor(currentRate)===intRate||Math.ceil(currentRate)===intRate;
+
                     return (
-                      <div key={rate} style={{ display:'grid', gridTemplateColumns:'70px 1fr 100px', alignItems:'center', gap:8, padding:'9px 12px', borderRadius:12, border:`1.5px solid ${isBorder?'#7c3aed':ev>=0?C.positiveBorder:C.negativeBorder}`, background:isBorder?'#f5f3ff':ev>=0?C.positiveBg:C.negativeBg, outline:isCurrentRate?`2px solid ${C.accent}`:undefined }}>
-                        <div style={{ fontWeight:800, fontSize:15, color:isBorder?'#7c3aed':C.textPrimary }}>
-                          {rate.toFixed(1)}回
-                          {isBorder&&<span style={{ fontSize:10, marginLeft:4, color:'#7c3aed' }}>★B</span>}
-                          {isCurrentRate&&<span style={{ fontSize:10, marginLeft:4, color:C.accent }}>◀現在</span>}
-                        </div>
-                        <div style={{ height:8, borderRadius:4, background:ev>=0?C.positiveBorder:C.negativeBorder, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diff/displayBorder)*100*5))}%`, background:ev>=0?C.positive:C.negative, borderRadius:4 }}/>
-                        </div>
-                        <div style={{ textAlign:'right', fontWeight:800, fontSize:15, color:ev===null?C.textMuted:ev>=0?C.positive:C.negative }}>
-                          {ev===null?'-':`${ev>=0?'+':''}${Math.round(ev).toLocaleString()}円`}
-                        </div>
+                      <div key={intRate}>
+                        {/* 整数行（メイン） */}
+                        <button
+                          onClick={()=>setBorderCalc(p=>({
+                            ...p,
+                            expandedIntRows: (p.expandedIntRows||[]).includes(intRate)
+                              ? (p.expandedIntRows||[]).filter(r=>r!==intRate)
+                              : [...(p.expandedIntRows||[]), intRate]
+                          }))}
+                          style={{ width:'100%', display:'grid', gridTemplateColumns:'80px 1fr 110px 24px', alignItems:'center', gap:8, padding:'11px 12px', borderRadius:isExpanded?'12px 12px 0 0':12, border:`1.5px solid ${isBorderRow?'#7c3aed':evInt>=0?C.positiveBorder:C.negativeBorder}`, background:isBorderRow?'#f5f3ff':evInt>=0?C.positiveBg:C.negativeBg, cursor:'pointer', textAlign:'left', marginBottom:0 }}>
+                          <div style={{ fontWeight:800, fontSize:16, color:isBorderRow?'#7c3aed':C.textPrimary }}>
+                            {intRate}回
+                            {isBorderRow&&<span style={{ fontSize:10, marginLeft:4, color:'#7c3aed' }}>★B</span>}
+                            {isCurrentInt&&!isExpanded&&<span style={{ fontSize:10, marginLeft:4, color:C.accent }}>◀現在</span>}
+                          </div>
+                          <div style={{ height:8, borderRadius:4, background:evInt>=0?C.positiveBorder:C.negativeBorder, overflow:'hidden' }}>
+                            <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diffInt/displayBorder)*100*5))}%`, background:evInt>=0?C.positive:C.negative, borderRadius:4 }}/>
+                          </div>
+                          <div style={{ textAlign:'right', fontWeight:800, fontSize:16, color:evInt===null?C.textMuted:evInt>=0?C.positive:C.negative }}>
+                            {evInt===null?'-':`${evInt>=0?'+':''}${Math.round(evInt).toLocaleString()}円`}
+                          </div>
+                          <div style={{ fontSize:12, color:C.textMuted, textAlign:'center' }}>{isExpanded?'▲':'▼'}</div>
+                        </button>
+
+                        {/* 詳細行（0.1刻み x0〜x9） */}
+                        {isExpanded&&(
+                          <div style={{ border:`1.5px solid ${isBorderRow?'#7c3aed':evInt>=0?C.positiveBorder:C.negativeBorder}`, borderTop:'none', borderRadius:'0 0 12px 12px', overflow:'hidden', marginBottom:2 }}>
+                            {Array.from({length:10},(_,i)=>{
+                              const rate=Number((intRate+i*0.1).toFixed(1));
+                              const ev=calcEVForRate(rate);
+                              const diff=rate-displayBorder;
+                              const isBorder=Math.abs(diff)<0.06;
+                              const isCurrentRate=Math.abs(rate-currentRate)<0.06;
+                              return (
+                                <div key={rate} style={{ display:'grid', gridTemplateColumns:'76px 1fr 110px', alignItems:'center', gap:8, padding:'7px 12px', background:isBorder?'#f5f3ff':isCurrentRate?C.accentLight:isDark?'rgba(255,255,255,0.03)':i%2===0?'rgba(0,0,0,0.01)':C.card, borderTop:`1px solid ${C.border}` }}>
+                                  <div style={{ fontSize:13, fontWeight:isBorder||isCurrentRate?800:500, color:isBorder?'#7c3aed':isCurrentRate?C.accent:C.textSecondary }}>
+                                    {rate.toFixed(1)}回
+                                    {isBorder&&<span style={{ fontSize:9, marginLeft:3, color:'#7c3aed' }}>★B</span>}
+                                    {isCurrentRate&&<span style={{ fontSize:9, marginLeft:3, color:C.accent }}>◀現在</span>}
+                                  </div>
+                                  <div style={{ height:6, borderRadius:4, background:ev>=0?C.positiveBorder:C.negativeBorder, overflow:'hidden' }}>
+                                    <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diff/displayBorder)*100*5))}%`, background:ev>=0?C.positive:C.negative, borderRadius:4 }}/>
+                                  </div>
+                                  <div style={{ textAlign:'right', fontSize:13, fontWeight:isBorder||isCurrentRate?800:600, color:ev===null?C.textMuted:ev>=0?C.positive:C.negative }}>
+                                    {ev===null?'-':`${ev>=0?'+':''}${Math.round(ev).toLocaleString()}円`}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
-
-                  {/* ±5超（折りたたみ） */}
-                  {bc.showExtended&&(
-                    <>
-                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, padding:'4px 4px 2px', marginTop:4 }}>── ±5回転超 ──</div>
-                      {rateRows.filter(r=>Math.abs(r-displayBorder)>5.01).map(rate=>{
-                        const ev=calcEVForRate(rate);
-                        const diff=rate-displayBorder;
-                        const isCurrentRate=Math.abs(rate-currentRate)<0.3;
-                        return (
-                          <div key={rate} style={{ display:'grid', gridTemplateColumns:'70px 1fr 100px', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:10, border:`1px solid ${ev>=0?C.positiveBorder:C.negativeBorder}`, background:ev>=0?'#f0fdf4':'#fff5f5', opacity:0.85, outline:isCurrentRate?`2px solid ${C.accent}`:undefined }}>
-                            <div style={{ fontWeight:700, fontSize:14, color:C.textSecondary }}>
-                              {rate.toFixed(1)}回
-                              {isCurrentRate&&<span style={{ fontSize:10, marginLeft:4, color:C.accent }}>◀現在</span>}
-                            </div>
-                            <div style={{ height:6, borderRadius:4, background:'#e5e7eb', overflow:'hidden' }}>
-                              <div style={{ height:'100%', width:`${Math.min(100,Math.abs((diff/displayBorder)*100*5))}%`, background:ev>=0?C.positive:C.negative, borderRadius:4 }}/>
-                            </div>
-                            <div style={{ textAlign:'right', fontWeight:700, fontSize:14, color:ev===null?C.textMuted:ev>=0?C.positive:C.negative }}>
-                              {ev===null?'-':`${ev>=0?'+':''}${Math.round(ev).toLocaleString()}円`}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
                 </div>
               </div>
             )}
