@@ -26,12 +26,11 @@ const STORAGE_KEYS = {
 
 const EXCHANGE_PRESETS = {
   '25': { label: '25個(等価)', yenPerBall: 4.0, short: '等価' },
-  '28': { label: '28個', yenPerBall: 3.57, short: '28個' },
-  '30': { label: '30個', yenPerBall: 3.33, short: '30個' },
-  '33': { label: '33個', yenPerBall: 3.03, short: '33個' },
-  '40': { label: '40個', yenPerBall: 2.5, short: '40個' },
+  '28': { label: '28個', yenPerBall: 3.5, short: '28個' },
+  '30': { label: '30個', yenPerBall: 3.3, short: '30個' },
+  '33': { label: '33個', yenPerBall: 3.0, short: '33個' },
 };
-const EXCHANGE_ORDER = ['25', '28', '30', '33', '40'];
+const EXCHANGE_ORDER = ['25', '28', '30', '33'];
 const DEFAULT_BORDER = 17;
 
 const defaultSettings = {
@@ -208,10 +207,19 @@ function calcRateMetrics(session,machine,settings) {
   const spinPerThousand=totalInvestYen>0?totalSpins/(totalInvestYen/1000):0;
   const holdBallRatio=totalInvestYen>0?(ballInvestYen/totalInvestYen)*100:0;
   const estimatedEVYen=archived.estimatedEVYen+cEVYen;
-  const returnYen=returnedBalls*exchangeRate, autoBalanceYen=returnYen-totalInvestYen;
+  const returnYen=returnedBalls*exchangeRate;
+  // 初当たり終了持ち玉から持ち玉投資を差し引いた残り持ち玉
+  const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
+  const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
+  const currentBalls=lastEndBalls>0?Math.max(0,lastEndBalls-ballInvestBalls):null;
+  const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
+  // 収支：持ち玉がある場合は 残り持ち玉×換金率 - 現金投資、なければ従来ロジック
+  const autoBalanceYen=currentBalls!==null
+    ? (currentBallsYen - cashInvestYen)
+    : (returnYen - totalInvestYen);
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?estimatedEVYen/hours:0;
-  return { exchangeRate,exchangeCategory:session.exchangeCategory||'25',startRotation,totalSpins,endRotation:currentEndRotation,totalInvestYen,cashInvestYen,ballInvestBalls,ballInvestYen,holdBallRatio,spinPerThousand,machineBorder,rateDiff:spinPerThousand-machineBorder,estimatedEVYen,returnYen,balanceYen,yph,currentSpins,currentEndRotation,currentInvestYen:cInvestYen,currentCashInvestYen:cCash,currentBallInvestBalls:cBalls,currentBallInvestYen:cBallYen,currentSpinPerThousand:cRate,currentEstimatedEVYen:cEVYen };
+  return { exchangeRate,exchangeCategory:session.exchangeCategory||'25',startRotation,totalSpins,endRotation:currentEndRotation,totalInvestYen,cashInvestYen,ballInvestBalls,ballInvestYen,holdBallRatio,spinPerThousand,machineBorder,rateDiff:spinPerThousand-machineBorder,estimatedEVYen,returnYen,balanceYen,yph,currentBalls,currentBallsYen,currentSpins,currentEndRotation,currentInvestYen:cInvestYen,currentCashInvestYen:cCash,currentBallInvestBalls:cBalls,currentBallInvestYen:cBallYen,currentSpinPerThousand:cRate,currentEstimatedEVYen:cEVYen };
 }
 
 /* ─── カラーシステム ─── */
@@ -732,7 +740,7 @@ export default function PachinkoCalculatorComplete() {
                     <Select value={form.exchangeCategory} onValueChange={v=>applyFormUpdate(p=>({...p,exchangeCategory:v,sessionBorderOverride:''}))}>
                       <SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger>
                       <SelectContent>
-                        {['28','30','33','40'].map(v=><SelectItem key={v} value={v}>{v}個</SelectItem>)}
+                        {['28','30','33'].map(v=><SelectItem key={v} value={v}>{v}個</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -745,7 +753,7 @@ export default function PachinkoCalculatorComplete() {
                     onClick={()=>setMetricsPanelOpen(p=>!p)}
                     style={{ width:'100%', background:C.primaryLight, border:'none', padding:'13px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}
                   >
-                    <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+                    <div style={{ display:'flex', gap:14, alignItems:'center', flexWrap:'wrap' }}>
                       <div style={{ textAlign:'left' }}>
                         <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>累積回転率</div>
                         <div style={{ fontSize:20, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.spinPerThousand)}</div>
@@ -754,6 +762,12 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>ボーダー</div>
                         <div style={{ fontSize:20, fontWeight:800, color:C.primary }}>{currentBorderInputValue||DEFAULT_BORDER}</div>
                       </div>
+                      {formMetrics.currentBalls!==null&&(
+                        <div style={{ textAlign:'left' }}>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>持ち玉</div>
+                          <div style={{ fontSize:20, fontWeight:800, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</div>
+                        </div>
+                      )}
                       <div style={{ textAlign:'left' }}>
                         <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>収支</div>
                         <div style={{ fontSize:20, fontWeight:800, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
@@ -996,11 +1010,17 @@ export default function PachinkoCalculatorComplete() {
                 {/* スティッキーサマリー */}
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 16px rgba(0,0,0,0.08)' }}>
                   <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:8 }}>今日の1台サマリー</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, textAlign:'center' }}>
-                    {[['総回転',Math.round(formMetrics.totalSpins),null],['総投資',fmtYen(formMetrics.totalInvestYen),null],['累積率',fmtRate(formMetrics.spinPerThousand),C.accent],['収支',fmtYen(formMetrics.balanceYen),formMetrics.balanceYen>=0?C.positive:C.negative]].map(([l,v,c])=>(
+                  <div style={{ display:'grid', gridTemplateColumns:`repeat(${formMetrics.currentBalls!==null?5:4},1fr)`, gap:4, textAlign:'center' }}>
+                    {[
+                      ['総回転', Math.round(formMetrics.totalSpins)+'回', null],
+                      ['総投資', fmtYen(formMetrics.totalInvestYen), null],
+                      ['累積率', fmtRate(formMetrics.spinPerThousand), C.accent],
+                      ...(formMetrics.currentBalls!==null?[['持ち玉', formMetrics.currentBalls.toLocaleString()+'玉', C.amber]]:[]),
+                      ['収支', fmtYen(formMetrics.balanceYen), formMetrics.balanceYen>=0?C.positive:C.negative],
+                    ].map(([l,v,c])=>(
                       <div key={l}>
-                        <div style={{ fontSize:10, color:C.textMuted }}>{l}</div>
-                        <div style={{ marginTop:2, fontWeight:700, fontSize:14, color:c||C.textPrimary }}>{v}</div>
+                        <div style={{ fontSize:9, color:C.textMuted }}>{l}</div>
+                        <div style={{ marginTop:2, fontWeight:700, fontSize:12, color:c||C.textPrimary }}>{v}</div>
                       </div>
                     ))}
                   </div>
