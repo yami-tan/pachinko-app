@@ -50,9 +50,9 @@ const defaultSettings = {
 function uid() { return crypto.randomUUID(); }
 
 const defaultMachines = [
-  { id: uid(), name: 'Pエヴァ15 未来への咆哮', shopDefault: '', border25: 17.8, border28: 18.7, border30: 19.4, border33: 20.2, border40: 0, payoutPerRound: 140, expectedBallsPerHit: 1400, totalProbability: 0, memo: '' },
-  { id: uid(), name: 'ぱちんこ シン・エヴァンゲリオン Type レイ', shopDefault: '', border25: 17.1, border28: 18.1, border30: 18.6, border33: 19.5, border40: 0, payoutPerRound: 140, expectedBallsPerHit: 1400, memo: '' },
-  { id: uid(), name: 'Pスーパー海物語IN沖縄6', shopDefault: '', border25: 18.0, border28: 0, border30: 0, border33: 0, border40: 0, payoutPerRound: 140, expectedBallsPerHit: 1400, memo: '' },
+  { id: uid(), name: 'Pエヴァ15 未来への咆哮', shopDefault: '', border25: 17.8, border28: 18.7, border30: 19.4, border33: 20.2, border40: 0, payoutPerRound: 140, expectedBallsPerHit: 1400, totalProbability: 9.49, memo: '' },
+  { id: uid(), name: 'ぱちんこ シン・エヴァンゲリオン Type レイ', shopDefault: '', border25: 17.1, border28: 18.1, border30: 18.6, border33: 19.5, border40: 0, payoutPerRound: 140, expectedBallsPerHit: 1400, totalProbability: 9.33, memo: '' },
+  { id: uid(), name: 'Pスーパー海物語IN沖縄6', shopDefault: '', border25: 18.0, border28: 0, border30: 0, border33: 0, border40: 0, payoutPerRound: 137.25, expectedBallsPerHit: 1400, totalProbability: 9.67, memo: '' },
 ];
 
 function todayStr() {
@@ -214,14 +214,21 @@ function calcRateMetrics(session,machine,settings) {
 
   // ── measurementLogs の累積 ──
   const logs=session.measurementLogs||[];
-  const logTotals=logs.reduce((a,l)=>({
-    spins:     a.spins     + numberOrZero(l.spins),
-    investYen: a.investYen + numberOrZero(l.investYen),
-    cashInvest:a.cashInvest+ numberOrZero(l.cashInvestYen),
-    ballBalls: a.ballBalls + numberOrZero(l.ballInvestBalls),
-    ballYen:   a.ballYen   + numberOrZero(l.ballInvestYen),
-    evYen:     a.evYen     + numberOrZero(l.estimatedEVYen),
-  }),{spins:0,investYen:0,cashInvest:0,ballBalls:0,ballYen:0,evYen:0});
+  const logTotals=logs.reduce((a,l)=>{
+    // cashInvestYenが未保存の古いログはinvestYenをそのまま使う
+    const logCash=l.cashInvestYen!=null?numberOrZero(l.cashInvestYen):numberOrZero(l.investYen);
+    const logBallYen=l.ballInvestYen!=null?numberOrZero(l.ballInvestYen):0;
+    // 回転率計算用合計：cashInvestYenがあればcash+ball、なければinvestYenそのまま
+    const logTotal=l.cashInvestYen!=null?(logCash+logBallYen):numberOrZero(l.investYen);
+    return {
+      spins:     a.spins     + numberOrZero(l.spins),
+      investYen: a.investYen + logTotal,
+      cashInvest:a.cashInvest+ logCash,
+      ballBalls: a.ballBalls + numberOrZero(l.ballInvestBalls),
+      ballYen:   a.ballYen   + logBallYen,
+      evYen:     a.evYen     + numberOrZero(l.estimatedEVYen),
+    };
+  },{spins:0,investYen:0,cashInvest:0,ballBalls:0,ballYen:0,evYen:0});
 
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
@@ -602,7 +609,7 @@ export default function PachinkoCalculatorComplete() {
   function checkAndArchiveIfNeeded(p) {
     // restart・jackpot_after行を除いた実質的な投資行数をカウント
     const validEntries=(p.rateEntries||[]).filter(e=>e.kind!=='restart'&&e.kind!=='jackpot_after');
-    if(validEntries.length>=10) {
+    if(validEntries.length>=11) {
       return archiveMeasurement(p);
     }
     return p;
@@ -1257,8 +1264,11 @@ export default function PachinkoCalculatorComplete() {
                                 </div>
                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:4, fontSize:12, color:C.textSecondary }}>
                                   <div>回転数 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(log.spins).toLocaleString()}回</span></div>
-                                  <div>投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(log.investYen)}</span></div>
-                                  <div>ボーダー比 <span style={{ fontWeight:700, color:overBorder?C.positive:C.negative }}>{overBorder?'↑上回':'↓下回'}</span></div>
+                                  <div>現金投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(numberOrZero(log.cashInvestYen)||log.investYen)}</span></div>
+                                  {numberOrZero(log.ballInvestBalls)>0
+                                    ? <div>持ち玉投資 <span style={{ fontWeight:700, color:C.amber }}>{Math.round(log.ballInvestBalls)}玉</span></div>
+                                    : <div>ボーダー比 <span style={{ fontWeight:700, color:overBorder?C.positive:C.negative }}>{overBorder?'↑上回':'↓下回'}</span></div>
+                                  }
                                 </div>
                               </div>
                             );
@@ -1280,7 +1290,7 @@ export default function PachinkoCalculatorComplete() {
                                 </div>
                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:4, fontSize:12, color:C.textSecondary }}>
                                   <div>回転数 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(log.spins).toLocaleString()}回</span></div>
-                                  <div>投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(log.investYen)}</span></div>
+                                  <div>現金投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(numberOrZero(log.cashInvestYen)||log.investYen)}</span></div>
                                   <div>終了ゲーム <span style={{ fontWeight:700, color:C.textPrimary }}>{log.endReading||'-'}</span></div>
                                 </div>
                               </div>
