@@ -740,6 +740,10 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ fontSize:20, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.spinPerThousand)}</div>
                       </div>
                       <div style={{ textAlign:'left' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>ボーダー</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:C.primary }}>{currentBorderInputValue||DEFAULT_BORDER}</div>
+                      </div>
+                      <div style={{ textAlign:'left' }}>
                         <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>収支</div>
                         <div style={{ fontSize:20, fontWeight:800, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
                       </div>
