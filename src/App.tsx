@@ -192,7 +192,10 @@ function calcRateMetrics(session,machine,settings) {
   (session.rateEntries||[]).forEach(e=>{
     const amount=numberOrZero(e.amount),reading=numberOrZero(e.reading);
     if(!(reading>0&&reading>=last))return;
-    if(e.kind==='balls')cBalls+=amount; else cCash+=amount;
+    // restart・jackpot_afterは回転数カウントのみ（投資0）
+    if(e.kind!=='restart'&&e.kind!=='jackpot_after'){
+      if(e.kind==='balls')cBalls+=amount; else cCash+=amount;
+    }
     cSpins+=reading-last; last=reading;
   });
   const currentSpins=totalSpinsManual||cSpins;
@@ -529,16 +532,21 @@ export default function PachinkoCalculatorComplete() {
   function addRateEntry(kind=form.currentInputMode||'cash',amount) { const ba=amount??(kind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000); applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(kind,ba,'')]})); }
 
   // 1万円(現金)or 2500玉(持ち玉)達成で自動アーカイブ
-  function archiveMeasurement(p) {
+  function archiveMeasurement(p, kind='normal', labelOverride='') {
     const machine=p.machineId&&p.machineId!=='__none__'?machines.find(m=>m.id===p.machineId)||null:null;
     const met=calcRateMetrics(p,machine,settings);
     const spins=met.currentSpins;
     const investYen=met.currentInvestYen;
     if(spins<=0&&investYen<=0) return p;
     const logCount=(p.measurementLogs||[]).length+1;
+    // 現在枠の最後のゲーム数を取得（新枠の打ち始めに使う）
+    const lastReading=(p.rateEntries||[]).reduce((last,e)=>{
+      const r=numberOrZero(e.reading); return r>last?r:last;
+    },numberOrZero(p.startRotation));
     const newLog={
       id:uid(),
-      label:`計測${logCount}`,
+      kind,
+      label:labelOverride||(kind==='jackpot_before'?`大当たり前 計測${logCount}`:`計測${logCount}`),
       entries:[...p.rateEntries],
       spins,
       investYen,
@@ -547,14 +555,18 @@ export default function PachinkoCalculatorComplete() {
       ballInvestYen: met.currentBallInvestYen,
       estimatedEVYen: met.currentEstimatedEVYen,
       rate:Number(met.currentSpinPerThousand.toFixed(2)),
+      endReading: lastReading,
       createdAt:Date.now(),
     };
     const defaultKind=met.currentBalls!==null&&met.currentBalls>0?'balls':'cash';
     const defaultAmount=defaultKind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
+    // 新枠のゲーム数を前枠の最後から継続
+    const nextEntry=emptyRateEntry(defaultKind,defaultAmount,'');
     return {
       ...p,
       measurementLogs:[...(p.measurementLogs||[]),newLog],
-      rateEntries:[emptyRateEntry(defaultKind,defaultAmount,'')],
+      startRotation: kind==='normal'?String(lastReading):p.startRotation,
+      rateEntries:[nextEntry],
     };
   }
 
@@ -610,15 +622,47 @@ export default function PachinkoCalculatorComplete() {
       if(!restartAfter)return nb;
       const m=nb.machineId&&nb.machineId!=='__none__'?machines.find(m=>m.id===nb.machineId)||null:null;
       const met=calcRateMetrics(nb,m,settings);
-      if(met.currentSpins<=0&&met.currentInvestYen<=0)return nb;
-      const na=nb.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
-      const sl=`通常${(nb.rateSections||[]).length+1}区間`;
-      const rsr=String(numberOrZero(firstHitForm.restartRotation));
+      const rsr=numberOrZero(firstHitForm.restartRotation);
       const rrl=getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote);
+      const sl=`通常${(nb.rateSections||[]).length+1}区間`;
+      const rl=`[${sl}] ${met.currentSpins}回転 / ${Math.round(met.currentInvestYen).toLocaleString()}円 / ${Number(met.currentSpinPerThousand.toFixed(2))} で区切って再スタート (${rsr}回転から / ${rrl})`;
+
+      // ① 大当たり前の計測をアーカイブ（kind:'jackpot_before'）
+      const logCount=(nb.measurementLogs||[]).length+1;
+      const jackpotLog={
+        id:uid(),
+        kind:'jackpot_before',
+        label:`大当たり前 計測${logCount}`,
+        entries:[...nb.rateEntries],
+        spins:met.currentSpins,
+        investYen:met.currentInvestYen,
+        cashInvestYen:met.currentCashInvestYen,
+        ballInvestBalls:met.currentBallInvestBalls,
+        ballInvestYen:met.currentBallInvestYen,
+        estimatedEVYen:met.currentEstimatedEVYen,
+        rate:Number(met.currentSpinPerThousand.toFixed(2)),
+        endReading:met.currentEndRotation,
+        createdAt:Date.now(),
+      };
+
+      // ② 大当たり終了後の行: ゲーム数=再スタート回転、種別='jackpot_after'
+      const afterEntry={ id:uid(), kind:'jackpot_after', amount:'0', reading:rsr>0?String(rsr):'' };
+      const na=nb.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
+      const nextEntry=emptyRateEntry(nb.currentInputMode||'cash',na,'');
+
       const sec={id:uid(),label:sl,startRotation:numberOrZero(nb.startRotation),endRotation:met.currentEndRotation,spins:met.currentSpins,investYen:met.currentInvestYen,cashInvestYen:met.currentCashInvestYen,ballInvestBalls:met.currentBallInvestBalls,ballInvestYen:met.currentBallInvestYen,spinPerThousand:Number(met.currentSpinPerThousand.toFixed(2)),estimatedEVYen:Math.round(met.currentEstimatedEVYen),restartReasonLabel:rrl};
       const ap=buildSectionRateHistoryPoints(nb,settings);
-      const rl=`[${sl}] ${sec.spins}回転 / ${Math.round(sec.investYen).toLocaleString()}円 / 累積 ${sec.spinPerThousand.toFixed(2)} で区切って再スタート (${rsr}回転から / ${rrl})`;
-      return {...nb,rateSections:[...(nb.rateSections||[]),sec],rateHistoryPoints:[...(nb.rateHistoryPoints||[]),...ap],startRotation:rsr,totalSpinsManual:'',rateEntries:[emptyRateEntry(nb.currentInputMode||'cash',na,'')],notes:appendLine(nb.notes,rl)};
+
+      return {
+        ...nb,
+        measurementLogs:[...(nb.measurementLogs||[]),jackpotLog],
+        rateSections:[...(nb.rateSections||[]),sec],
+        rateHistoryPoints:[...(nb.rateHistoryPoints||[]),...ap],
+        startRotation:rsr>0?String(rsr):nb.startRotation,
+        totalSpinsManual:'',
+        rateEntries:[afterEntry, nextEntry],
+        notes:appendLine(nb.notes,rl),
+      };
     });
     setFirstHitDialogOpen(false);
   }
@@ -1024,6 +1068,12 @@ export default function PachinkoCalculatorComplete() {
                                   🔄 再スタート
                                 </span>
                               </div>
+                            ) : entry.kind==='jackpot_after' ? (
+                              <div style={{ display:'flex', alignItems:'center', height:40 }}>
+                                <span style={{ padding:'7px 14px', borderRadius:8, fontWeight:700, fontSize:13, background:'#fdf4ff', color:'#9333ea', border:'1.5px solid #e9d5ff' }}>
+                                  🎰 大当たり終了後
+                                </span>
+                              </div>
                             ) : (
                               <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                                 <button
@@ -1152,7 +1202,7 @@ export default function PachinkoCalculatorComplete() {
                     </summary>
                     <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
                       {/* 全計測の平均サマリー */}
-                      <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'10px 14px', display:'flex', gap:16 }}>
+                      <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'10px 14px', display:'flex', gap:20 }}>
                         <div style={{ textAlign:'center' }}>
                           <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>全計測 平均回転率</div>
                           <div style={{ fontSize:18, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.avgSpinPerThousand)}</div>
@@ -1161,25 +1211,57 @@ export default function PachinkoCalculatorComplete() {
                           <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>計測回数</div>
                           <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{(form.measurementLogs||[]).length}回</div>
                         </div>
+                        <div style={{ textAlign:'center' }}>
+                          <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>全総回転</div>
+                          <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{Math.round(formMetrics.allTotalSpins).toLocaleString()}回</div>
+                        </div>
                       </div>
-                      {/* 各計測 */}
-                      {[...(form.measurementLogs||[])].reverse().map((log,i,arr)=>{
-                        const no=arr.length-i;
-                        const overBorder=log.rate>=(formMetrics.machineBorder||DEFAULT_BORDER);
-                        return (
-                          <div key={log.id} style={{ border:`1.5px solid ${overBorder?C.positiveBorder:C.negativeBorder}`, borderRadius:12, padding:'11px 14px', background:overBorder?C.positiveBg:C.negativeBg }}>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                              <div style={{ fontWeight:700, color:C.textPrimary, fontSize:13 }}>{log.label}</div>
-                              <span style={{ fontSize:13, fontWeight:800, color:overBorder?C.positive:C.negative }}>{fmtRate(log.rate)}</span>
-                            </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, fontSize:12, color:C.textSecondary }}>
-                              <div>回転数 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(log.spins).toLocaleString()}回</span></div>
-                              <div>投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(log.investYen)}</span></div>
-                              <div>ボーダー比 <span style={{ fontWeight:700, color:overBorder?C.positive:C.negative }}>{log.rate>=(formMetrics.machineBorder||DEFAULT_BORDER)?'↑上回':'↓下回'}</span></div>
-                            </div>
-                          </div>
-                        );
-                      })}
+
+                      {/* 1万円/2500玉計測（normal） */}
+                      {(form.measurementLogs||[]).filter(l=>l.kind==='normal'||!l.kind).length>0&&(
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:700, color:C.textSecondary, marginBottom:6, paddingLeft:2 }}>💰 1万円/2500玉 計測</div>
+                          {[...(form.measurementLogs||[])].filter(l=>l.kind==='normal'||!l.kind).reverse().map(log=>{
+                            const overBorder=log.rate>=(formMetrics.machineBorder||DEFAULT_BORDER);
+                            return (
+                              <div key={log.id} style={{ border:`1.5px solid ${overBorder?C.positiveBorder:C.negativeBorder}`, borderRadius:12, padding:'11px 14px', marginBottom:6, background:overBorder?C.positiveBg:C.negativeBg }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                                  <div style={{ fontWeight:700, color:C.textPrimary, fontSize:13 }}>{log.label}</div>
+                                  <span style={{ fontSize:14, fontWeight:800, color:overBorder?C.positive:C.negative }}>{fmtRate(log.rate)}</span>
+                                </div>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:4, fontSize:12, color:C.textSecondary }}>
+                                  <div>回転数 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(log.spins).toLocaleString()}回</span></div>
+                                  <div>投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(log.investYen)}</span></div>
+                                  <div>ボーダー比 <span style={{ fontWeight:700, color:overBorder?C.positive:C.negative }}>{overBorder?'↑上回':'↓下回'}</span></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 大当たり前計測（jackpot_before） */}
+                      {(form.measurementLogs||[]).filter(l=>l.kind==='jackpot_before').length>0&&(
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:700, color:'#7c3aed', marginBottom:6, paddingLeft:2 }}>🎰 大当たり前の計測</div>
+                          {[...(form.measurementLogs||[])].filter(l=>l.kind==='jackpot_before').reverse().map(log=>{
+                            const overBorder=log.rate>=(formMetrics.machineBorder||DEFAULT_BORDER);
+                            return (
+                              <div key={log.id} style={{ border:`1.5px solid #e9d5ff`, borderRadius:12, padding:'11px 14px', marginBottom:6, background:'#fdf4ff' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                                  <div style={{ fontWeight:700, color:'#7c3aed', fontSize:13 }}>{log.label}</div>
+                                  <span style={{ fontSize:14, fontWeight:800, color:overBorder?C.positive:C.negative }}>{fmtRate(log.rate)}</span>
+                                </div>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:4, fontSize:12, color:C.textSecondary }}>
+                                  <div>回転数 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(log.spins).toLocaleString()}回</span></div>
+                                  <div>投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(log.investYen)}</span></div>
+                                  <div>終了ゲーム <span style={{ fontWeight:700, color:C.textPrimary }}>{log.endReading||'-'}</span></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </details>
                 )}
