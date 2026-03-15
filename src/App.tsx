@@ -1080,7 +1080,7 @@ export default function PachinkoCalculatorComplete() {
                         <DialogTrigger asChild>
                           <button onClick={()=>setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:''})} style={{ ...btnSecondary, width:'100%' }}>機種追加 / 個別ボーダー登録</button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-sm rounded-3xl">
+                        <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                           <DialogHeader><DialogTitle>機種データ追加</DialogTitle></DialogHeader>
                           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                             <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
@@ -1104,7 +1104,7 @@ export default function PachinkoCalculatorComplete() {
 
                       {/* 機種編集ダイアログ */}
                       <Dialog open={editMachineDialogOpen} onOpenChange={open=>{setEditMachineDialogOpen(open); if(!open)setDeleteConfirmOpen(false);}}>
-                        <DialogContent className="max-w-sm rounded-3xl">
+                        <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                           <DialogHeader><DialogTitle>機種データを変更</DialogTitle></DialogHeader>
                           {!deleteConfirmOpen?(
                             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
@@ -1427,7 +1427,7 @@ export default function PachinkoCalculatorComplete() {
 
                 {/* 再スタートダイアログ */}
                 <Dialog open={restartDialogOpen} onOpenChange={setRestartDialogOpen}>
-                  <DialogContent className="max-w-sm rounded-3xl">
+                  <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                     <DialogHeader><DialogTitle>再スタート</DialogTitle></DialogHeader>
                     <div style={{ display:'flex', flexDirection:'column', gap:16, padding:'4px 0' }}>
                       <div style={{ background:isDark?'rgba(251,191,36,0.12)':'#fffbeb', border:'1.5px solid #fde68a', borderRadius:12, padding:'12px 14px', fontSize:13, color:'#92400e' }}>
