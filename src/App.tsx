@@ -208,25 +208,61 @@ function calcRateMetrics(session,machine,settings) {
   const holdBallRatio=totalInvestYen>0?(ballInvestYen/totalInvestYen)*100:0;
   const estimatedEVYen=archived.estimatedEVYen+cEVYen;
   const returnYen=returnedBalls*exchangeRate;
-  // 初当たり終了持ち玉から持ち玉投資を差し引いた残り持ち玉
+
+  // ── measurementLogs の累積 ──
+  const logs=session.measurementLogs||[];
+  const logTotals=logs.reduce((a,l)=>({
+    spins:     a.spins     + numberOrZero(l.spins),
+    investYen: a.investYen + numberOrZero(l.investYen),
+    cashInvest:a.cashInvest+ numberOrZero(l.cashInvestYen),
+    ballBalls: a.ballBalls + numberOrZero(l.ballInvestBalls),
+    ballYen:   a.ballYen   + numberOrZero(l.ballInvestYen),
+    evYen:     a.evYen     + numberOrZero(l.estimatedEVYen),
+  }),{spins:0,investYen:0,cashInvest:0,ballBalls:0,ballYen:0,evYen:0});
+
+  // ── 全計測を合算した totals ──
+  const allTotalSpins    = logTotals.spins     + totalSpins;
+  const allTotalInvestYen= logTotals.investYen + totalInvestYen;
+  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen;
+  const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
+  const allBallInvestYen = logTotals.ballYen   + ballInvestYen;
+  const allEstimatedEVYen= logTotals.evYen     + estimatedEVYen;
+  const allSpinPerThousand=allTotalInvestYen>0?allTotalSpins/(allTotalInvestYen/1000):spinPerThousand;
+
+  // ── 持ち玉残枚数（全投資を引いた残り） ──
   const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
   const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
-  const currentBalls=lastEndBalls>0?Math.max(0,lastEndBalls-ballInvestBalls):null;
+  const currentBalls=lastEndBalls>0?Math.max(0,lastEndBalls-allBallInvestBalls):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
-  // 収支：持ち玉がある場合は 残り持ち玉×換金率 - 現金投資、なければ従来ロジック
+
+  // ── 収支（全計測ぶんを合算） ──
   const autoBalanceYen=currentBalls!==null
-    ? (currentBallsYen - cashInvestYen)
-    : (returnYen - totalInvestYen);
+    ? (currentBallsYen - allCashInvestYen)
+    : (returnYen - allTotalInvestYen);
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
-  const yph=hours>0?estimatedEVYen/hours:0;
-  // 平均回転率: 過去measurementLogs + 現在 の加重平均
-  const logs=session.measurementLogs||[];
-  const logTotalSpins=logs.reduce((a,l)=>a+numberOrZero(l.spins),0);
-  const logTotalInvestYen=logs.reduce((a,l)=>a+numberOrZero(l.investYen),0);
-  const allSpins=logTotalSpins+totalSpins;
-  const allInvestYen=logTotalInvestYen+totalInvestYen;
-  const avgSpinPerThousand=allInvestYen>0?allSpins/(allInvestYen/1000):spinPerThousand;
-  return { exchangeRate,exchangeCategory:session.exchangeCategory||'25',startRotation,totalSpins,endRotation:currentEndRotation,totalInvestYen,cashInvestYen,ballInvestBalls,ballInvestYen,holdBallRatio,spinPerThousand,avgSpinPerThousand,machineBorder,rateDiff:spinPerThousand-machineBorder,estimatedEVYen,returnYen,balanceYen,yph,currentBalls,currentBallsYen,currentSpins,currentEndRotation,currentInvestYen:cInvestYen,currentCashInvestYen:cCash,currentBallInvestBalls:cBalls,currentBallInvestYen:cBallYen,currentSpinPerThousand:cRate,currentEstimatedEVYen:cEVYen };
+  const yph=hours>0?allEstimatedEVYen/hours:0;
+
+  return {
+    exchangeRate, exchangeCategory:session.exchangeCategory||'25',
+    startRotation,
+    // 現在枠のみ
+    totalSpins, endRotation:currentEndRotation,
+    totalInvestYen, cashInvestYen, ballInvestBalls, ballInvestYen,
+    spinPerThousand,
+    // 全計測合算
+    allTotalSpins, allTotalInvestYen, allCashInvestYen, allBallInvestBalls, allBallInvestYen,
+    avgSpinPerThousand: allSpinPerThousand,
+    allEstimatedEVYen,
+    holdBallRatio: allTotalInvestYen>0?(allBallInvestYen/allTotalInvestYen)*100:0,
+    machineBorder, rateDiff:spinPerThousand-machineBorder,
+    estimatedEVYen: allEstimatedEVYen,
+    returnYen, balanceYen, yph,
+    currentBalls, currentBallsYen,
+    currentSpins, currentEndRotation,
+    currentInvestYen:cInvestYen, currentCashInvestYen:cCash,
+    currentBallInvestBalls:cBalls, currentBallInvestYen:cBallYen,
+    currentSpinPerThousand:cRate, currentEstimatedEVYen:cEVYen,
+  };
 }
 
 /* ─── カラーシステム ─── */
@@ -506,6 +542,10 @@ export default function PachinkoCalculatorComplete() {
       entries:[...p.rateEntries],
       spins,
       investYen,
+      cashInvestYen: met.currentCashInvestYen,
+      ballInvestBalls: met.currentBallInvestBalls,
+      ballInvestYen: met.currentBallInvestYen,
+      estimatedEVYen: met.currentEstimatedEVYen,
       rate:Number(met.currentSpinPerThousand.toFixed(2)),
       createdAt:Date.now(),
     };
@@ -855,7 +895,7 @@ export default function PachinkoCalculatorComplete() {
                   {metricsPanelOpen&&(
                     <div style={{ padding:'12px 12px 14px', display:'flex', flexDirection:'column', gap:8, borderTop:`1px solid ${C.border}` }}>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                        <MetricBox label="累計回転数" value={Math.round(formMetrics.totalSpins)} sub={`現在区間 ${Math.round(formMetrics.currentSpins)}回`}/>
+                        <MetricBox label="累計回転数" value={Math.round(formMetrics.allTotalSpins)} sub={`現在枠 ${Math.round(formMetrics.totalSpins)}回`}/>
                         <MetricBox label="平均回転率" value={fmtRate(formMetrics.avgSpinPerThousand)} sub={`現在区間 ${fmtRate(formMetrics.currentSpinPerThousand)}`} color={C.accent}/>
                         <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
                           <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>現在ボーダー</div>
@@ -1084,8 +1124,8 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:8 }}>今日の1台サマリー</div>
                   <div style={{ display:'grid', gridTemplateColumns:`repeat(${formMetrics.currentBalls!==null?5:4},1fr)`, gap:4, textAlign:'center' }}>
                     {[
-                      ['総回転', Math.round(formMetrics.totalSpins)+'回', null],
-                      ['総投資', fmtYen(formMetrics.totalInvestYen), null],
+                      ['総回転', Math.round(formMetrics.allTotalSpins)+'回', null],
+                      ['総投資', fmtYen(formMetrics.allTotalInvestYen), null],
                       ['平均率', fmtRate(formMetrics.avgSpinPerThousand), C.accent],
                       ...(formMetrics.currentBalls!==null?[['持ち玉', formMetrics.currentBalls.toLocaleString()+'玉', C.amber]]:[]),
                       ['収支', fmtYen(formMetrics.balanceYen), formMetrics.balanceYen>=0?C.positive:C.negative],
@@ -1105,7 +1145,7 @@ export default function PachinkoCalculatorComplete() {
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                         <div>
                           <div style={{ fontWeight:700, color:C.primary, fontSize:14 }}>📊 過去の計測結果</div>
-                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{(form.measurementLogs||[]).length}件 / 全計測の平均: {fmtRate(formMetrics.avgSpinPerThousand)}</div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{(form.measurementLogs||[]).length}件 / 全計測の平均: {fmtRate(formMetrics.avgSpinPerThousand)} / 全{Math.round(formMetrics.allTotalSpins).toLocaleString()}回転</div>
                         </div>
                         <ChevronDown size={16} color={C.primary}/>
                       </div>
