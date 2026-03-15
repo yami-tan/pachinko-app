@@ -268,7 +268,8 @@ function calcRateMetrics(session,machine,settings) {
   const returnYen=returnedBalls*exchangeRate;
 
   // ── measurementLogs の累積 ──
-  const logs=session.measurementLogs||[];
+  // jackpot_beforeはrateSectionsに既に含まれているため除外（二重カウント防止）
+  const logs=(session.measurementLogs||[]).filter(l=>l.kind!=='jackpot_before');
   const logTotals=logs.reduce((a,l)=>{
     // cashInvestYenが未保存の古いログはinvestYenをそのまま使う
     const logCash=l.cashInvestYen!=null?numberOrZero(l.cashInvestYen):numberOrZero(l.investYen);
@@ -1520,8 +1521,8 @@ export default function PachinkoCalculatorComplete() {
                           <div style={{ fontSize:18, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.avgSpinPerThousand)}</div>
                         </div>
                         <div style={{ textAlign:'center' }}>
-                          <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>計測回数</div>
-                          <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{(form.measurementLogs||[]).length}回</div>
+                          <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>10枠計測</div>
+                          <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{(form.measurementLogs||[]).filter(l=>l.kind==='normal'||!l.kind).length}回</div>
                         </div>
                         <div style={{ textAlign:'center' }}>
                           <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>全総回転</div>
@@ -1635,10 +1636,8 @@ export default function PachinkoCalculatorComplete() {
                   </DialogContent>
                 </Dialog>
 
-                {/* 回収玉・時間など */}
+                {/* 時間など */}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <div><label style={labelStyle}>回収玉</label><input value={form.returnedBalls} onChange={e=>updateForm('returnedBalls',e.target.value)} style={inputStyle} inputMode="numeric"/></div>
-                  <div><label style={labelStyle}>実収支(任意上書き)</label><input value={form.actualBalanceYen} onChange={e=>updateForm('actualBalanceYen',e.target.value)} style={inputStyle} inputMode="numeric" placeholder="未入力で自動"/></div>
                   <div>
                     <label style={labelStyle}>打ち始め時間</label>
                     <input
@@ -1771,12 +1770,18 @@ export default function PachinkoCalculatorComplete() {
                           </div>
                         ))}
                       </div>
-                      {/* 入力欄 2列 */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div><Label className="text-xs">終了時持ち玉</Label><Input value={form.endingBalls} onChange={e=>updateForm('endingBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0" autoComplete="off" onFocus={e=>e.target.blur()===undefined&&undefined}/></div>
-                        <div><Label className="text-xs">終了時上皿玉数</Label><Input value={form.endingUpperBalls} onChange={e=>updateForm('endingUpperBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0" autoComplete="off"/></div>
-                        <div><Label className="text-xs">自動回収玉</Label><Input value={resultReturnedBalls} readOnly className="mt-1 rounded-xl h-9 text-sm bg-muted/40"/></div>
-                        <div><Label className="text-xs">実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={e=>updateForm('actualBalanceYen',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="未入力なら自動"/></div>
+                      {/* 終了時持ち玉（自動入力・編集可） */}
+                      <div>
+                        <Label className="text-xs">終了時持ち玉（自動入力）</Label>
+                        <Input
+                          value={form.endingBalls!==''?form.endingBalls:(formMetrics.currentBalls!==null?String(formMetrics.currentBalls):'')}
+                          onChange={e=>updateForm('endingBalls',e.target.value)}
+                          className="mt-1 rounded-xl h-9 text-sm"
+                          inputMode="numeric"
+                          placeholder={formMetrics.currentBalls!==null?String(formMetrics.currentBalls):'0'}
+                          autoComplete="off"
+                        />
+                        {formMetrics.currentBalls!==null&&<div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>持ち玉 {formMetrics.currentBalls.toLocaleString()}玉 から自動入力。変更する場合は直接入力してください。</div>}
                       </div>
                       {/* グラフ切替 */}
                       <div className="grid grid-cols-2 gap-2">
