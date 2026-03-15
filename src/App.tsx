@@ -598,13 +598,11 @@ export default function PachinkoCalculatorComplete() {
     };
   }
 
-  // 投資行更新時・ゲーム数入力時に1万円/2500玉チェック
+  // 10枠目が追加されたときに自動アーカイブ
   function checkAndArchiveIfNeeded(p) {
-    const machine=p.machineId&&p.machineId!=='__none__'?machines.find(m=>m.id===p.machineId)||null:null;
-    const met=calcRateMetrics(p,machine,settings);
-    const hasBalls=met.currentBalls!==null&&met.currentBalls>=0;
-    const threshold=hasBalls?2500*met.exchangeRate:10000; // 玉なら2500玉相当円、現金なら1万円
-    if(met.currentInvestYen>=threshold) {
+    // restart・jackpot_after行を除いた実質的な投資行数をカウント
+    const validEntries=(p.rateEntries||[]).filter(e=>e.kind!=='restart'&&e.kind!=='jackpot_after');
+    if(validEntries.length>=10) {
       return archiveMeasurement(p);
     }
     return p;
@@ -1216,7 +1214,7 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 </div>
 
-                {/* 過去計測履歴（1万円/2500玉ごとのアーカイブ） */}
+                {/* 過去計測履歴（10枠ごとのアーカイブ） */}
                 {(form.measurementLogs||[]).length>0&&(
                   <details style={{ border:`1px solid ${C.border}`, borderRadius:16, background:'white', overflow:'hidden' }}>
                     <summary style={{ cursor:'pointer', listStyle:'none', padding:'13px 16px', background:C.primaryLight }}>
@@ -1248,7 +1246,7 @@ export default function PachinkoCalculatorComplete() {
                       {/* 1万円/2500玉計測（normal） */}
                       {(form.measurementLogs||[]).filter(l=>l.kind==='normal'||!l.kind).length>0&&(
                         <div>
-                          <div style={{ fontSize:12, fontWeight:700, color:C.textSecondary, marginBottom:6, paddingLeft:2 }}>💰 1万円/2500玉 計測</div>
+                          <div style={{ fontSize:12, fontWeight:700, color:C.textSecondary, marginBottom:6, paddingLeft:2 }}>📋 10枠ごとの計測</div>
                           {[...(form.measurementLogs||[])].filter(l=>l.kind==='normal'||!l.kind).reverse().map(log=>{
                             const overBorder=log.rate>=(formMetrics.machineBorder||DEFAULT_BORDER);
                             return (
