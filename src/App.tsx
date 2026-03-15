@@ -600,6 +600,27 @@ export default function PachinkoCalculatorComplete() {
 
   useEffect(()=>{ setJudgeForm(p=>({...p,observedRate:p.observedRate||(formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):''),border:p.border||(formMetrics.machineBorder?String(formMetrics.machineBorder||''):'')})); },[formMetrics.spinPerThousand,formMetrics.machineBorder]);
 
+  // ボーダー算出タブを開いた時 or 機種変更時 → 機種・持ち玉比率を自動同期
+  useEffect(()=>{
+    if(activeTab!=='judge') return;
+    setBorderCalc(p=>{
+      const m=selectedMachine;
+      const holdRatio=Math.round(formMetrics.holdBallRatio);
+      const exchCat=form.exchangeCategory||'25';
+      return {
+        ...p,
+        // 機種が選択されていれば自動で選択
+        selectedBorderMachineId: m ? m.id : p.selectedBorderMachineId,
+        oneRoundPayout: m ? (avgOneRoundFromHits!==null ? String(avgOneRoundFromHits) : String(m.payoutPerRound||'')) : p.oneRoundPayout,
+        totalRatePer1R: m && m.totalProbability>0 ? String(m.totalProbability) : p.totalRatePer1R,
+        // 回転率の交換率を同期
+        exchangeCategory: exchCat,
+        // 非等価の場合は回転率の持ち玉比率を自動入力
+        holdBallRatioInput: (exchCat!=='25' && holdRatio>0) ? String(holdRatio) : p.holdBallRatioInput,
+      };
+    });
+  },[activeTab, form.machineId, form.exchangeCategory, formMetrics.holdBallRatio, avgOneRoundFromHits]);
+
   const firstHitMetrics=useMemo(()=>{ const rounds=numberOrZero(firstHitForm.rounds),startBalls=numberOrZero(firstHitForm.startBalls),upperBalls=numberOrZero(firstHitForm.upperBalls),endBalls=numberOrZero(firstHitForm.endBalls); const gainedBalls=Math.max(0,endBalls-(startBalls+upperBalls)); return {rounds,gainedBalls,oneRound:rounds>0?gainedBalls/rounds:0}; },[firstHitForm]);
 
   const judgeMetrics=useMemo(()=>{ const observed=numberOrZero(judgeForm.observedRate),border=numberOrZero(judgeForm.border),diff=observed-border; const playDiff=numberOrZero(settings.judgePlayDiff),watchDiff=numberOrZero(settings.judgeWatchDiff); const reliability=formMetrics.totalSpins>=200?'高':formMetrics.totalSpins>=100?'中':'低'; let verdict='判定不能',tone='secondary',comment='回転率かボーダーを入れてくれ。'; if(observed>0&&border>0){if(diff>=playDiff&&formMetrics.totalSpins>=80){verdict='打てる';tone='default';comment='今の数値なら続行候補だぜ。ブレはあるが、まだ追う価値がある。';}else if(diff>=watchDiff){verdict='様子見';tone='secondary';comment='ボーダー付近だな。もう少しサンプルを取ると精度が上がる。';}else{verdict='やめ候補';tone='destructive';comment='今のところ弱い。根拠が増えない限り深追いは危険だぜ。';}} return {observed,border,diff,verdict,tone,comment,reliability}; },[judgeForm,settings,formMetrics.totalSpins]);
@@ -2120,7 +2141,17 @@ export default function PachinkoCalculatorComplete() {
                   <label style={labelStyle}>交換率</label>
                   <div style={{ display:'flex', gap:8 }}>
                     {[['25','等価(25個)'],['28','28個'],['30','30個'],['33','33個']].map(([v,l])=>(
-                      <button key={v} onClick={()=>setBorderCalc(p=>({...p,exchangeCategory:v}))}
+                      <button key={v} onClick={()=>{
+                        const holdRatio=Math.round(formMetrics.holdBallRatio);
+                        setBorderCalc(p=>({
+                          ...p,
+                          exchangeCategory:v,
+                          // 非等価に切り替えた時、持ち玉比率が未入力なら回転率タブから自動入力
+                          holdBallRatioInput: v!=='25' && (!p.holdBallRatioInput||p.holdBallRatioInput==='0') && holdRatio>0
+                            ? String(holdRatio)
+                            : p.holdBallRatioInput,
+                        }));
+                      }}
                         style={{ flex:1, padding:'10px 4px', borderRadius:12, border:`2px solid ${bc.exchangeCategory===v?C.primary:C.border}`, background:bc.exchangeCategory===v?C.primary:'white', color:bc.exchangeCategory===v?'white':C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
                         {l}
                       </button>
@@ -2165,9 +2196,12 @@ export default function PachinkoCalculatorComplete() {
                     <label style={labelStyle}>持ち玉比率（%）</label>
                     <input value={bc.holdBallRatioInput} onChange={e=>setBorderCalc(p=>({...p,holdBallRatioInput:e.target.value}))}
                       style={inputStyle} inputMode="decimal" placeholder="例: 60"/>
-                    <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>入力なし=現金のみ(0%)で計算。回転率タブから自動取得もできるぜ。
-                      <button onClick={()=>setBorderCalc(p=>({...p,holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio))}))}
-                        style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>回転率から取込</button>
+                    <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                      {bc.holdBallRatioInput&&Number(bc.holdBallRatioInput)===Math.round(formMetrics.holdBallRatio)&&formMetrics.holdBallRatio>0
+                        ? <span style={{ color:C.positive, fontWeight:600 }}>✅ 回転率タブから自動入力（{bc.holdBallRatioInput}%）</span>
+                        : <>入力なし=現金のみ(0%)で計算。<button onClick={()=>setBorderCalc(p=>({...p,holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio))}))}
+                            style={{ marginLeft:4, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>回転率から取込（{Math.round(formMetrics.holdBallRatio)}%）</button></>
+                      }
                     </div>
                   </div>
                 )}
