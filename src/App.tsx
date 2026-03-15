@@ -451,6 +451,8 @@ export default function PachinkoCalculatorComplete() {
     holdBallRatioInput:'',  // 持ち玉比率(%)
     exchangeCategory:'25',  // 交換率
     showExtended:false,     // ±5超を表示するか
+    planHours:4,            // 稼働想定時間（1〜11h）
+    selectedBorderMachineId:'', // ボーダー算出用に選んだ機種ID
   });
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:'' });
@@ -1656,14 +1658,19 @@ export default function PachinkoCalculatorComplete() {
           // 現在の回転率（回転率タブから連携）
           const currentRate=formMetrics.avgSpinPerThousand||0;
           const displayBorder=bc.exchangeCategory==='25'?equivBorder:mixedBorder;
-          // 期待値計算：稼働予定を4時間200回転/h=800回転として
-          const planSpins=800;
-          const planInvestYen=displayBorder>0?(planSpins/displayBorder)*1000:0;
+          // 稼働想定：選択時間 × 通常回転200回/h
+          const spinsPerH=numberOrZero(settings.spinsPerHour)||200;
+          const planHours=bc.planHours||4;
+          const planSpins=planHours*spinsPerH;
           function calcEVForRate(rate){
             if(displayBorder<=0||rate<=0) return null;
             const investYen=(planSpins/rate)*1000;
             return calcEvYenFromRate(rate,displayBorder,investYen,settings);
           }
+          // ボーダー算出用に選んだ機種
+          const borderMachine=bc.selectedBorderMachineId
+            ? machines.find(m=>m.id===bc.selectedBorderMachineId)||null
+            : selectedMachine;
           // 表示行：デフォルト ±5、拡張で ±10
           const maxRange=bc.showExtended?10:5;
           const rateRows=[];
@@ -1697,6 +1704,34 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ marginTop:4 }}>持ち玉考慮： <b>等価B×持ち玉比率 + 現金B×(1−持ち玉比率)</b></div>
                 </div>
 
+                {/* 機種から呼び出し */}
+                <div>
+                  <label style={labelStyle}>📦 登録機種から呼び出す</label>
+                  <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:4 }}>
+                    <div style={{ display:'flex', gap:8, minWidth:'max-content' }}>
+                      {machines.map(m=>{
+                        const isSelected=bc.selectedBorderMachineId===m.id||(bc.selectedBorderMachineId===''&&selectedMachine?.id===m.id);
+                        return (
+                          <button key={m.id}
+                            onClick={()=>{
+                              setBorderCalc(p=>({
+                                ...p,
+                                selectedBorderMachineId:m.id,
+                                oneRoundPayout:String(m.payoutPerRound||''),
+                                totalRatePer1R:m.totalProbability>0?String(m.totalProbability):'',
+                              }));
+                            }}
+                            style={{ padding:'8px 14px', borderRadius:12, border:`2px solid ${isSelected?'#7c3aed':C.border}`, background:isSelected?'#f5f3ff':'white', color:isSelected?'#7c3aed':C.textSecondary, fontWeight:isSelected?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
+                            {m.name.length>14?m.name.slice(0,14)+'…':m.name}
+                            {m.totalProbability>0&&<span style={{ marginLeft:4, fontSize:10, color:'#9333ea' }}>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>✓マークは確率が登録済みの機種。タップで1R出玉・確率を自動入力するぜ。</div>
+                </div>
+
                 {/* 交換率切替 */}
                 <div>
                   <label style={labelStyle}>交換率</label>
@@ -1716,9 +1751,9 @@ export default function PachinkoCalculatorComplete() {
                     <label style={labelStyle}>1R平均出玉（玉）</label>
                     <input value={bc.oneRoundPayout} onChange={e=>setBorderCalc(p=>({...p,oneRoundPayout:e.target.value}))}
                       style={inputStyle} inputMode="decimal" placeholder="例: 140"/>
-                    {selectedMachine&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
-                      機種登録値: {fmtRate(selectedMachine.payoutPerRound)}玉
-                      <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(selectedMachine.payoutPerRound||'')}))}
+                    {borderMachine&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                      機種登録値: {fmtRate(borderMachine.payoutPerRound)}玉
+                      <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(borderMachine.payoutPerRound||'')}))}
                         style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
                     </div>}
                   </div>
@@ -1726,9 +1761,9 @@ export default function PachinkoCalculatorComplete() {
                     <label style={labelStyle}>1Rトータル確率（分母）</label>
                     <input value={bc.totalRatePer1R} onChange={e=>setBorderCalc(p=>({...p,totalRatePer1R:e.target.value}))}
                       style={inputStyle} inputMode="decimal" placeholder="例: 9.49"/>
-                    {selectedMachine&&selectedMachine.totalProbability>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
-                      機種登録値: {fmtRate(selectedMachine.totalProbability)}
-                      <button onClick={()=>setBorderCalc(p=>({...p,totalRatePer1R:String(selectedMachine.totalProbability||'')}))}
+                    {borderMachine&&borderMachine.totalProbability>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                      機種登録値: {fmtRate(borderMachine.totalProbability)}
+                      <button onClick={()=>setBorderCalc(p=>({...p,totalRatePer1R:String(borderMachine.totalProbability||'')}))}
                         style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
                     </div>}
                   </div>
@@ -1750,6 +1785,7 @@ export default function PachinkoCalculatorComplete() {
                 <button onClick={()=>setBorderCalc(p=>({...p,
                   exchangeCategory:form.exchangeCategory||'25',
                   holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio)),
+                  selectedBorderMachineId:selectedMachine?.id||p.selectedBorderMachineId,
                   oneRoundPayout:selectedMachine?String(selectedMachine.payoutPerRound||''):p.oneRoundPayout,
                   totalRatePer1R:selectedMachine&&selectedMachine.totalProbability>0?String(selectedMachine.totalProbability):p.totalRatePer1R,
                 }))} style={{ ...btnSecondary, width:'100%' }}>
@@ -1807,15 +1843,28 @@ export default function PachinkoCalculatorComplete() {
             {/* 期待値テーブル */}
             {displayBorder>0&&(
               <div style={cardStyle}>
-                <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>回転率別 期待値一覧</div>
-                    <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / 800回転(4h)想定 / {bc.showExtended?'±10回転':'±5回転'}表示</div>
+              <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>回転率別 期待値一覧</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / {planHours}h（{planSpins}回転）想定 / {bc.showExtended?'±10回転':'±5回転'}表示</div>
+                    </div>
+                    <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended}))}
+                      style={{ padding:'8px 14px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:bc.showExtended?C.primary:C.primaryLight, color:bc.showExtended?'white':C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
+                      {bc.showExtended?'±5に戻す':'±10まで'}
+                    </button>
                   </div>
-                  <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended}))}
-                    style={{ padding:'8px 14px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:bc.showExtended?C.primary:C.primaryLight, color:bc.showExtended?'white':C.primary, fontWeight:700, fontSize:12, cursor:'pointer' }}>
-                    {bc.showExtended?'±5回転に戻す':'±10まで広げる'}
-                  </button>
+                  {/* 稼働時間切替ボタン */}
+                  <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:2 }}>
+                    <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
+                      {Array.from({length:11},(_,i)=>i+1).map(h=>(
+                        <button key={h} onClick={()=>setBorderCalc(p=>({...p,planHours:h}))}
+                          style={{ padding:'6px 12px', borderRadius:10, border:`2px solid ${bc.planHours===h?'#7c3aed':C.border}`, background:bc.planHours===h?'#7c3aed':'white', color:bc.planHours===h?'white':C.textSecondary, fontWeight:bc.planHours===h?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
+                          {h}h
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:4 }}>
                   {/* ±5以内（常時表示） */}
