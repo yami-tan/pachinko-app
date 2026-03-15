@@ -575,6 +575,14 @@ export default function PachinkoCalculatorComplete() {
   const enrichedSessions=useMemo(()=>sessions.map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)),[sessions,machines,settings]);
   const selectedMachine=form.machineId&&form.machineId!=='__none__'?machines.find(m=>m.id===form.machineId)||null:null;
   const formMetrics=calcRateMetrics(form,selectedMachine,settings);
+
+  // 初当たり記録から1R出玉の平均を算出
+  const avgOneRoundFromHits=useMemo(()=>{
+    const hits=(form.firstHits||[]).filter(h=>h.oneRound>0);
+    if(hits.length===0) return null;
+    const avg=hits.reduce((a,h)=>a+h.oneRound,0)/hits.length;
+    return Number(avg.toFixed(1));
+  },[form.firstHits]);
   const saveStatusMeta=getSaveStatusMeta(saveStatus);
   const currentBorderInputValue=form.sessionBorderOverride!==''?form.sessionBorderOverride:(selectedMachine?String(getMachineBorderByCategory(selectedMachine,form.exchangeCategory||'25')||''):'');
   const currentObservedBaseRate=Math.floor(formMetrics.spinPerThousand||0);
@@ -1249,7 +1257,15 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                         <MetricBox label="持ち玉比率" value={`${fmtRate(formMetrics.holdBallRatio)}%`} sub={getExchangePreset(form.exchangeCategory||'25').label}/>
                         <MetricBox label="仕事量(理論)" value={theoreticalMetrics.workVolumeYen!==null?fmtYen(theoreticalMetrics.workVolumeYen):'-'} sub={theoreticalMetrics.workVolumeBalls!==null?`${Math.round(theoreticalMetrics.workVolumeBalls).toLocaleString()}玉`:'確率入力待ち'} color={C.positive}/>
-                        <MetricBox label="1R出玉" value={selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-'} sub={selectedMachine?.expectedBallsPerHit?`平均 ${Math.round(numberOrZero(selectedMachine.expectedBallsPerHit)).toLocaleString()}玉`:'-'} color={C.amber}/>
+                        <MetricBox
+                          label="1R出玉（実測平均）"
+                          value={avgOneRoundFromHits!==null?fmtRate(avgOneRoundFromHits):(selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-')}
+                          sub={avgOneRoundFromHits!==null
+                            ? `${(form.firstHits||[]).filter(h=>h.oneRound>0).length}回の初当たりから算出`
+                            : (selectedMachine?.expectedBallsPerHit?`機種登録値 / 平均${Math.round(numberOrZero(selectedMachine.expectedBallsPerHit)).toLocaleString()}玉`:'初当たり記録なし')
+                          }
+                          color={C.amber}
+                        />
                         <MetricBox label="通常回転時速" value={theoreticalMetrics.normalSpinsPerHour?fmtRate(theoreticalMetrics.normalSpinsPerHour):'-'} sub="h あたり通常回転"/>
                         <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
                           <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>回転単価</div>
@@ -2118,6 +2134,14 @@ export default function PachinkoCalculatorComplete() {
                     <label style={labelStyle}>1R平均出玉（玉）</label>
                     <input value={bc.oneRoundPayout} onChange={e=>setBorderCalc(p=>({...p,oneRoundPayout:e.target.value}))}
                       style={inputStyle} inputMode="decimal" placeholder="例: 140"/>
+                    {/* 初当たり実測平均があれば優先表示 */}
+                    {avgOneRoundFromHits!==null&&(
+                      <div style={{ fontSize:11, color:C.amber, marginTop:4, fontWeight:600 }}>
+                        🎰 初当たり実測平均: {fmtRate(avgOneRoundFromHits)}玉（{(form.firstHits||[]).filter(h=>h.oneRound>0).length}回）
+                        <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(avgOneRoundFromHits)}))}
+                          style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
+                      </div>
+                    )}
                     {borderMachine&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
                       機種登録値: {fmtRate(borderMachine.payoutPerRound)}玉
                       <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(borderMachine.payoutPerRound||'')}))}
@@ -2153,10 +2177,12 @@ export default function PachinkoCalculatorComplete() {
                   exchangeCategory:form.exchangeCategory||'25',
                   holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio)),
                   selectedBorderMachineId:selectedMachine?.id||p.selectedBorderMachineId,
-                  oneRoundPayout:selectedMachine?String(selectedMachine.payoutPerRound||''):p.oneRoundPayout,
+                  // 初当たり実測平均があれば優先、なければ機種登録値
+                  oneRoundPayout:avgOneRoundFromHits!==null?String(avgOneRoundFromHits):(selectedMachine?String(selectedMachine.payoutPerRound||''):p.oneRoundPayout),
                   totalRatePer1R:selectedMachine&&selectedMachine.totalProbability>0?String(selectedMachine.totalProbability):p.totalRatePer1R,
                 }))} style={{ ...btnSecondary, width:'100%' }}>
                   🔗 回転率タブの現在値・機種情報を全て取り込む
+                  {avgOneRoundFromHits!==null&&<span style={{ fontSize:10, marginLeft:4, color:C.amber }}>（1R実測平均あり）</span>}
                 </button>
 
                 {/* 算出結果 */}
