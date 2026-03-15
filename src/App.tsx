@@ -161,9 +161,9 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
   const oneRoundPayout=numberOrZero(machine?.payoutPerRound);
   const holdRatio=clampNumber(metrics.holdBallRatio/100,0,1);
   const normalSpinsPerHour=enteredHours>0&&totalSpins>0?totalSpins/enteredHours:numberOrZero(settings.spinsPerHour);
-  if(rate<=0||exchangeRate<=0||totalProbability<=0||averagePayout<=0) return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen:null,cashUnitPriceYen:null,mixedUnitPriceYen:null,workVolumeYen:null,workVolumeBalls:null,theoreticalHourlyYen:null };
-  const holdUnitPriceYen=(averagePayout/totalProbability-250/rate)*exchangeRate;
-  const cashUnitPriceYen=averagePayout/totalProbability*exchangeRate-1000/rate;
+  if(rate<=0||exchangeRate<=0||totalProbability<=0||oneRoundPayout<=0) return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen:null,cashUnitPriceYen:null,mixedUnitPriceYen:null,workVolumeYen:null,workVolumeBalls:null,theoreticalHourlyYen:null };
+  const holdUnitPriceYen=(oneRoundPayout/totalProbability-250/rate)*exchangeRate;
+  const cashUnitPriceYen=oneRoundPayout/totalProbability*exchangeRate-1000/rate;
   const mixedUnitPriceYen=holdUnitPriceYen*holdRatio+cashUnitPriceYen*(1-holdRatio);
   const workVolumeYen=mixedUnitPriceYen*totalSpins;
   const workVolumeBalls=exchangeRate>0?workVolumeYen/exchangeRate:null;
