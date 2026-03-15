@@ -2464,7 +2464,12 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
                           <div>
                             <div style={{ fontWeight:700, color:C.textPrimary }}>{mn}</div>
-                            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{s.shop||'店舗未入力'} / 台{s.machineNumber||'-'} / {s.status==='completed'?'終了':'途中'}</div>
+                            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                              {s.shop||'店舗未入力'} / 台{s.machineNumber||'-'} / {s.status==='completed'?'終了':'途中'}
+                              <span style={{ marginLeft:6, background:s.exchangeCategory==='25'?C.primaryLight:C.amberBg, color:s.exchangeCategory==='25'?C.primary:C.amber, border:`1px solid ${s.exchangeCategory==='25'?C.primaryMid:C.amberBorder}`, borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>
+                                {getExchangePreset(s.exchangeCategory||'25').label}
+                              </span>
+                            </div>
                           </div>
                           <div style={{ textAlign:'right' }}>
                             <div style={{ fontSize:17, fontWeight:700, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</div>
@@ -2635,7 +2640,10 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ fontSize:16, fontWeight:800, color:'white' }}>🏆 今月のランキング</div>
                   <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginTop:2 }}>{currentMonth} のTOP5</div>
                 </div>
-                <button onClick={()=>moveMonth(-1)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, padding:'4px 10px', color:'white', fontSize:12, cursor:'pointer', fontWeight:600 }}>◀ 前月</button>
+                <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={()=>moveMonth(-1)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, padding:'4px 10px', color:'white', fontSize:12, cursor:'pointer', fontWeight:600 }}>◀ 前月</button>
+                  <button onClick={()=>moveMonth(1)} style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:8, padding:'4px 10px', color:'white', fontSize:12, cursor:'pointer', fontWeight:600 }}>次月 ▶</button>
+                </div>
               </div>
               <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>
                 {ms.length===0
