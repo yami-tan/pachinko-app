@@ -470,7 +470,26 @@ export default function PachinkoCalculatorComplete() {
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
   function setCurrentInputMode(m) { applyFormUpdate(p=>({...p,currentInputMode:m})); }
   function syncBorderToMachine() { if(!selectedMachine||currentBorderInputValue==='')return; const f=getBorderFieldByCategory(form.exchangeCategory||'25'); setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,[f]:numberOrZero(currentBorderInputValue)}:m)); }
-  function moveFocusToNextReading(cid,idx,val) { const digs=String(val||'').replace(/[^0-9]/g,''); const prev=idx===0?form.startRotation:form.rateEntries[idx-1]?.reading; const pd=String(prev||'').replace(/[^0-9]/g,''); const th=Math.max(2,pd.length||1); if(digs.length<th)return; if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate(10); setFlashReadingId(cid); setTimeout(()=>setFlashReadingId(''),180); const ne=Boolean(form.rateEntries[idx+1]); if(!ne){const nk=form.currentInputMode||'cash'; const na=nk==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000; applyFormUpdate(p=>checkAndArchiveIfNeeded({...p,rateEntries:[...p.rateEntries,emptyRateEntry(nk,na,'')]})); setTimeout(()=>readingInputRefs.current[idx+1]?.focus(),0); return;} applyFormUpdate(p=>checkAndArchiveIfNeeded(p)); setTimeout(()=>{readingInputRefs.current[idx+1]?.focus(); readingInputRefs.current[idx+1]?.select?.();},0); }
+  function moveFocusToNextReading(cid,idx,val) {
+    const digs=String(val||'').replace(/[^0-9]/g,'');
+    const prevEntry=idx===0?form.startRotation:form.rateEntries[idx-1]?.reading;
+    const prevVal=numberOrZero(prevEntry);
+    // しきい値: 前回値が980超なら4桁、80超なら3桁、それ以外は2桁
+    const th=prevVal>980?4:prevVal>80?3:2;
+    if(digs.length<th)return;
+    if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate(10);
+    setFlashReadingId(cid); setTimeout(()=>setFlashReadingId(''),180);
+    const ne=Boolean(form.rateEntries[idx+1]);
+    if(!ne){
+      const nk=form.currentInputMode||'cash';
+      const na=nk==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
+      applyFormUpdate(p=>checkAndArchiveIfNeeded({...p,rateEntries:[...p.rateEntries,emptyRateEntry(nk,na,'')]}));
+      setTimeout(()=>readingInputRefs.current[idx+1]?.focus(),0);
+      return;
+    }
+    applyFormUpdate(p=>checkAndArchiveIfNeeded(p));
+    setTimeout(()=>{readingInputRefs.current[idx+1]?.focus(); readingInputRefs.current[idx+1]?.select?.();},0);
+  }
   function addRateEntry(kind=form.currentInputMode||'cash',amount) { const ba=amount??(kind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000); applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(kind,ba,'')]})); }
 
   // 1万円(現金)or 2500玉(持ち玉)達成で自動アーカイブ
