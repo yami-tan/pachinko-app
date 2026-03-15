@@ -428,13 +428,13 @@ function FoldSummary({ title, total, count, children }) {
 
 function Chip({ active, onClick, children }) {
   return (
-    <button onClick={onClick} style={{ padding:'6px 16px', borderRadius:999, border:`1.5px solid ${active?C.primary:C.border}`, background:active?C.primary:'white', color:active?'white':C.textSecondary, fontWeight:600, fontSize:13, cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}>
+    <button onClick={onClick} style={{ padding:'6px 16px', borderRadius:999, border:`1.5px solid ${active?C.primary:C.border}`, background:active?C.primary:C.card, color:active?'white':C.textSecondary, fontWeight:600, fontSize:13, cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}>
       {children}
     </button>
   );
 }
 
-function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onPrev, onNext }) {
+function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onPrev, onNext, isDark }) {
   const base=new Date(`${currentMonth}-01T00:00:00`);
   const year=base.getFullYear(), month=base.getMonth();
   const first=new Date(year,month,1), last=new Date(year,month+1,0);
@@ -451,10 +451,14 @@ function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onP
   while(cells.length%7!==0) cells.push(null);
   function dayStyle(info,ds) {
     const sel=ds===selectedDate;
-    if(!info) return { background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, outline:sel?`2px solid ${C.primary}`:undefined };
+    if(!info) return { background:isDark?C.card:C.bg, border:`1px solid ${C.border}`, outline:sel?`2px solid ${C.primary}`:undefined };
     const lvl=getDayStrength(info.balance,info.ev);
-    const bg=lvl==='great'?'#d1fae5':lvl==='good'?'#ecfdf5':lvl==='bad'?'#ffe4e6':lvl==='weak'?'#fff1f2':'white';
-    const bd=lvl==='great'?'#6ee7b7':lvl==='good'?'#bbf7d0':lvl==='bad'?'#fca5a5':lvl==='weak'?'#fecaca':C.border;
+    const bg=isDark
+      ? (lvl==='great'?'rgba(52,211,153,0.25)':lvl==='good'?'rgba(52,211,153,0.12)':lvl==='bad'?'rgba(251,113,133,0.25)':lvl==='weak'?'rgba(251,113,133,0.12)':C.card)
+      : (lvl==='great'?'#d1fae5':lvl==='good'?'#ecfdf5':lvl==='bad'?'#ffe4e6':lvl==='weak'?'#fff1f2':C.card);
+    const bd=isDark
+      ? (lvl==='great'?'rgba(52,211,153,0.5)':lvl==='good'?'rgba(52,211,153,0.3)':lvl==='bad'?'rgba(251,113,133,0.5)':lvl==='weak'?'rgba(251,113,133,0.3)':C.border)
+      : (lvl==='great'?'#6ee7b7':lvl==='good'?'#bbf7d0':lvl==='bad'?'#fca5a5':lvl==='weak'?'#fecaca':C.border);
     return { background:bg, border:`1.5px solid ${bd}`, outline:sel?`2px solid ${C.primary}`:undefined };
   }
   return (
@@ -470,7 +474,7 @@ function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onP
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
           {cells.map((day,i)=>{
-            if(!day) return <div key={`e${i}`} style={{ aspectRatio:'1',borderRadius:12,background:isDark?'#1e293b':'#f8fafc' }}/>;
+            if(!day) return <div key={`e${i}`} style={{ aspectRatio:'1',borderRadius:12,background:isDark?C.card:C.bg }}/>;
             const ds=`${currentMonth}-${String(day).padStart(2,'0')}`;
             const info=dayMap[ds];
             return (
@@ -2289,7 +2293,7 @@ export default function PachinkoCalculatorComplete() {
               </div>
             </div>
 
-            <MonthCalendar currentMonth={currentMonth} sessions={enrichedSessions} selectedDate={selectedDate} onSelectDate={setSelectedDate} onPrev={()=>moveMonth(-1)} onNext={()=>moveMonth(1)}/>
+            <MonthCalendar currentMonth={currentMonth} sessions={enrichedSessions} selectedDate={selectedDate} onSelectDate={setSelectedDate} onPrev={()=>moveMonth(-1)} onNext={()=>moveMonth(1)} isDark={isDark}/>
             <div style={cardStyle}>
               <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
                 <div style={{ fontWeight:700, fontSize:16, color:C.textPrimary }}>{selectedDate} の記録</div>
