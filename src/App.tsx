@@ -171,12 +171,6 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
   return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen,cashUnitPriceYen,mixedUnitPriceYen,workVolumeYen,workVolumeBalls,theoreticalHourlyYen };
 }
 
-function getContinueMoveDecision(cur,cand) {
-  if(cand-cur>=0.5) return { verdict:'移動候補', comment:'候補台のほうが数字は上だぜ。空き台なら移動を検討だ。', positive:false };
-  if(cur-cand>=0.5) return { verdict:'続行寄り', comment:'今の台のほうが強い。無理に動かなくてよさそうだぜ。', positive:true };
-  return { verdict:'様子見', comment:'大差はない。残り時間や店内状況で決めるのがよさそうだぜ。', positive:undefined };
-}
-
 function buildSectionRateHistoryPoints(session,settings) {
   const archived=session.rateHistoryPoints||[];
   const exchangeRate=getExchangePreset(session.exchangeCategory||'25').yenPerBall||4;
@@ -532,8 +526,6 @@ export default function PachinkoCalculatorComplete() {
   const [resultDialogOpen,setResultDialogOpen]=useState(false);
   const [showResultRateGraph,setShowResultRateGraph]=useState(false);
   const [showMoneySwitchGraph,setShowMoneySwitchGraph]=useState(false);
-  const [compareCandidateRate,setCompareCandidateRate]=useState('');
-  const [compareCandidateBorder,setCompareCandidateBorder]=useState('');
   const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25'});
   const readingInputRefs=useRef([]);
   const autosaveTimerRef=useRef(null);
@@ -592,9 +584,6 @@ export default function PachinkoCalculatorComplete() {
   const moneySwitchData=useMemo(()=>sessionTrendData.map(p=>({label:p.label,totalSpins:p.totalSpins,cashInvestYen:p.cashInvestYen,ballInvestYen:p.ballInvestYen})),[sessionTrendData]);
   const resultReturnedBalls=numberOrZero(form.endingBalls)+numberOrZero(form.endingUpperBalls);
   const resultPreviewMetrics=useMemo(()=>calcRateMetrics({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls},selectedMachine,settings),[form,resultReturnedBalls,selectedMachine,settings]);
-  const currentDiffForCompare=formMetrics.spinPerThousand-formMetrics.machineBorder;
-  const candidateDiffForCompare=numberOrZero(compareCandidateRate)-numberOrZero(compareCandidateBorder);
-  const compareDecision=getContinueMoveDecision(currentDiffForCompare,candidateDiffForCompare);
   const recentShopPresets=useMemo(()=>{ const u=[]; (settings.shopProfiles||[]).forEach(p=>{if(p.name&&!u.includes(p.name))u.push(p.name);}); enrichedSessions.forEach(s=>{if(s.shop&&!u.includes(s.shop))u.push(s.shop);}); return u.slice(0,6); },[settings.shopProfiles,enrichedSessions]);
   const recentMachinePresets=useMemo(()=>{ const c={}; enrichedSessions.forEach(s=>{ const k=s.machineId&&s.machineId!=='__none__'?s.machineId:''; if(k)c[k]=(c[k]||0)+1; }); const sorted=Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([id])=>id); return [...sorted,...machines.map(m=>m.id).filter(id=>!sorted.includes(id))].slice(0,7).map(id=>machines.find(m=>m.id===id)).filter(Boolean); },[enrichedSessions,machines]);
   const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings),[formMetrics,selectedMachine,form.hours,settings]);
@@ -1688,27 +1677,6 @@ export default function PachinkoCalculatorComplete() {
                   <div><label style={labelStyle}>タグ</label><input value={form.tags} onChange={e=>updateForm('tags',e.target.value)} style={inputStyle} placeholder="特日, 強イベ"/></div>
                 </div>
 
-                {/* 続行/移動比較 */}
-                <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:'14px 16px' }}>
-                  <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:10, fontSize:14 }}>続行 / 移動の簡易比較</div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-                    <div><label style={labelStyle}>候補台回転率</label><input value={compareCandidateRate} onChange={e=>setCompareCandidateRate(e.target.value)} style={inputStyle} inputMode="decimal" placeholder="18.2"/></div>
-                    <div><label style={labelStyle}>候補台ボーダー</label><input value={compareCandidateBorder} onChange={e=>setCompareCandidateBorder(e.target.value)} style={inputStyle} inputMode="decimal" placeholder="17.8"/></div>
-                  </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
-                    {[['今の台差',currentDiffForCompare],['候補台差',candidateDiffForCompare]].map(([l,d])=>(
-                      <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
-                        <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
-                        <div style={{ marginTop:4, fontSize:16, fontWeight:700, color:d>=0?C.positive:C.negative }}>{d>=0?'+':''}{fmtRate(d)}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'10px 14px' }}>
-                    <div style={{ fontWeight:700, color:compareDecision.positive===undefined?C.primary:compareDecision.positive?C.positive:C.negative }}>{compareDecision.verdict}</div>
-                    <div style={{ marginTop:4, fontSize:12, color:C.textSecondary }}>{compareDecision.comment}</div>
-                  </div>
-                </div>
-
                 {(form.rateSections||[]).length>0&&(
                   <div>
                     <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:8, fontSize:14 }}>回転率 再スタート履歴</div>
@@ -1891,12 +1859,15 @@ export default function PachinkoCalculatorComplete() {
             ? machines.find(m=>m.id===bc.selectedBorderMachineId)||null
             : selectedMachine;
           // 表示する整数レンジ
+          // 通常: ボーダー-5 〜 33回転固定 / 拡張: ボーダー-10 〜 33回転固定
           const maxRange=bc.showExtended?10:5;
           const intRows=[];
           if(displayBorder>0){
             const base=Math.floor(displayBorder);
-            for(let v=base-maxRange;v<=base+maxRange+1;v++){
-              if(v>0) intRows.push(v);
+            const minVal=Math.max(1, base-maxRange);
+            const maxVal=Math.max(33, base+maxRange+1); // 必ず33回転まで表示
+            for(let v=minVal;v<=maxVal;v++){
+              intRows.push(v);
             }
           }
 
@@ -2124,7 +2095,7 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                     <div>
                       <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>回転率別 期待値一覧</div>
-                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / {planHours}h（{planSpins}回転）想定</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>ボーダー <b style={{color:'#7c3aed'}}>{fmtRate(displayBorder)}</b> 基準 / {planHours}h（{planSpins}回転）想定 / 最大33回転まで表示</div>
                       <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>行をタップすると0.1刻みの詳細を表示するぜ</div>
                     </div>
                     <button onClick={()=>setBorderCalc(p=>({...p,showExtended:!p.showExtended,expandedIntRows:[]}))}
@@ -2150,7 +2121,7 @@ export default function PachinkoCalculatorComplete() {
                     const diffInt=intRate-displayBorder;
                     const isBorderRow=intRate===Math.round(displayBorder)||Math.abs(intRate-displayBorder)<1;
                     const isExpanded=(bc.expandedIntRows||[]).includes(intRate);
-                    const isCurrentInt=Math.floor(currentRate)===intRate||Math.ceil(currentRate)===intRate;
+                    const isCurrentInt=Math.round(currentRate)===intRate;
 
                     return (
                       <div key={intRate}>
