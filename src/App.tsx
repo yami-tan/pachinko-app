@@ -360,6 +360,8 @@ export default function PachinkoCalculatorComplete() {
   const [advancedInvestOpen,setAdvancedInvestOpen]=useState(false);
   const [metricsPanelOpen,setMetricsPanelOpen]=useState(false);
   const [firstHitDialogOpen,setFirstHitDialogOpen]=useState(false);
+  const [restartDialogOpen,setRestartDialogOpen]=useState(false);
+  const [restartRotationInput,setRestartRotationInput]=useState('');
   const [flashReadingId,setFlashReadingId]=useState('');
   const [undoStack,setUndoStack]=useState([]);
   const [saveStatus,setSaveStatus]=useState('saved');
@@ -455,6 +457,15 @@ export default function PachinkoCalculatorComplete() {
   function syncBorderToMachine() { if(!selectedMachine||currentBorderInputValue==='')return; const f=getBorderFieldByCategory(form.exchangeCategory||'25'); setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,[f]:numberOrZero(currentBorderInputValue)}:m)); }
   function moveFocusToNextReading(cid,idx,val) { const digs=String(val||'').replace(/[^0-9]/g,''); const prev=idx===0?form.startRotation:form.rateEntries[idx-1]?.reading; const pd=String(prev||'').replace(/[^0-9]/g,''); const th=Math.max(2,pd.length||1); if(digs.length<th)return; if(typeof navigator!=='undefined'&&navigator.vibrate)navigator.vibrate(10); setFlashReadingId(cid); setTimeout(()=>setFlashReadingId(''),180); const ne=Boolean(form.rateEntries[idx+1]); if(!ne){const nk=form.currentInputMode||'cash'; const na=nk==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000; applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(nk,na,'')]})); setTimeout(()=>readingInputRefs.current[idx+1]?.focus(),0); return;} setTimeout(()=>{readingInputRefs.current[idx+1]?.focus(); readingInputRefs.current[idx+1]?.select?.();},0); }
   function addRateEntry(kind=form.currentInputMode||'cash',amount) { const ba=amount??(kind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000); applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(kind,ba,'')]})); }
+  function applyRestart() {
+    const rotation=restartRotationInput.trim();
+    applyFormUpdate(p=>({
+      ...p,
+      rateEntries:[...p.rateEntries, { id:uid(), kind:'restart', amount:'0', reading:rotation }],
+    }));
+    setRestartDialogOpen(false);
+    setRestartRotationInput('');
+  }
   function removeRateEntry(id) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.length<=1?p.rateEntries:p.rateEntries.filter(e=>e.id!==id)})); }
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
   function createNewSession() { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate'); }
@@ -846,13 +857,14 @@ export default function PachinkoCalculatorComplete() {
                     const tone=getRateTone(diff,border);
                     const ev=border>0&&rate>0?calcEvYenFromRate(rate,border,entryInvestYen,settings):0;
                     const isFocused=flashReadingId===entry.id;
+                    const isRestart=entry.kind==='restart';
                     return (
                       <div
                         key={entry.id}
                         style={{
-                          border:`2px solid ${isFocused?'#10b981':hasReading?tone.border:C.border}`,
+                          border:`2px solid ${isRestart?'#fde68a':isFocused?'#10b981':hasReading?tone.border:C.border}`,
                           borderRadius:16,
-                          background:isFocused?'#ecfdf5':hasReading?tone.bg:'white',
+                          background:isRestart?'#fffbeb':isFocused?'#ecfdf5':hasReading?tone.bg:'white',
                           overflow:'hidden',
                           transition:'all 0.15s',
                         }}
@@ -880,21 +892,29 @@ export default function PachinkoCalculatorComplete() {
                           {/* 投資 */}
                           <div style={{ flex:1 }}>
                             <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:3 }}>投資</div>
-                            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                              <button
-                                onClick={()=>updateRateEntry(entry.id,'kind',entry.kind==='balls'?'cash':'balls')}
-                                style={{ flexShrink:0, padding:'7px 10px', borderRadius:8, border:'none', cursor:'pointer', fontWeight:700, fontSize:12, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent }}
-                              >
-                                {entry.kind==='balls'?'持ち玉':'現金'}
-                              </button>
-                              <input
-                                value={entry.amount}
-                                onChange={e=>updateRateEntry(entry.id,'amount',e.target.value)}
-                                style={{ flex:1, textAlign:'right', fontSize:16, fontWeight:700, border:`1.5px solid ${C.border}`, borderRadius:8, padding:'7px 10px', background:'white', color:C.textPrimary, outline:'none', width:'100%', boxSizing:'border-box' }}
-                                inputMode="numeric" enterKeyHint="done"
-                                placeholder={entry.kind==='balls'?'250':'1000'}
-                              />
-                            </div>
+                            {entry.kind==='restart' ? (
+                              <div style={{ display:'flex', alignItems:'center', height:40 }}>
+                                <span style={{ padding:'7px 14px', borderRadius:8, fontWeight:700, fontSize:13, background:'#fef3c7', color:'#d97706', border:'1.5px solid #fde68a' }}>
+                                  🔄 再スタート
+                                </span>
+                              </div>
+                            ) : (
+                              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                                <button
+                                  onClick={()=>updateRateEntry(entry.id,'kind',entry.kind==='balls'?'cash':'balls')}
+                                  style={{ flexShrink:0, padding:'7px 10px', borderRadius:8, border:'none', cursor:'pointer', fontWeight:700, fontSize:12, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent }}
+                                >
+                                  {entry.kind==='balls'?'持ち玉':'現金'}
+                                </button>
+                                <input
+                                  value={entry.amount}
+                                  onChange={e=>updateRateEntry(entry.id,'amount',e.target.value)}
+                                  style={{ flex:1, textAlign:'right', fontSize:16, fontWeight:700, border:`1.5px solid ${C.border}`, borderRadius:8, padding:'7px 10px', background:'white', color:C.textPrimary, outline:'none', width:'100%', boxSizing:'border-box' }}
+                                  inputMode="numeric" enterKeyHint="done"
+                                  placeholder={entry.kind==='balls'?'250':'1000'}
+                                />
+                              </div>
+                            )}
                           </div>
                           {/* 削除 */}
                           <button
@@ -924,13 +944,54 @@ export default function PachinkoCalculatorComplete() {
                   })}
                 </div>
 
-                {/* ＋行追加 */}
-                <button
-                  onClick={()=>addRateEntry(form.currentInputMode, form.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000)}
-                  style={{ ...btnSecondary, padding:'14px', width:'100%', fontSize:15 }}
-                >
-                  ＋投資行を追加
-                </button>
+                {/* ボタン2列 */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <button
+                    onClick={()=>addRateEntry(form.currentInputMode, form.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000)}
+                    style={{ ...btnSecondary, padding:'14px', fontSize:15 }}
+                  >
+                    ＋投資行を追加
+                  </button>
+                  <button
+                    onClick={()=>{ setRestartRotationInput(''); setRestartDialogOpen(true); }}
+                    style={{ background:'#fffbeb', color:'#d97706', border:'2px solid #fde68a', borderRadius:14, padding:'14px', fontWeight:700, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}
+                  >
+                    🔄 再スタート
+                  </button>
+                </div>
+
+                {/* 再スタートダイアログ */}
+                <Dialog open={restartDialogOpen} onOpenChange={setRestartDialogOpen}>
+                  <DialogContent className="max-w-sm rounded-3xl">
+                    <DialogHeader><DialogTitle>再スタート</DialogTitle></DialogHeader>
+                    <div style={{ display:'flex', flexDirection:'column', gap:16, padding:'4px 0' }}>
+                      <div style={{ background:'#fffbeb', border:'1.5px solid #fde68a', borderRadius:12, padding:'12px 14px', fontSize:13, color:'#92400e' }}>
+                        大当たり終了後など、回転率を区切って再スタートする際に使うぜ。再スタート時点のゲーム数を入力してくれ。
+                      </div>
+                      <div>
+                        <label style={{ fontSize:13, fontWeight:600, color:'#475569', display:'block', marginBottom:8 }}>再スタート時のゲーム数</label>
+                        <input
+                          value={restartRotationInput}
+                          onChange={e=>setRestartRotationInput(e.target.value)}
+                          style={{ width:'100%', boxSizing:'border-box', fontSize:28, fontWeight:800, textAlign:'center', border:'2px solid #fde68a', borderRadius:14, padding:'14px', color:'#0f172a', outline:'none', background:'white' }}
+                          inputMode="numeric"
+                          placeholder="例: 243"
+                          autoFocus
+                        />
+                        <div style={{ fontSize:11, color:'#94a3b8', marginTop:6 }}>入力しない場合は空欄のまま決定してください</div>
+                      </div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        <Button variant="secondary" className="rounded-2xl" onClick={()=>setRestartDialogOpen(false)}>キャンセル</Button>
+                        <button
+                          onClick={applyRestart}
+                          style={{ background:'#d97706', color:'white', border:'none', borderRadius:14, padding:'12px', fontWeight:700, fontSize:15, cursor:'pointer' }}
+                        >
+                          決定
+                        </button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
 
                 {/* スティッキーサマリー */}
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 16px rgba(0,0,0,0.08)' }}>
