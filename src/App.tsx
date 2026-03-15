@@ -2412,6 +2412,16 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>{monthlyReport.totals.hours>0?`時給 ${fmtYen(monthlyReport.totals.ev/monthlyReport.totals.hours)}`:'-'}</div>
                   </div>
                 </div>
+                {/* 月間仕事量 */}
+                {(()=>{
+                  const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  return monthWorkYen!==0&&(
+                    <div style={{ background:monthWorkYen>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthWorkYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間仕事量</div>
+                      <div style={{ fontSize:20, fontWeight:800, color:monthWorkYen>=0?C.positive:C.negative }}>{fmtYen(Math.round(monthWorkYen))}</div>
+                    </div>
+                  );
+                })()}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
                   {[['プラス日',monthlyReport.plusDays+'日',C.positive],['マイナス日',monthlyReport.minusDays+'日',C.negative],['平均回転率',monthlyReport.averageRate?fmtRate(monthlyReport.averageRate):'-',C.accent]].map(([l,v,c])=>(
                     <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', borderRadius:10, padding:'8px', textAlign:'center' }}>
@@ -2427,6 +2437,21 @@ export default function PachinkoCalculatorComplete() {
             <div style={cardStyle}>
               <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
                 <div style={{ fontWeight:700, fontSize:16, color:C.textPrimary }}>{selectedDate} の記録</div>
+                {selectedDateSessions.length>0&&(()=>{
+                  const dayBalance=selectedDateSessions.reduce((a,s)=>a+s.metrics.balanceYen,0);
+                  const dayEV=selectedDateSessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
+                  const dayWork=selectedDateSessions.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  return (
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginTop:10 }}>
+                      {[['収支',fmtYen(Math.round(dayBalance)),dayBalance>=0],['仕事量',fmtYen(Math.round(dayWork)),dayWork>=0],['期待値',fmtYen(Math.round(dayEV)),dayEV>=0]].map(([l,v,pos])=>(
+                        <div key={l} style={{ background:pos?C.positiveBg:C.negativeBg, border:`1px solid ${pos?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px', textAlign:'center' }}>
+                          <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
+                          <div style={{ fontSize:13, fontWeight:800, color:pos?C.positive:C.negative, marginTop:2 }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
               <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:10 }}>
                 {selectedDateSessions.length===0?<div style={{ fontSize:13, color:C.textMuted }}>この日はまだ未記録だぜ。</div>:selectedDateSessions.map(s=>{
