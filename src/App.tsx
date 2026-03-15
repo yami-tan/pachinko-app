@@ -2038,14 +2038,13 @@ export default function PachinkoCalculatorComplete() {
             const exchangeRate=getExchangePreset(bc.exchangeCategory||'25').yenPerBall;
             // 1R出玉とトータル確率が入力されている場合は正確な式で計算
             if(oneR>0&&totalRateDenom>0){
-              // 大当たり1回あたりの出玉価値（円）= 1R平均出玉 × 連比 × 換金率
-              // ここでは totalRateDenom が「1Rトータル確率の分母」= 平均大当たりまでの回転数
-              const avgBallsPerHit = oneR * totalRateDenom; // 1大当たりあたり平均出玉
-              // 持ち玉1回転単価（円）= (大当たり出玉価値/確率分母 - 等価換算コスト) × 換金率
-              const holdEvPerSpin = (avgBallsPerHit / totalRateDenom) * exchangeRate - (250 / rate) * exchangeRate;
-              // 現金1回転単価（円）= 持ち玉換算 - 現金1000円あたりコスト
-              const cashEvPerSpin = (avgBallsPerHit / totalRateDenom) * exchangeRate - 1000 / rate;
-              // 混合1回転単価
+              // 1回転あたりの期待出玉 = 1R出玉 ÷ 確率分母（= 平均大当たり間隔）
+              const payoutPerSpin = oneR / totalRateDenom;
+              // 持ち玉1回転単価（円）= (期待出玉 − 250÷回転率) × 換金率
+              const holdEvPerSpin = (payoutPerSpin - 250 / rate) * exchangeRate;
+              // 現金1回転単価（円）= 期待出玉 × 換金率 − 1000÷回転率
+              const cashEvPerSpin = payoutPerSpin * exchangeRate - 1000 / rate;
+              // 混合EV = (持ち玉単価×持ち玉比率 + 現金単価×現金比率) × 総回転数
               const mixedEvPerSpin = holdRatio * holdEvPerSpin + (1 - holdRatio) * cashEvPerSpin;
               return mixedEvPerSpin * planSpins;
             }
