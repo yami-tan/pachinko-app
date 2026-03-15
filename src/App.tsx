@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import {
   BarChart3, Camera, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
-  Copy, Database, Download, Gauge, Pencil, Save, Search, Settings,
+  Copy, Database, Download, Gauge, Palette, Pencil, Save, Search, Settings,
   Sparkles, Star, Store, Trash2, Upload,
 } from 'lucide-react';
 import {
@@ -45,6 +45,8 @@ const defaultSettings = {
   expectedHours: 4,
   spinsPerHour: 200,
   shopProfiles: [],
+  colorTheme: 'indigo',   // indigo / sky / emerald / rose / amber / violet
+  themeMode: 'light',     // light / dark / system
 };
 
 function uid() { return crypto.randomUUID(); }
@@ -340,36 +342,46 @@ function calcRateMetrics(session,machine,settings) {
   };
 }
 
-/* ─── カラーシステム ─── */
-// ライト系テーマ: 白ベース、インディゴアクセント、グリーン/ローズで正負
-const C = {
-  bg: '#f0f4ff',
-  card: '#ffffff',
-  border: '#e2e8f0',
-  primary: '#4f46e5',        // インディゴ
-  primaryLight: '#eef2ff',
-  primaryMid: '#c7d2fe',
-  accent: '#0ea5e9',         // スカイブルー
-  accentLight: '#e0f2fe',
-  positive: '#059669',       // エメラルド
-  positiveBg: '#ecfdf5',
-  positiveBorder: '#a7f3d0',
-  negative: '#dc2626',       // レッド
-  negativeBg: '#fff1f2',
-  negativeBorder: '#fecdd3',
-  textPrimary: '#0f172a',
-  textSecondary: '#475569',
-  textMuted: '#94a3b8',
-  amber: '#d97706',
-  amberBg: '#fffbeb',
-  amberBorder: '#fde68a',
-  // テーブル用
-  tablePositive: '#065f46',   // 濃いグリーン（白背景での可読性）
-  tablePositiveBg: '#d1fae5',
-  tableNegative: '#9f1239',   // 濃いローズ（白背景での可読性）
-  tableNegativeBg: '#ffe4e6',
-  tableHeader: '#312e81',     // ディープインディゴ
+/* ─── カラーテーマ定義 ─── */
+const COLOR_THEMES = {
+  indigo: { primary:'#4f46e5', primaryLight:'#eef2ff', primaryMid:'#c7d2fe', accent:'#0ea5e9', accentLight:'#e0f2fe', tableHeader:'#312e81' },
+  sky:    { primary:'#0284c7', primaryLight:'#e0f2fe', primaryMid:'#bae6fd', accent:'#6366f1', accentLight:'#ede9fe', tableHeader:'#0c4a6e' },
+  emerald:{ primary:'#059669', primaryLight:'#ecfdf5', primaryMid:'#a7f3d0', accent:'#0ea5e9', accentLight:'#e0f2fe', tableHeader:'#065f46' },
+  rose:   { primary:'#e11d48', primaryLight:'#fff1f2', primaryMid:'#fecdd3', accent:'#f97316', accentLight:'#fff7ed', tableHeader:'#9f1239' },
+  amber:  { primary:'#d97706', primaryLight:'#fffbeb', primaryMid:'#fde68a', accent:'#0ea5e9', accentLight:'#e0f2fe', tableHeader:'#78350f' },
+  violet: { primary:'#7c3aed', primaryLight:'#f5f3ff', primaryMid:'#ddd6fe', accent:'#ec4899', accentLight:'#fdf2f8', tableHeader:'#4c1d95' },
 };
+
+function buildColorSystem(theme='indigo', dark=false) {
+  const t=COLOR_THEMES[theme]||COLOR_THEMES.indigo;
+  if(dark) return {
+    bg:'#0f172a', card:'#1e293b', border:'#334155',
+    primary:t.primary, primaryLight:'rgba(255,255,255,0.06)', primaryMid:'rgba(255,255,255,0.15)',
+    accent:t.accent, accentLight:'rgba(255,255,255,0.06)',
+    positive:'#34d399', positiveBg:'rgba(52,211,153,0.12)', positiveBorder:'rgba(52,211,153,0.3)',
+    negative:'#fb7185', negativeBg:'rgba(251,113,133,0.12)', negativeBorder:'rgba(251,113,133,0.3)',
+    textPrimary:'#f1f5f9', textSecondary:'#94a3b8', textMuted:'#64748b',
+    amber:'#fbbf24', amberBg:'rgba(251,191,36,0.12)', amberBorder:'rgba(251,191,36,0.3)',
+    tablePositive:'#34d399', tablePositiveBg:'rgba(52,211,153,0.15)',
+    tableNegative:'#fb7185', tableNegativeBg:'rgba(251,113,133,0.15)',
+    tableHeader: t.tableHeader,
+  };
+  return {
+    bg:'#f0f4ff', card:'#ffffff', border:'#e2e8f0',
+    primary:t.primary, primaryLight:t.primaryLight, primaryMid:t.primaryMid,
+    accent:t.accent, accentLight:t.accentLight,
+    positive:'#059669', positiveBg:'#ecfdf5', positiveBorder:'#a7f3d0',
+    negative:'#dc2626', negativeBg:'#fff1f2', negativeBorder:'#fecdd3',
+    textPrimary:'#0f172a', textSecondary:'#475569', textMuted:'#94a3b8',
+    amber:'#d97706', amberBg:'#fffbeb', amberBorder:'#fde68a',
+    tablePositive:'#065f46', tablePositiveBg:'#d1fae5',
+    tableNegative:'#9f1239', tableNegativeBg:'#ffe4e6',
+    tableHeader: t.tableHeader,
+  };
+}
+
+// 後でstateベースに差し替えるのでグローバル版は仮置き
+let C = buildColorSystem('indigo', false);
 
 function getRateTone(diff, border) {
   if(border<=0) return { bg:'#f8fafc', border:'#e2e8f0', text:'#475569' };
@@ -476,6 +488,17 @@ export default function PachinkoCalculatorComplete() {
   const [sessions,setSessions]=useState([]);
   const [settings,setSettings]=useState(defaultSettings);
   const [form,setForm]=useState(emptySession(defaultSettings));
+
+  // ── ダークモード判定 ──
+  const [sysDark,setSysDark]=useState(()=>typeof window!=='undefined'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(()=>{
+    const mq=window.matchMedia('(prefers-color-scheme: dark)');
+    const handler=e=>setSysDark(e.matches);
+    mq.addEventListener('change',handler);
+    return ()=>mq.removeEventListener('change',handler);
+  },[]);
+  const isDark=settings.themeMode==='dark'||(settings.themeMode==='system'&&sysDark);
+  C=buildColorSystem(settings.colorTheme||'indigo', isDark);
   const [activeTab,setActiveTab]=useState('rate');
   const [search,setSearch]=useState('');
   const [periodMode,setPeriodMode]=useState('month');
@@ -2519,6 +2542,11 @@ export default function PachinkoCalculatorComplete() {
                           <div>総回転 <span style={{ fontWeight:600, color:C.textPrimary }}>{Math.round(s.metrics.totalSpins).toLocaleString()}回</span></div>
                           <div>現金投資 <span style={{ fontWeight:600, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
                           <div>初当たり <span style={{ fontWeight:600, color:C.textPrimary }}>{(s.firstHits||[]).length}件</span></div>
+                          {s.startTime&&<div>打ち始め <span style={{ fontWeight:600, color:C.primary }}>{s.startTime}</span></div>}
+                          {s.endTime&&<div>終了 <span style={{ fontWeight:600, color:C.primary }}>{s.endTime}</span></div>}
+                          {s.startTime&&s.endTime&&fmtElapsed(calcElapsedHours(s.startTime,s.endTime))&&(
+                            <div>稼働 <span style={{ fontWeight:600, color:C.accent }}>{fmtElapsed(calcElapsedHours(s.startTime,s.endTime))}</span></div>
+                          )}
                         </div>
 
                         {/* ボタン */}
@@ -2583,6 +2611,47 @@ export default function PachinkoCalculatorComplete() {
         {activeTab==='settings'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {[
+              { title:'カラーテーマ', icon:<Palette size={16} color={C.primary}/>, content:(
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  {/* テーマモード */}
+                  <div>
+                    <label style={labelStyle}>テーマモード</label>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                      {[['light','☀️ ライト'],['dark','🌙 ダーク'],['system','⚙️ システム']].map(([v,l])=>(
+                        <button key={v} onClick={()=>setSettings(p=>({...p,themeMode:v}))}
+                          style={{ padding:'10px 4px', borderRadius:12, border:`2px solid ${(settings.themeMode||'light')===v?C.primary:C.border}`, background:(settings.themeMode||'light')===v?C.primary:C.card, color:(settings.themeMode||'light')===v?'white':C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                    {settings.themeMode==='system'&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>現在: {sysDark?'ダーク':'ライト'}モード適用中</div>}
+                  </div>
+                  {/* カラーテーマ選択 */}
+                  <div>
+                    <label style={labelStyle}>アクセントカラー</label>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
+                      {[
+                        ['indigo','インディゴ','#4f46e5'],
+                        ['sky',   'スカイ',    '#0284c7'],
+                        ['emerald','エメラルド','#059669'],
+                        ['rose',  'ローズ',    '#e11d48'],
+                        ['amber', 'アンバー',  '#d97706'],
+                        ['violet','バイオレット','#7c3aed'],
+                      ].map(([v,l,hex])=>(
+                        <button key={v} onClick={()=>setSettings(p=>({...p,colorTheme:v}))}
+                          style={{ padding:'12px 8px', borderRadius:14, border:`2px solid ${(settings.colorTheme||'indigo')===v?hex:C.border}`, background:(settings.colorTheme||'indigo')===v?hex:C.card, color:(settings.colorTheme||'indigo')===v?'white':C.textSecondary, fontWeight:700, fontSize:12, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+                          <div style={{ width:28, height:28, borderRadius:'50%', background:hex, border:`3px solid ${(settings.colorTheme||'indigo')===v?'rgba(255,255,255,0.6)':C.border}` }}/>
+                          {l}
+                          {(settings.colorTheme||'indigo')===v&&<span style={{ fontSize:10 }}>✓ 選択中</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'10px 14px', fontSize:12, color:C.textSecondary }}>
+                    💡 変更は即時反映されるぜ。好みのカラーで使ってくれ。
+                  </div>
+                </div>
+              )},
               { title:'期待値計算の詳細設定', icon:<Settings size={16} color={C.primary}/>, content:(
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
