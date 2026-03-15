@@ -71,6 +71,33 @@ function fmtRate(v) { return Number.isFinite(v)?Number(v).toFixed(2):'-'; }
 function fmtBall(v) { return `${Math.round(v||0).toLocaleString()}玉`; }
 function cloneDeep(v) { return JSON.parse(JSON.stringify(v)); }
 
+// ── あいまい検索用：ひらがな↔カタカナ・全角半角正規化 ──
+function normalizeForSearch(str) {
+  return String(str||'')
+    .toLowerCase()
+    // カタカナ→ひらがな
+    .replace(/[\u30A1-\u30F6]/g, c=>String.fromCharCode(c.charCodeAt(0)-0x60))
+    // 全角英数→半角
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+    // 空白除去
+    .replace(/\s/g,'');
+}
+function fuzzyMatch(target, query) {
+  if(!query) return true;
+  const t=normalizeForSearch(target);
+  const q=normalizeForSearch(query);
+  // 部分一致
+  if(t.includes(q)) return true;
+  // クエリの文字が順番に含まれているか（例: まる→マルハン）
+  let ti=0;
+  for(let qi=0;qi<q.length;qi++){
+    const idx=t.indexOf(q[qi],ti);
+    if(idx===-1) return false;
+    ti=idx+1;
+  }
+  return true;
+}
+
 function getSaveStatusMeta(s) {
   if(s==='saving') return { label:'保存中…', color:'#f59e0b' };
   if(s==='saved') return { label:'保存済み', color:'#10b981' };
@@ -465,8 +492,10 @@ export default function PachinkoCalculatorComplete() {
   const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
+  const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
+  const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
 
   useEffect(()=>{
     const lm=loadJSON(STORAGE_KEYS.machines,defaultMachines);
@@ -657,9 +686,11 @@ export default function PachinkoCalculatorComplete() {
     setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',memo:''});
   }
   function deleteMachine(id) {
-    if(!window.confirm('この機種データを削除しますか？')) return;
     setMachines(prev=>prev.filter(m=>m.id!==id));
     if(form.machineId===id) applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));
+    setDeleteConfirmOpen(false);
+    setEditMachineDialogOpen(false);
+    setEditMachineId(null);
   }
   function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
@@ -850,7 +881,30 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                         <div><label style={labelStyle}>日付</label><input type="date" value={form.date} onChange={e=>updateForm('date',e.target.value)} style={inputStyle}/></div>
-                        <div><label style={labelStyle}>店舗名</label><input value={form.shop} onChange={e=>applyShopValue(e.target.value)} style={inputStyle} placeholder="未入力でも可"/></div>
+                        <div style={{ position:'relative' }}>
+                          <label style={labelStyle}>店舗名</label>
+                          <input
+                            value={form.shop}
+                            onChange={e=>{ applyShopValue(e.target.value); setShopSuggestOpen(true); }}
+                            onFocus={()=>setShopSuggestOpen(true)}
+                            onBlur={()=>setTimeout(()=>setShopSuggestOpen(false),150)}
+                            style={inputStyle}
+                            placeholder="店舗名を入力…"
+                          />
+                          {shopSuggestOpen&&form.shop.trim()&&(()=>{
+                            const hits=recentShopPresets.filter(n=>fuzzyMatch(n,form.shop)).slice(0,6);
+                            return hits.length>0?(
+                              <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', background:'white', boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4 }}>
+                                {hits.map((n,i)=>(
+                                  <button key={n} onMouseDown={()=>{applyShopValue(n);setShopSuggestOpen(false);}}
+                                    style={{ width:'100%', display:'block', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:'white', cursor:'pointer', textAlign:'left', fontSize:13, color:C.textPrimary, fontWeight: n===form.shop?700:400 }}>
+                                    {n}
+                                  </button>
+                                ))}
+                              </div>
+                            ):null;
+                          })()}
+                        </div>
                       </div>
 
                       {/* 機種選択（検索型） */}
@@ -875,8 +929,8 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                         {/* サジェスト一覧 */}
                         {machineSearchQuery.trim()&&(()=>{
-                          const q=machineSearchQuery.trim().toLowerCase();
-                          const hits=machines.filter(m=>m.name.toLowerCase().includes(q)).slice(0,8);
+                          const q=machineSearchQuery.trim();
+                          const hits=machines.filter(m=>fuzzyMatch(m.name,q)).slice(0,8);
                           return hits.length>0?(
                             <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginTop:4 }}>
                               {hits.map((m,i)=>(
@@ -911,15 +965,6 @@ export default function PachinkoCalculatorComplete() {
                         <div><label style={labelStyle}>台番号</label><input value={form.machineNumber} onChange={e=>updateForm('machineNumber',e.target.value)} style={inputStyle} placeholder="任意"/></div>
                         <div><label style={labelStyle}>機種名フリー入力</label><input value={form.machineFreeName} onChange={e=>updateForm('machineFreeName',e.target.value)} style={inputStyle} placeholder="未登録時用"/></div>
                       </div>
-
-                      {recentShopPresets.length>0&&(
-                        <div style={{ background:C.primaryLight, borderRadius:12, padding:'10px 12px' }}>
-                          <div style={{ fontSize:12, fontWeight:700, color:C.primary, marginBottom:6 }}>店舗プリセット</div>
-                          <div style={{ display:'flex', gap:6, overflowX:'auto', paddingBottom:4 }}>
-                            {recentShopPresets.map(n=><button key={n} onClick={()=>applyShopValue(n)} style={{ ...btnSecondary, padding:'5px 12px', fontSize:12, whiteSpace:'nowrap', flexShrink:0 }}>{n}</button>)}
-                          </div>
-                        </div>
-                      )}
 
                       {selectedMachine&&(
                         <div style={{ background:'#f8fafc', borderRadius:12, padding:'10px 12px' }}>
@@ -975,48 +1020,56 @@ export default function PachinkoCalculatorComplete() {
                         </DialogContent>
                       </Dialog>
 
-                      {/* 機種一覧（編集・削除） */}
-                      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                        <div style={{ fontSize:12, fontWeight:700, color:C.textSecondary }}>登録済み機種一覧</div>
-                        {machines.map(m=>(
-                          <div key={m.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:'white', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px' }}>
-                            <div style={{ flex:1, overflow:'hidden' }}>
-                              <div style={{ fontWeight:600, color:C.textPrimary, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
-                              <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
-                                等価B {fmtRate(m.border25)} / {m.totalProbability?`確率1/${fmtRate(m.totalProbability)}`:'確率未登録'}
-                              </div>
-                            </div>
-                            <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
-                              <button onClick={()=>openEditMachine(m)} style={{ padding:'6px 12px', borderRadius:8, border:`1px solid ${C.primaryMid}`, background:C.primaryLight, color:C.primary, fontWeight:700, fontSize:12, cursor:'pointer' }}>編集</button>
-                              <button onClick={()=>deleteMachine(m.id)} style={{ padding:'6px 12px', borderRadius:8, border:`1px solid ${C.negativeBorder}`, background:C.negativeBg, color:C.negative, fontWeight:700, fontSize:12, cursor:'pointer' }}>削除</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
                       {/* 機種編集ダイアログ */}
-                      <Dialog open={editMachineDialogOpen} onOpenChange={setEditMachineDialogOpen}>
+                      <Dialog open={editMachineDialogOpen} onOpenChange={open=>{setEditMachineDialogOpen(open); if(!open)setDeleteConfirmOpen(false);}}>
                         <DialogContent className="max-w-sm rounded-3xl">
                           <DialogHeader><DialogTitle>機種データを変更</DialogTitle></DialogHeader>
-                          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                            <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
-                            <div><Label>よく行く店舗(任意)</Label><Input value={machineDraft.shopDefault} onChange={e=>setMachineDraft(p=>({...p,shopDefault:e.target.value}))} className="mt-1 rounded-2xl"/></div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                              {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個'],['border40','40個']].map(([k,l])=>(
-                                <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
-                              ))}
+                          {!deleteConfirmOpen?(
+                            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                              <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
+                              <div><Label>よく行く店舗(任意)</Label><Input value={machineDraft.shopDefault} onChange={e=>setMachineDraft(p=>({...p,shopDefault:e.target.value}))} className="mt-1 rounded-2xl"/></div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個'],['border40','40個']].map(([k,l])=>(
+                                  <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
+                                ))}
+                              </div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <div><Label>1R出玉</Label><Input value={machineDraft.payoutPerRound} onChange={e=>setMachineDraft(p=>({...p,payoutPerRound:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
+                                <div><Label>平均獲得出玉</Label><Input value={machineDraft.expectedBallsPerHit} onChange={e=>setMachineDraft(p=>({...p,expectedBallsPerHit:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
+                                <div style={{ gridColumn:'1/-1' }}><Label>トータル確率</Label><Input value={machineDraft.totalProbability} onChange={e=>setMachineDraft(p=>({...p,totalProbability:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal" placeholder="例: 9.49"/></div>
+                              </div>
+                              <div><Label>メモ</Label><Textarea value={machineDraft.memo} onChange={e=>setMachineDraft(p=>({...p,memo:e.target.value}))} className="mt-1 min-h-[70px] rounded-2xl"/></div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                                <Button variant="secondary" className="rounded-2xl" onClick={()=>setEditMachineDialogOpen(false)}>キャンセル</Button>
+                                <Button className="rounded-2xl" onClick={saveEditMachine}>変更を保存</Button>
+                              </div>
+                              {/* 削除ボタン */}
+                              <button onClick={()=>setDeleteConfirmOpen(true)}
+                                style={{ width:'100%', padding:'11px', borderRadius:14, border:`1.5px solid ${C.negativeBorder}`, background:'white', color:C.negative, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                                🗑 この機種を削除する
+                              </button>
                             </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                              <div><Label>1R出玉</Label><Input value={machineDraft.payoutPerRound} onChange={e=>setMachineDraft(p=>({...p,payoutPerRound:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
-                              <div><Label>平均獲得出玉</Label><Input value={machineDraft.expectedBallsPerHit} onChange={e=>setMachineDraft(p=>({...p,expectedBallsPerHit:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
-                              <div style={{ gridColumn:'1/-1' }}><Label>トータル確率</Label><Input value={machineDraft.totalProbability} onChange={e=>setMachineDraft(p=>({...p,totalProbability:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal" placeholder="例: 9.49"/></div>
+                          ):(
+                            /* 削除確認画面 */
+                            <div style={{ display:'flex', flexDirection:'column', gap:16, padding:'4px 0' }}>
+                              <div style={{ background:C.negativeBg, border:`1.5px solid ${C.negativeBorder}`, borderRadius:14, padding:'16px', textAlign:'center' }}>
+                                <div style={{ fontSize:28, marginBottom:8 }}>⚠️</div>
+                                <div style={{ fontWeight:800, color:C.negative, fontSize:16, marginBottom:6 }}>本当に削除しますか？</div>
+                                <div style={{ fontSize:13, color:C.textSecondary, fontWeight:600 }}>「{machineDraft.name}」</div>
+                                <div style={{ fontSize:12, color:C.textMuted, marginTop:8 }}>削除すると元に戻せません。この機種に紐づくセッションは保持されますが、機種データ自体は消えるぜ。</div>
+                              </div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <button onClick={()=>setDeleteConfirmOpen(false)}
+                                  style={{ padding:'12px', borderRadius:14, border:`1px solid ${C.border}`, background:'white', color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                                  キャンセル
+                                </button>
+                                <button onClick={()=>deleteMachine(editMachineId)}
+                                  style={{ padding:'12px', borderRadius:14, border:'none', background:C.negative, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                                  削除する
+                                </button>
+                              </div>
                             </div>
-                            <div><Label>メモ</Label><Textarea value={machineDraft.memo} onChange={e=>setMachineDraft(p=>({...p,memo:e.target.value}))} className="mt-1 min-h-[70px] rounded-2xl"/></div>
-                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                              <Button variant="secondary" className="rounded-2xl" onClick={()=>setEditMachineDialogOpen(false)}>キャンセル</Button>
-                              <Button className="rounded-2xl" onClick={saveEditMachine}>変更を保存</Button>
-                            </div>
-                          </div>
+                          )}
                         </DialogContent>
                       </Dialog>
                     </div>
@@ -1839,8 +1892,8 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                   {/* サジェスト */}
                   {borderMachineSearchQuery.trim()&&(()=>{
-                    const q=borderMachineSearchQuery.trim().toLowerCase();
-                    const hits=machines.filter(m=>m.name.toLowerCase().includes(q)).slice(0,8);
+                    const q=borderMachineSearchQuery.trim();
+                    const hits=machines.filter(m=>fuzzyMatch(m.name,q)).slice(0,8);
                     return hits.length>0?(
                       <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginTop:4 }}>
                         {hits.map((m,i)=>{
