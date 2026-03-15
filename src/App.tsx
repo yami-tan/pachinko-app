@@ -1560,7 +1560,7 @@ export default function PachinkoCalculatorComplete() {
 
                 {/* 初当たりDialog */}
                 <Dialog open={firstHitDialogOpen} onOpenChange={setFirstHitDialogOpen}>
-                  <DialogContent className="max-w-sm rounded-3xl">
+                  <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                     <DialogHeader><DialogTitle className="flex items-center gap-2 text-base"><Star className="h-4 w-4 text-amber-400"/>{firstHitForm.label}</DialogTitle></DialogHeader>
                     <div className="space-y-2 max-h-[80vh] overflow-y-auto pr-1">
                       {/* R数選択 */}
@@ -1710,7 +1710,7 @@ export default function PachinkoCalculatorComplete() {
 
                 {/* 結果ダイアログ */}
                 <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
-                  <DialogContent className="max-w-sm rounded-3xl">
+                  <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                     <DialogHeader><DialogTitle className="text-base">稼働結果</DialogTitle></DialogHeader>
                     <div className="space-y-2 max-h-[82vh] overflow-y-auto pr-1">
                       {/* 時刻サマリー */}
