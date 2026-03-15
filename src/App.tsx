@@ -462,26 +462,26 @@ function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onP
     return { background:bg, border:`1.5px solid ${bd}`, outline:sel?`2px solid ${C.primary}`:undefined };
   }
   return (
-    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:24, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.06)' }}>
-      <div style={{ padding:'16px 18px 0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <button onClick={onPrev} style={{ width:36,height:36,borderRadius:12,border:`1px solid ${C.border}`,background:C.card,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronLeft size={16} color={C.textSecondary}/></button>
-        <div style={{ fontWeight:700, color:C.textPrimary }}>{year}年 {month+1}月</div>
-        <button onClick={onNext} style={{ width:36,height:36,borderRadius:12,border:`1px solid ${C.border}`,background:C.card,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronRight size={16} color={C.textSecondary}/></button>
+    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, overflow:'hidden', boxShadow:'0 1px 4px rgba(0,0,0,0.06)' }}>
+      <div style={{ padding:'12px 14px 0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <button onClick={onPrev} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronLeft size={15} color={C.textSecondary}/></button>
+        <div style={{ fontWeight:700, color:C.textPrimary, fontSize:15 }}>{year}年 {month+1}月</div>
+        <button onClick={onNext} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer' }}><ChevronRight size={15} color={C.textSecondary}/></button>
       </div>
-      <div style={{ padding:'12px 16px 16px' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4, marginBottom:6 }}>
-          {['日','月','火','水','木','金','土'].map(d=><div key={d} style={{ textAlign:'center',fontSize:11,color:C.textMuted,fontWeight:600 }}>{d}</div>)}
+      <div style={{ padding:'10px 8px 12px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2, marginBottom:4 }}>
+          {['日','月','火','水','木','金','土'].map(d=><div key={d} style={{ textAlign:'center',fontSize:10,color:C.textMuted,fontWeight:600 }}>{d}</div>)}
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:2 }}>
           {cells.map((day,i)=>{
-            if(!day) return <div key={`e${i}`} style={{ aspectRatio:'1',borderRadius:12,background:isDark?C.card:C.bg }}/>;
+            if(!day) return <div key={`e${i}`} style={{ aspectRatio:'1',borderRadius:8,background:isDark?C.card:C.bg }}/>;
             const ds=`${currentMonth}-${String(day).padStart(2,'0')}`;
             const info=dayMap[ds];
             return (
-              <button key={ds} onClick={()=>onSelectDate(ds)} style={{ aspectRatio:'1',borderRadius:12,padding:4,textAlign:'left',cursor:'pointer',transition:'all 0.1s',...dayStyle(info,ds) }}>
-                <div style={{ fontSize:11,fontWeight:700,color:C.textPrimary }}>{day}</div>
-                {info&&<div style={{ marginTop:2,fontSize:9,lineHeight:1.3,color:C.textSecondary }}>
-                  <div>{info.balance>=0?'+':''}{Math.round(info.balance/1000)}k</div>
+              <button key={ds} onClick={()=>onSelectDate(ds)} style={{ aspectRatio:'1',borderRadius:8,padding:'3px 2px',textAlign:'center',cursor:'pointer',transition:'all 0.1s',...dayStyle(info,ds) }}>
+                <div style={{ fontSize:12,fontWeight:700,color:C.textPrimary,lineHeight:1 }}>{day}</div>
+                {info&&<div style={{ marginTop:1,fontSize:8,lineHeight:1.2,color:C.textSecondary }}>
+                  <div style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{info.balance>=0?'+':''}{Math.round(info.balance/1000)}k</div>
                   <div>{info.count}件</div>
                 </div>}
               </button>
@@ -869,7 +869,7 @@ export default function PachinkoCalculatorComplete() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary }}>
-      <div style={{ maxWidth:520, margin:'0 auto', padding:'14px 14px 130px' }}>
+      <div style={{ maxWidth:520, margin:'0 auto', padding:'10px 8px 130px' }}>
 
         {/* ─── ヘッダー ─── */}
         <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:16}}>
@@ -1561,53 +1561,53 @@ export default function PachinkoCalculatorComplete() {
                 {/* 初当たりDialog */}
                 <Dialog open={firstHitDialogOpen} onOpenChange={setFirstHitDialogOpen}>
                   <DialogContent className="max-w-sm rounded-3xl">
-                    <DialogHeader><DialogTitle className="flex items-center gap-2"><Star className="h-4 w-4 text-amber-400"/>{firstHitForm.label}</DialogTitle></DialogHeader>
-                    <div className="space-y-4">
+                    <DialogHeader><DialogTitle className="flex items-center gap-2 text-base"><Star className="h-4 w-4 text-amber-400"/>{firstHitForm.label}</DialogTitle></DialogHeader>
+                    <div className="space-y-2 max-h-[80vh] overflow-y-auto pr-1">
+                      {/* R数選択 */}
                       <div className="grid grid-cols-3 gap-2">
-                        <Button variant={firstHitForm.rounds==='10'?'default':'secondary'} className="rounded-2xl" onClick={()=>setFirstHitForm(p=>({...p,rounds:'10'}))}>10R</Button>
-                        <Button variant={firstHitForm.rounds==='20'?'default':'secondary'} className="rounded-2xl" onClick={()=>setFirstHitForm(p=>({...p,rounds:'20'}))}>20R</Button>
-                        <Input value={firstHitForm.rounds} onChange={e=>setFirstHitForm(p=>({...p,rounds:e.target.value}))} className="rounded-2xl text-center" inputMode="numeric" placeholder="直入力"/>
+                        <Button variant={firstHitForm.rounds==='10'?'default':'secondary'} className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitForm(p=>({...p,rounds:'10'}))}>10R</Button>
+                        <Button variant={firstHitForm.rounds==='20'?'default':'secondary'} className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitForm(p=>({...p,rounds:'20'}))}>20R</Button>
+                        <Input value={firstHitForm.rounds} onChange={e=>setFirstHitForm(p=>({...p,rounds:e.target.value}))} className="rounded-xl h-9 text-center text-sm" inputMode="numeric" placeholder="直入力"/>
                       </div>
-                      <div className="space-y-3 rounded-2xl border p-3">
-                        <div><Label>開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={e=>setFirstHitForm(p=>({...p,startBalls:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
-                        <div><Label>開始上皿玉数（任意）</Label><Input value={firstHitForm.upperBalls} onChange={e=>setFirstHitForm(p=>({...p,upperBalls:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
-                        <div><Label>終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={e=>setFirstHitForm(p=>({...p,endBalls:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric"/></div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div><Label>再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={e=>setFirstHitForm(p=>({...p,restartRotation:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="0"/></div>
-                          <div><Label>連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>setFirstHitForm(p=>({...p,chainCount:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="1"/></div>
-                        </div>
-                        <div>
-                          <Label style={{display:'flex',alignItems:'center',gap:6}}>
-                            残り保留数
-                            <span style={{fontSize:11,color:'#0369a1',background:'#e0f2fe',borderRadius:6,padding:'1px 7px',fontWeight:600}}>メモ自動記入</span>
-                          </Label>
-                          <Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="例: 3"/>
-                          <div style={{fontSize:11,color:C.textMuted,marginTop:4}}>大当たり終了時に残っていた保留数。回転率計算の参考になるぜ。</div>
-                        </div>
-                        <div>
-                          <Label>再スタート理由</Label>
-                          <Select value={firstHitForm.restartReason} onValueChange={v=>setFirstHitForm(p=>({...p,restartReason:v}))}>
-                            <SelectTrigger className="mt-1 rounded-2xl"><span>{getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote)}</span></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="single">単発後</SelectItem><SelectItem value="st">確変/ST後</SelectItem>
-                              <SelectItem value="jitan">時短抜け後</SelectItem><SelectItem value="other">その他</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {firstHitForm.restartReason==='other'&&<Input value={firstHitForm.restartReasonNote} onChange={e=>setFirstHitForm(p=>({...p,restartReasonNote:e.target.value}))} className="mt-2 rounded-2xl" placeholder="理由メモ"/>}
+                      {/* 持ち玉・回転 2列グリッド */}
+                      <div className="grid grid-cols-2 gap-2 rounded-xl border p-2">
+                        <div><Label className="text-xs">開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={e=>setFirstHitForm(p=>({...p,startBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
+                        <div><Label className="text-xs">終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={e=>setFirstHitForm(p=>({...p,endBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
+                        <div><Label className="text-xs">上皿玉数(任意)</Label><Input value={firstHitForm.upperBalls} onChange={e=>setFirstHitForm(p=>({...p,upperBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
+                        <div><Label className="text-xs">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>setFirstHitForm(p=>({...p,chainCount:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="1"/></div>
+                        <div><Label className="text-xs">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={e=>setFirstHitForm(p=>({...p,restartRotation:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
+                        <div><Label className="text-xs">残り保留数</Label><Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 3"/></div>
+                      </div>
+                      {/* 再スタート理由 */}
+                      <div>
+                        <Label className="text-xs">再スタート理由</Label>
+                        <Select value={firstHitForm.restartReason} onValueChange={v=>setFirstHitForm(p=>({...p,restartReason:v}))}>
+                          <SelectTrigger className="mt-1 rounded-xl h-9 text-sm"><span>{getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote)}</span></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">単発後</SelectItem><SelectItem value="st">確変/ST後</SelectItem>
+                            <SelectItem value="jitan">時短抜け後</SelectItem><SelectItem value="other">その他</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {firstHitForm.restartReason==='other'&&<Input value={firstHitForm.restartReasonNote} onChange={e=>setFirstHitForm(p=>({...p,restartReasonNote:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" placeholder="理由メモ"/>}
+                      </div>
+                      {/* 計算結果（コンパクト） */}
+                      <div style={{ background:isDark?C.card:'#f8fafc', borderRadius:10, padding:'8px 12px' }}>
+                        <div style={{ fontWeight:600, fontSize:12, color:C.textPrimary, marginBottom:4 }}>計算結果</div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 12px', fontSize:12 }}>
+                          {[['獲得出玉',fmtBall(firstHitMetrics.gainedBalls)],['1R出玉',fmtRate(firstHitMetrics.oneRound)],['合計R',String(firstHitMetrics.rounds||0)],['連チャン',getChainResultLabel(firstHitForm.chainCount)]].map(([l,v])=>(
+                            <div key={l} style={{ display:'flex', justifyContent:'space-between', padding:'2px 0', borderBottom:`1px solid ${C.border}` }}>
+                              <span style={{ color:C.textMuted }}>{l}</span>
+                              <span style={{ fontWeight:700, color:C.textPrimary }}>{v}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                      <div className="rounded-2xl bg-slate-50 p-4 space-y-2 text-sm">
-                        <div className="font-semibold">計算結果</div>
-                        {[['獲得出玉',fmtBall(firstHitMetrics.gainedBalls)],['合計R',String(firstHitMetrics.rounds||0)],['1R出玉',fmtRate(firstHitMetrics.oneRound)],['連チャン',getChainResultLabel(firstHitForm.chainCount)],['残り保留',firstHitForm.remainingHolds?`${firstHitForm.remainingHolds}個`:'-']].map(([l,v])=>(
-                          <div key={l} className="flex justify-between"><span className="text-muted-foreground">{l}</span><span className="font-bold">{v}</span></div>
-                        ))}
-                      </div>
-                      {selectedMachine?<Button variant="secondary" className="w-full rounded-2xl" onClick={applyFirstHitOneRoundToMachine}>この1R出玉を機種へ反映</Button>:<div className="text-xs text-amber-600">機種選択中なら1R出玉をその機種データへ反映できるぜ。</div>}
+                      {selectedMachine&&<Button variant="secondary" className="w-full rounded-xl h-8 text-xs" onClick={applyFirstHitOneRoundToMachine}>この1R出玉を機種へ反映</Button>}
                       <div className="grid grid-cols-2 gap-2">
-                        <Button variant="secondary" className="rounded-2xl" onClick={()=>setFirstHitDialogOpen(false)}>キャンセル</Button>
-                        <Button className="rounded-2xl" onClick={()=>completeFirstHit(false)}>大当たり終了</Button>
+                        <Button variant="secondary" className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitDialogOpen(false)}>キャンセル</Button>
+                        <Button className="rounded-xl h-9 text-sm" onClick={()=>completeFirstHit(false)}>大当たり終了</Button>
                       </div>
-                      <Button variant="secondary" className="w-full rounded-2xl" onClick={()=>completeFirstHit(true)}>大当たり終了して回転率を再スタート</Button>
+                      <Button variant="secondary" className="w-full rounded-xl h-9 text-sm" onClick={()=>completeFirstHit(true)}>終了して回転率を再スタート</Button>
                     </div>
                   </DialogContent>
                 </Dialog>
@@ -1710,54 +1710,62 @@ export default function PachinkoCalculatorComplete() {
 
                 {/* 結果ダイアログ */}
                 <Dialog open={resultDialogOpen} onOpenChange={setResultDialogOpen}>
-                  <DialogContent className="max-w-md rounded-3xl">
-                    <DialogHeader><DialogTitle>稼働結果</DialogTitle></DialogHeader>
-                    <div className="space-y-4">
+                  <DialogContent className="max-w-sm rounded-3xl">
+                    <DialogHeader><DialogTitle className="text-base">稼働結果</DialogTitle></DialogHeader>
+                    <div className="space-y-2 max-h-[82vh] overflow-y-auto pr-1">
                       {/* 時刻サマリー */}
                       {(form.startTime||form.endTime)&&(
-                        <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:14, padding:'12px 16px' }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <div style={{ textAlign:'center' }}>
-                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>打ち始め</div>
-                              <div style={{ fontSize:22, fontWeight:800, color:C.primary }}>{form.startTime||'--:--'}</div>
-                            </div>
-                            <div style={{ fontSize:18, color:C.textMuted }}>→</div>
-                            <div style={{ textAlign:'center' }}>
-                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>終了</div>
-                              <div style={{ fontSize:22, fontWeight:800, color:C.primary }}>{form.endTime||'--:--'}</div>
-                            </div>
-                            <div style={{ textAlign:'center' }}>
-                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>稼働時間</div>
-                              <div style={{ fontSize:16, fontWeight:800, color:C.accent }}>
-                                {fmtElapsed(calcElapsedHours(form.startTime,form.endTime))||'-'}
-                              </div>
-                            </div>
+                        <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 12px', display:'flex', justifyContent:'space-around', alignItems:'center' }}>
+                          <div style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>打ち始め</div>
+                            <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{form.startTime||'--:--'}</div>
+                          </div>
+                          <div style={{ fontSize:14, color:C.textMuted }}>→</div>
+                          <div style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>終了</div>
+                            <div style={{ fontSize:18, fontWeight:800, color:C.primary }}>{form.endTime||'--:--'}</div>
+                          </div>
+                          <div style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>稼働</div>
+                            <div style={{ fontSize:14, fontWeight:800, color:C.accent }}>{fmtElapsed(calcElapsedHours(form.startTime,form.endTime))||'-'}</div>
                           </div>
                         </div>
                       )}
-                      <div className="grid grid-cols-2 gap-3">
-                        <SummaryMetric title="総回転数" value={`${Math.round(resultPreviewMetrics.totalSpins)}回`} sub={`累積率 ${fmtRate(resultPreviewMetrics.spinPerThousand)}`}/>
-                        <SummaryMetric title="1R出玉" value={selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-'} sub={`持ち玉比率 ${fmtRate(resultPreviewMetrics.holdBallRatio)}%`}/>
-                        <SummaryMetric title="期待値" value={fmtYen(resultPreviewMetrics.estimatedEVYen)} positive={resultPreviewMetrics.estimatedEVYen>=0}/>
-                        <SummaryMetric title="収支" value={fmtYen(resultPreviewMetrics.balanceYen)} positive={resultPreviewMetrics.balanceYen>=0}/>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><Label>終了時持ち玉</Label><Input value={form.endingBalls} onChange={e=>updateForm('endingBalls',e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="0"/></div>
-                        <div><Label>終了時上皿玉数</Label><Input value={form.endingUpperBalls} onChange={e=>updateForm('endingUpperBalls',e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="0"/></div>
-                        <div><Label>自動回収玉</Label><Input value={resultReturnedBalls} readOnly className="mt-1 rounded-2xl bg-muted/40"/></div>
-                        <div><Label>実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={e=>updateForm('actualBalanceYen',e.target.value)} className="mt-1 rounded-2xl" inputMode="numeric" placeholder="未入力なら自動"/></div>
-                      </div>
+                      {/* 指標4枚 */}
                       <div className="grid grid-cols-2 gap-2">
-                        <Button variant={showResultRateGraph?'default':'outline'} className="rounded-2xl" onClick={()=>setShowResultRateGraph(p=>!p)}>回転率グラフ</Button>
-                        <Button variant={showMoneySwitchGraph?'default':'outline'} className="rounded-2xl" onClick={()=>setShowMoneySwitchGraph(p=>!p)}>持ち玉/現金グラフ</Button>
+                        {[
+                          ['総回転数',`${Math.round(resultPreviewMetrics.totalSpins)}回`,`回転率 ${fmtRate(resultPreviewMetrics.spinPerThousand)}`,null],
+                          ['1R出玉',selectedMachine?fmtRate(selectedMachine.payoutPerRound):'-',`持ち玉比率 ${fmtRate(resultPreviewMetrics.holdBallRatio)}%`,null],
+                          ['期待値',fmtYen(resultPreviewMetrics.estimatedEVYen),null,resultPreviewMetrics.estimatedEVYen>=0],
+                          ['収支',fmtYen(resultPreviewMetrics.balanceYen),null,resultPreviewMetrics.balanceYen>=0],
+                        ].map(([t,v,s,pos])=>(
+                          <div key={t} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:'10px 12px' }}>
+                            <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>{t}</div>
+                            <div style={{ fontSize:16, fontWeight:700, marginTop:2, color:pos===null||pos===undefined?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
+                            {s&&<div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{s}</div>}
+                          </div>
+                        ))}
                       </div>
-                      {showResultRateGraph&&<div className="rounded-2xl border p-3"><div className="h-48"><ResponsiveContainer width="100%" height="100%"><LineChart data={sessionTrendData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label"/><YAxis/><Tooltip/><Line type="monotone" dataKey="rate" strokeWidth={2} dot={false} stroke={C.accent} name="累積回転率"/></LineChart></ResponsiveContainer></div></div>}
-                      {showMoneySwitchGraph&&<div className="rounded-2xl border p-3"><div className="h-48"><ResponsiveContainer width="100%" height="100%"><LineChart data={moneySwitchData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label"/><YAxis/><Tooltip/><Line type="monotone" dataKey="cashInvestYen" stroke={C.accent} strokeWidth={2} dot={false} name="現金投資"/><Line type="monotone" dataKey="ballInvestYen" stroke={C.positive} strokeWidth={2} dot={false} name="持ち玉換算"/></LineChart></ResponsiveContainer></div></div>}
-                      <div><Label>良かったメモ</Label><Textarea value={form.resultGoodMemo} onChange={e=>updateForm('resultGoodMemo',e.target.value)} className="mt-1 min-h-[70px] rounded-2xl" placeholder="回った点、釘が良かった点など"/></div>
-                      <div><Label>悪かった点 / やめ理由</Label><Textarea value={form.resultBadMemo} onChange={e=>updateForm('resultBadMemo',e.target.value)} className="mt-1 min-h-[70px] rounded-2xl" placeholder="ヘソが閉まった、寄りが悪いなど"/></div>
+                      {/* 入力欄 2列 */}
                       <div className="grid grid-cols-2 gap-2">
-                        <Button variant="secondary" className="rounded-2xl" onClick={()=>setResultDialogOpen(false)}>戻る</Button>
-                        <Button className="rounded-2xl" onClick={finalizeSession}>結果を保存して終了</Button>
+                        <div><Label className="text-xs">終了時持ち玉</Label><Input value={form.endingBalls} onChange={e=>updateForm('endingBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
+                        <div><Label className="text-xs">終了時上皿玉数</Label><Input value={form.endingUpperBalls} onChange={e=>updateForm('endingUpperBalls',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
+                        <div><Label className="text-xs">自動回収玉</Label><Input value={resultReturnedBalls} readOnly className="mt-1 rounded-xl h-9 text-sm bg-muted/40"/></div>
+                        <div><Label className="text-xs">実収支(任意上書き)</Label><Input value={form.actualBalanceYen} onChange={e=>updateForm('actualBalanceYen',e.target.value)} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="未入力なら自動"/></div>
+                      </div>
+                      {/* グラフ切替 */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button variant={showResultRateGraph?'default':'outline'} className="rounded-xl h-8 text-xs" onClick={()=>setShowResultRateGraph(p=>!p)}>回転率グラフ</Button>
+                        <Button variant={showMoneySwitchGraph?'default':'outline'} className="rounded-xl h-8 text-xs" onClick={()=>setShowMoneySwitchGraph(p=>!p)}>持ち玉/現金グラフ</Button>
+                      </div>
+                      {showResultRateGraph&&<div className="rounded-xl border p-2"><div className="h-36"><ResponsiveContainer width="100%" height="100%"><LineChart data={sessionTrendData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey="rate" strokeWidth={2} dot={false} stroke={C.accent} name="累積回転率"/></LineChart></ResponsiveContainer></div></div>}
+                      {showMoneySwitchGraph&&<div className="rounded-xl border p-2"><div className="h-36"><ResponsiveContainer width="100%" height="100%"><LineChart data={moneySwitchData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey="cashInvestYen" stroke={C.accent} strokeWidth={2} dot={false} name="現金投資"/><Line type="monotone" dataKey="ballInvestYen" stroke={C.positive} strokeWidth={2} dot={false} name="持ち玉換算"/></LineChart></ResponsiveContainer></div></div>}
+                      {/* メモ */}
+                      <div><Label className="text-xs">良かった点</Label><Textarea value={form.resultGoodMemo} onChange={e=>updateForm('resultGoodMemo',e.target.value)} className="mt-1 min-h-[56px] rounded-xl text-sm" placeholder="回った点、釘が良かった点など"/></div>
+                      <div><Label className="text-xs">悪かった点 / やめ理由</Label><Textarea value={form.resultBadMemo} onChange={e=>updateForm('resultBadMemo',e.target.value)} className="mt-1 min-h-[56px] rounded-xl text-sm" placeholder="ヘソが閉まった、寄りが悪いなど"/></div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button variant="secondary" className="rounded-xl h-10" onClick={()=>setResultDialogOpen(false)}>戻る</Button>
+                        <Button className="rounded-xl h-10 text-sm font-bold" onClick={finalizeSession}>保存して終了</Button>
                       </div>
                     </div>
                   </DialogContent>
