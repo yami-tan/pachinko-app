@@ -305,9 +305,12 @@ function calcRateMetrics(session,machine,settings) {
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
   // ── 収支：残り持ち玉の価値 − 現金投資のみ（引き継ぎ収支も加算） ──
+  // 持ち玉を引き継いでいる場合はinheritedBalを加算しない（二重計上防止）
+  // 持ち玉なしで収支のみ引き継ぐ場合のみinheritedBalを加算
+  const useInheritedBal = inheritedBallsBase <= 0 ? inheritedBal : 0;
   const autoBalanceYen=currentBalls!==null
-    ? (currentBallsYen - allCashInvestYen) + inheritedBal   // 持ち玉あり
-    : (returnYen - allCashInvestYen) + inheritedBal;         // 持ち玉なし
+    ? (currentBallsYen - allCashInvestYen) + useInheritedBal   // 持ち玉あり
+    : (returnYen - allCashInvestYen) + useInheritedBal;         // 持ち玉なし
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?allEstimatedEVYen/hours:0;
 
