@@ -527,6 +527,9 @@ export default function PachinkoCalculatorComplete() {
   const [showResultRateGraph,setShowResultRateGraph]=useState(false);
   const [showMoneySwitchGraph,setShowMoneySwitchGraph]=useState(false);
   const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25'});
+  const [shopProfileOpen,setShopProfileOpen]=useState(false);
+  const [shopProfilePage,setShopProfilePage]=useState(0);
+  const SHOP_PAGE_SIZE=20;
   const readingInputRefs=useRef([]);
   const autosaveTimerRef=useRef(null);
   const skipAutosaveRef=useRef(false);
@@ -584,7 +587,7 @@ export default function PachinkoCalculatorComplete() {
   const moneySwitchData=useMemo(()=>sessionTrendData.map(p=>({label:p.label,totalSpins:p.totalSpins,cashInvestYen:p.cashInvestYen,ballInvestYen:p.ballInvestYen})),[sessionTrendData]);
   const resultReturnedBalls=numberOrZero(form.endingBalls)+numberOrZero(form.endingUpperBalls);
   const resultPreviewMetrics=useMemo(()=>calcRateMetrics({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls},selectedMachine,settings),[form,resultReturnedBalls,selectedMachine,settings]);
-  const recentShopPresets=useMemo(()=>{ const u=[]; (settings.shopProfiles||[]).forEach(p=>{if(p.name&&!u.includes(p.name))u.push(p.name);}); enrichedSessions.forEach(s=>{if(s.shop&&!u.includes(s.shop))u.push(s.shop);}); return u.slice(0,6); },[settings.shopProfiles,enrichedSessions]);
+  const recentShopPresets=useMemo(()=>{ const u=[]; (settings.shopProfiles||[]).forEach(p=>{if(p.name&&!u.includes(p.name))u.push(p.name);}); enrichedSessions.forEach(s=>{if(s.shop&&!u.includes(s.shop))u.push(s.shop);}); return u; },[settings.shopProfiles,enrichedSessions]);
   const recentMachinePresets=useMemo(()=>{ const c={}; enrichedSessions.forEach(s=>{ const k=s.machineId&&s.machineId!=='__none__'?s.machineId:''; if(k)c[k]=(c[k]||0)+1; }); const sorted=Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([id])=>id); return [...sorted,...machines.map(m=>m.id).filter(id=>!sorted.includes(id))].slice(0,7).map(id=>machines.find(m=>m.id===id)).filter(Boolean); },[enrichedSessions,machines]);
   const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings),[formMetrics,selectedMachine,form.hours,settings]);
 
@@ -2752,25 +2755,70 @@ export default function PachinkoCalculatorComplete() {
               )},
               { title:'店舗ごとの換金率自動設定', icon:<Store size={16} color={C.primary}/>, content:(
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:8 }}>
-                    <input value={shopProfileDraft.name} onChange={e=>setShopProfileDraft(p=>({...p,name:e.target.value}))} style={inputStyle} placeholder="店舗名"/>
-                    <Select value={shopProfileDraft.exchangeCategory} onValueChange={v=>setShopProfileDraft(p=>({...p,exchangeCategory:v}))}>
-                      <SelectTrigger className="rounded-2xl w-28"><SelectValue/></SelectTrigger>
-                      <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
-                    </Select>
-                    <button onClick={addShopProfile} style={{ ...btnPrimary, padding:'9px 16px', whiteSpace:'nowrap' }}>追加</button>
-                  </div>
-                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                    {(settings.shopProfiles||[]).length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだ登録がないぜ。店舗名と交換率を結び付けておくと、店を入れた瞬間に自動反映されるぜ。</div>:(settings.shopProfiles||[]).map(p=>(
-                      <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px' }}>
-                        <div>
-                          <div style={{ fontWeight:600, color:C.textPrimary }}>{p.name}</div>
-                          <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{getExchangePreset(p.exchangeCategory||'25').label}</div>
+                  {/* 追加フォーム（アコーディオン） */}
+                  <div style={{ border:`1.5px solid ${shopProfileOpen?C.primaryMid:C.border}`, borderRadius:14, overflow:'hidden' }}>
+                    <button onClick={()=>setShopProfileOpen(p=>!p)} style={{ width:'100%', background:shopProfileOpen?C.primaryLight:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:'none', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                        <span style={{ fontSize:14 }}>🏪</span>
+                        <div style={{ textAlign:'left' }}>
+                          <div style={{ fontWeight:700, fontSize:13, color:C.primary }}>新しい店舗を登録</div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>登録数: {(settings.shopProfiles||[]).length}件</div>
                         </div>
-                        <button onClick={()=>removeShopProfile(p.name)} style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
                       </div>
-                    ))}
+                      <ChevronDown size={15} color={C.primary} style={{ transform:shopProfileOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    </button>
+                    {shopProfileOpen&&(
+                      <div style={{ padding:'12px 14px', borderTop:`1px solid ${C.border}`, display:'flex', flexDirection:'column', gap:8 }}>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:8 }}>
+                          <input value={shopProfileDraft.name} onChange={e=>setShopProfileDraft(p=>({...p,name:e.target.value}))} style={inputStyle} placeholder="店舗名"/>
+                          <Select value={shopProfileDraft.exchangeCategory} onValueChange={v=>setShopProfileDraft(p=>({...p,exchangeCategory:v}))}>
+                            <SelectTrigger className="rounded-2xl w-28"><SelectValue/></SelectTrigger>
+                            <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <button onClick={()=>{addShopProfile(); setShopProfilePage(Math.floor(((settings.shopProfiles||[]).length)/SHOP_PAGE_SIZE));}} style={{ ...btnPrimary, padding:'9px 16px', whiteSpace:'nowrap' }}>追加</button>
+                        </div>
+                        <div style={{ fontSize:11, color:C.textMuted }}>店舗名と交換率を登録しておくと、入力時に自動で換金率が反映されるぜ。</div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* 登録一覧＋ページネーション */}
+                  {(()=>{
+                    const profiles=settings.shopProfiles||[];
+                    const totalPages=Math.ceil(profiles.length/SHOP_PAGE_SIZE);
+                    const page=Math.min(shopProfilePage,Math.max(0,totalPages-1));
+                    const pageProfiles=profiles.slice(page*SHOP_PAGE_SIZE,(page+1)*SHOP_PAGE_SIZE);
+                    return profiles.length===0
+                      ? <div style={{ fontSize:13, color:C.textMuted }}>まだ登録がないぜ。</div>
+                      : (
+                        <>
+                          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                            {pageProfiles.map(p=>(
+                              <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px' }}>
+                                <div>
+                                  <div style={{ fontWeight:600, color:C.textPrimary }}>{p.name}</div>
+                                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{getExchangePreset(p.exchangeCategory||'25').label}</div>
+                                </div>
+                                <button onClick={()=>removeShopProfile(p.name)} style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
+                              </div>
+                            ))}
+                          </div>
+                          {totalPages>1&&(
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:4 }}>
+                              <button onClick={()=>setShopProfilePage(p=>Math.max(0,p-1))} disabled={page===0}
+                                style={{ padding:'6px 14px', borderRadius:10, border:`1px solid ${C.border}`, background:page===0?isDark?'#1e293b':'#f8fafc':C.card, color:page===0?C.textMuted:C.primary, fontWeight:600, fontSize:12, cursor:page===0?'default':'pointer' }}>
+                                ◀ 前
+                              </button>
+                              <span style={{ fontSize:12, color:C.textMuted }}>{page+1} / {totalPages} ページ（{profiles.length}件）</span>
+                              <button onClick={()=>setShopProfilePage(p=>Math.min(totalPages-1,p+1))} disabled={page===totalPages-1}
+                                style={{ padding:'6px 14px', borderRadius:10, border:`1px solid ${C.border}`, background:page===totalPages-1?isDark?'#1e293b':'#f8fafc':C.card, color:page===totalPages-1?C.textMuted:C.primary, fontWeight:600, fontSize:12, cursor:page===totalPages-1?'default':'pointer' }}>
+                                次 ▶
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                  })()}
                 </div>
               )},
               { title:'データ管理', icon:<Database size={16} color={C.primary}/>, content:(
