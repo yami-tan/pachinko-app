@@ -543,7 +543,7 @@ export default function PachinkoCalculatorComplete() {
     expandedIntRows: [],    // 展開中の整数行（Set的に使用）
   });
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
-  const [machineDraft,setMachineDraft]=useState({ name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:'' });
+  const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
@@ -623,7 +623,6 @@ export default function PachinkoCalculatorComplete() {
 
   const targetSessions=useMemo(()=>enrichedSessions.filter(s=>periodMode==='year'?yearKey(s.date)===currentYear:monthKey(s.date)===currentMonth),[enrichedSessions,periodMode,currentMonth,currentYear]);
   const selectedDateSessions=enrichedSessions.filter(s=>s.date===selectedDate);
-  const summary=targetSessions.reduce((acc,s)=>{ acc.balance+=s.metrics.balanceYen; acc.ev+=s.metrics.estimatedEVYen; acc.hours+=numberOrZero(s.hours); acc.spins+=s.metrics.totalSpins; acc.count+=1; return acc; },{balance:0,ev:0,hours:0,spins:0,count:0});
 
   const trendChartData=useMemo(()=>{ if(periodMode==='year'){const map={}; for(let i=1;i<=12;i++) map[`${currentYear}-${String(i).padStart(2,'0')}`]={label:`${i}月`,balance:0,ev:0}; targetSessions.forEach(s=>{const k=monthKey(s.date); if(map[k]){map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen;}}); return Object.values(map); } const sorted=[...targetSessions].sort((a,b)=>a.date>b.date?1:-1); let bc=0,ec=0; return sorted.map(s=>{bc+=s.metrics.balanceYen; ec+=s.metrics.estimatedEVYen; return {label:dateLabel(s.date),balance:bc,ev:ec};}); },[targetSessions,periodMode,currentYear]);
   const machineAggregate=useMemo(()=>{ const map={}; targetSessions.forEach(s=>{const k=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'未設定'; if(!map[k])map[k]={name:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.ev-a.ev); },[targetSessions]);
@@ -796,18 +795,18 @@ export default function PachinkoCalculatorComplete() {
   function duplicateSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s,id:uid(),date:todayStr(),status:'draft',updatedAt:Date.now(),firstHits:[],rateSections:[],photos:[],rateEntries:[emptyRateEntry(s.currentInputMode||'cash',(s.currentInputMode||'cash')==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000,'')]}); setActiveTab('rate'); }
   function deleteSession(id) { setSessions(p=>p.filter(x=>x.id!==id)); }
   async function addPhotos(files) { const list=Array.from(files||[]).slice(0,6); const images=[]; for(const f of list){const d=await readFileAsDataUrl(f); images.push({id:uid(),name:f.name,dataUrl:d,createdAt:Date.now()});} applyFormUpdate(p=>({...p,photos:[...(p.photos||[]),...images].slice(0,12)})); }
-  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:machineDraft.shopDefault.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:numberOrZero(machineDraft.border40),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:machineDraft.memo}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:''}); }
+  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''}); }
   function openEditMachine(m) {
     setEditMachineId(m.id);
-    setMachineDraft({name:m.name,shopDefault:m.shopDefault||'',border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),border40:String(m.border40||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||'',memo:m.memo||''});
+    setMachineDraft({name:m.name,border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||''});
     setEditMachineDialogOpen(true);
   }
   function saveEditMachine() {
     if(!machineDraft.name.trim()||!editMachineId) return;
-    setMachines(prev=>prev.map(m=>m.id===editMachineId?{...m,name:machineDraft.name.trim(),shopDefault:machineDraft.shopDefault.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:numberOrZero(machineDraft.border40),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:machineDraft.memo}:m));
+    setMachines(prev=>prev.map(m=>m.id===editMachineId?{...m,name:machineDraft.name.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||''}:m));
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
-    setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:''});
+    setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''});
   }
   function deleteMachine(id) {
     setMachines(prev=>prev.filter(m=>m.id!==id));
@@ -928,35 +927,6 @@ export default function PachinkoCalculatorComplete() {
             </div>
           </div>
         </motion.div>
-
-        {/* ─── 期間切替 ─── */}
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14 }}>
-          <Chip active={periodMode==='month'} onClick={()=>setPeriodMode('month')}>月別</Chip>
-          <Chip active={periodMode==='year'} onClick={()=>setPeriodMode('year')}>年別</Chip>
-          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6 }}>
-            {periodMode==='month'?(
-              <>
-                <button onClick={()=>moveMonth(-1)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronLeft size={15} color={C.textSecondary}/></button>
-                <span style={{ fontSize:13,fontWeight:700,color:C.textPrimary,padding:'0 8px' }}>{currentMonth}</span>
-                <button onClick={()=>moveMonth(1)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronRight size={15} color={C.textSecondary}/></button>
-              </>
-            ):(
-              <>
-                <button onClick={()=>moveYear(-1)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronLeft size={15} color={C.textSecondary}/></button>
-                <span style={{ fontSize:13,fontWeight:700,color:C.textPrimary,padding:'0 8px' }}>{currentYear}年</span>
-                <button onClick={()=>moveYear(1)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><ChevronRight size={15} color={C.textSecondary}/></button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* ─── サマリー4枚 ─── */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
-          <SummaryMetric title="実収支" value={fmtYen(summary.balance)} positive={summary.balance>=0}/>
-          <SummaryMetric title="期待値" value={fmtYen(summary.ev)} positive={summary.ev>=0}/>
-          <SummaryMetric title="稼働件数" value={`${summary.count}件`} sub={`総回転 ${Math.round(summary.spins).toLocaleString()}回`}/>
-          <SummaryMetric title="時給期待値" value={summary.hours>0?fmtYen(summary.ev/summary.hours):'-'} sub={summary.hours>0?`総時間 ${summary.hours.toFixed(1)}h`:'時間未入力'}/>
-        </div>
 
         {/* ─── タブ ─── */}
         <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', marginBottom:16, scrollbarWidth:'none' }}>
@@ -1128,15 +1098,14 @@ export default function PachinkoCalculatorComplete() {
 
                       <Dialog>
                         <DialogTrigger asChild>
-                          <button onClick={()=>setMachineDraft({name:'',shopDefault:'',border25:'',border28:'',border30:'',border33:'',border40:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',memo:''})} style={{ ...btnSecondary, width:'100%' }}>機種追加 / 個別ボーダー登録</button>
+                          <button onClick={()=>setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''})} style={{ ...btnSecondary, width:'100%' }}>機種追加 / 個別ボーダー登録</button>
                         </DialogTrigger>
                         <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                           <DialogHeader><DialogTitle>機種データ追加</DialogTitle></DialogHeader>
                           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                             <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
-                            <div><Label>よく行く店舗(任意)</Label><Input value={machineDraft.shopDefault} onChange={e=>setMachineDraft(p=>({...p,shopDefault:e.target.value}))} className="mt-1 rounded-2xl"/></div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                              {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個'],['border40','40個']].map(([k,l])=>(
+                              {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個']].map(([k,l])=>(
                                 <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
                               ))}
                             </div>
@@ -1146,7 +1115,6 @@ export default function PachinkoCalculatorComplete() {
                               <div style={{ gridColumn:'1/-1' }}><Label>トータル確率</Label><Input value={machineDraft.totalProbability} onChange={e=>setMachineDraft(p=>({...p,totalProbability:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal" placeholder="例: 9.49"/></div>
                             </div>
                             <div><Label>よみがな・検索キーワード（任意）</Label><Input value={machineDraft.kanaReading} onChange={e=>setMachineDraft(p=>({...p,kanaReading:e.target.value}))} className="mt-1 rounded-2xl" placeholder="例: うみものがたりかい"/></div>
-                            <div><Label>メモ</Label><Textarea value={machineDraft.memo} onChange={e=>setMachineDraft(p=>({...p,memo:e.target.value}))} className="mt-1 min-h-[70px] rounded-2xl"/></div>
                             <Button className="w-full rounded-2xl" onClick={saveMachine}>保存</Button>
                           </div>
                         </DialogContent>
@@ -1159,9 +1127,8 @@ export default function PachinkoCalculatorComplete() {
                           {!deleteConfirmOpen?(
                             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                               <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
-                              <div><Label>よく行く店舗(任意)</Label><Input value={machineDraft.shopDefault} onChange={e=>setMachineDraft(p=>({...p,shopDefault:e.target.value}))} className="mt-1 rounded-2xl"/></div>
                               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                                {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個'],['border40','40個']].map(([k,l])=>(
+                                {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個']].map(([k,l])=>(
                                   <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
                                 ))}
                               </div>
@@ -1171,7 +1138,6 @@ export default function PachinkoCalculatorComplete() {
                                 <div style={{ gridColumn:'1/-1' }}><Label>トータル確率</Label><Input value={machineDraft.totalProbability} onChange={e=>setMachineDraft(p=>({...p,totalProbability:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal" placeholder="例: 9.49"/></div>
                               </div>
                               <div><Label>よみがな・検索キーワード（任意）</Label><Input value={machineDraft.kanaReading} onChange={e=>setMachineDraft(p=>({...p,kanaReading:e.target.value}))} className="mt-1 rounded-2xl" placeholder="例: うみものがたりかい"/></div>
-                              <div><Label>メモ</Label><Textarea value={machineDraft.memo} onChange={e=>setMachineDraft(p=>({...p,memo:e.target.value}))} className="mt-1 min-h-[70px] rounded-2xl"/></div>
                               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                                 <Button variant="secondary" className="rounded-2xl" onClick={()=>setEditMachineDialogOpen(false)}>キャンセル</Button>
                                 <Button className="rounded-2xl" onClick={saveEditMachine}>変更を保存</Button>
