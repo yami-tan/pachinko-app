@@ -558,6 +558,7 @@ export default function PachinkoCalculatorComplete() {
   const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
+  const [addMachineDialogOpen,setAddMachineDialogOpen]=useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
@@ -850,7 +851,7 @@ export default function PachinkoCalculatorComplete() {
   function duplicateSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s,id:uid(),date:todayStr(),status:'draft',updatedAt:Date.now(),firstHits:[],rateSections:[],photos:[],rateEntries:[emptyRateEntry(s.currentInputMode||'cash',(s.currentInputMode||'cash')==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000,'')]}); setActiveTab('rate'); }
   function deleteSession(id) { setSessions(p=>p.filter(x=>x.id!==id)); }
   async function addPhotos(files) { const list=Array.from(files||[]).slice(0,6); const images=[]; for(const f of list){const d=await readFileAsDataUrl(f); images.push({id:uid(),name:f.name,dataUrl:d,createdAt:Date.now()});} applyFormUpdate(p=>({...p,photos:[...(p.photos||[]),...images].slice(0,12)})); }
-  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''}); }
+  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''}); setAddMachineDialogOpen(false); }
   function openEditMachine(m) {
     setEditMachineId(m.id);
     setMachineDraft({name:m.name,border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||''});
@@ -1103,7 +1104,7 @@ export default function PachinkoCalculatorComplete() {
                             placeholder="店舗名を入力…"
                           />
                           {shopSuggestOpen&&form.shop.trim()&&(()=>{
-                            const hits=recentShopPresets.filter(n=>fuzzyMatch(n,form.shop)).slice(0,6);
+                            const hits=recentShopPresets.filter(n=>fuzzyMatch(n,form.shop)).slice(0,8);
                             return hits.length>0?(
                               <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', background:C.card, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4 }}>
                                 {hits.map((n,i)=>(
@@ -1116,12 +1117,27 @@ export default function PachinkoCalculatorComplete() {
                             ):null;
                           })()}
                         </div>
+                        {/* 空欄フォーカス時：全店舗スワイプリスト */}
+                        {shopSuggestOpen&&!form.shop.trim()&&recentShopPresets.length>0&&(
+                          <div style={{ marginTop:6 }}>
+                            <div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>← 左右にスワイプ　全{recentShopPresets.length}件</div>
+                            <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', scrollbarWidth:'none', paddingBottom:4 }}>
+                              <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
+                                {recentShopPresets.map(n=>(
+                                  <button key={n} onMouseDown={()=>{applyShopValue(n);setShopSuggestOpen(false);}}
+                                    style={{ padding:'8px 12px', borderRadius:12, border:`1.5px solid ${form.shop===n?C.primary:C.border}`, background:form.shop===n?C.primary:C.card, color:form.shop===n?'white':C.textSecondary, fontWeight:form.shop===n?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                                    {n}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* 機種選択（検索型） */}
                       <div>
                         <label style={labelStyle}>機種</label>
-                        {/* 選択中の機種表示 */}
                         {selectedMachine&&(
                           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, background:C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 12px' }}>
                             <span style={{ fontSize:13, fontWeight:700, color:C.primary, flex:1 }}>✅ {selectedMachine.name}</span>
@@ -1138,38 +1154,28 @@ export default function PachinkoCalculatorComplete() {
                           />
                           <Search size={15} color={C.textMuted} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}/>
                         </div>
-                        {/* サジェスト一覧 */}
-                        {machineSearchQuery.trim()&&(()=>{
+                        {/* サジェスト／全機種一覧 */}
+                        {(()=>{
                           const q=machineSearchQuery.trim();
-                          const hits=machines.filter(m=>fuzzyMatchMachine(m,q)).slice(0,8);
-                          return hits.length>0?(
-                            <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginTop:4 }}>
-                              {hits.map((m,i)=>(
-                                <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');}}
-                                  style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:form.machineId===m.id?C.primaryLight:'white', cursor:'pointer', textAlign:'left' }}>
-                                  <span style={{ fontSize:13, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</span>
-                                  {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
-                                </button>
-                              ))}
+                          const hits=q ? machines.filter(m=>fuzzyMatchMachine(m,q)).slice(0,12) : machines;
+                          if(q&&hits.length===0) return <div style={{ marginTop:4, fontSize:12, color:C.textMuted, padding:'6px 12px' }}>一致する機種が見つからないぜ</div>;
+                          return (
+                            <div style={{ marginTop:6 }}>
+                              {!q&&<div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>← 左右にスワイプ　全{machines.length}件</div>}
+                              <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', scrollbarWidth:'none', paddingBottom:4 }}>
+                                <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
+                                  {hits.map(m=>(
+                                    <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');}}
+                                      style={{ padding:'8px 12px', borderRadius:12, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primary:C.card, color:form.machineId===m.id?'white':C.textSecondary, fontWeight:form.machineId===m.id?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                                      {m.name.length>14?m.name.slice(0,14)+'…':m.name}
+                                      {m.totalProbability>0&&<span style={{ marginLeft:4, fontSize:9, opacity:0.7 }}>✓</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
-                          ):(
-                            <div style={{ marginTop:4, fontSize:12, color:C.textMuted, padding:'6px 12px' }}>一致する機種が見つからないぜ</div>
                           );
                         })()}
-                        {/* 直近7件 */}
-                        {!machineSearchQuery.trim()&&(
-                          <div style={{ marginTop:8 }}>
-                            <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>🕐 直近の機種（最大7件）</div>
-                            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                              {recentMachinePresets.map(m=>(
-                                <button key={m.id} onClick={()=>selectMachine(m.id)}
-                                  style={{ padding:'6px 12px', borderRadius:10, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primary:'white', color:form.machineId===m.id?'white':C.textSecondary, fontWeight:form.machineId===m.id?700:500, fontSize:12, cursor:'pointer' }}>
-                                  {m.name.length>12?m.name.slice(0,12)+'…':m.name}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
 
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -1206,9 +1212,9 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                       )}
 
-                      <Dialog>
+                      <Dialog open={addMachineDialogOpen} onOpenChange={setAddMachineDialogOpen}>
                         <DialogTrigger asChild>
-                          <button onClick={()=>setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''})} style={{ ...btnSecondary, width:'100%' }}>機種追加 / 個別ボーダー登録</button>
+                          <button onClick={()=>{setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''});setAddMachineDialogOpen(true);}} style={{ ...btnSecondary, width:'100%' }}>機種追加 / 個別ボーダー登録</button>
                         </DialogTrigger>
                         <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
                           <DialogHeader><DialogTitle>機種データ追加</DialogTitle></DialogHeader>
