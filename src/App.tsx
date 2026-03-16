@@ -551,6 +551,8 @@ export default function PachinkoCalculatorComplete() {
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
+  const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
+  const [inheritOptions,setInheritOptions]=useState({cashInvest:true,balance:true,balls:true,shop:true});
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
@@ -766,6 +768,44 @@ export default function PachinkoCalculatorComplete() {
   function removeRateEntry(id) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.length<=1?p.rateEntries:p.rateEntries.filter(e=>e.id!==id)})); }
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
   function createNewSession() { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate'); }
+
+  // 引き継ぎダイアログを開く（最新の完了済みセッションを取得）
+  function openInheritDialog() {
+    const latest=enrichedSessions.filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+    if(!latest){ alert('引き継ぎ可能な完了済み記録がないぜ。'); return; }
+    setInheritConfirmSessionId(latest.id);
+    setInheritOptions({cashInvest:true,balance:true,balls:true,shop:true});
+    setInheritDialogOpen(true);
+  }
+
+  // 引き継ぎを実行
+  function executeInherit() {
+    const s=enrichedSessions.find(e=>e.id===inheritConfirmSessionId);
+    if(!s){ setInheritDialogOpen(false); return; }
+    const base=emptySession(settings);
+    const newForm={
+      ...base,
+      shop: inheritOptions.shop ? (s.shop||base.shop) : base.shop,
+      exchangeCategory: inheritOptions.shop ? (s.exchangeCategory||base.exchangeCategory) : base.exchangeCategory,
+      machineId: base.machineId,
+    };
+    // 現金投資を引き継ぎ：メモに記録
+    const inheritLines=[];
+    if(inheritOptions.shop && s.shop) inheritLines.push(`【引継ぎ】店舗: ${s.shop}`);
+    if(inheritOptions.cashInvest) inheritLines.push(`【引継ぎ】前回現金投資: ${fmtYen(s.metrics.cashInvestYen)}`);
+    if(inheritOptions.balance) inheritLines.push(`【引継ぎ】前回収支: ${fmtYen(s.metrics.balanceYen)}`);
+    if(inheritOptions.balls && s.metrics.currentBalls!==null && s.metrics.currentBalls>0){
+      inheritLines.push(`【引継ぎ】持ち玉: ${s.metrics.currentBalls.toLocaleString()}玉`);
+      // 持ち玉モードで1行目に持ち玉をセット
+      newForm.currentInputMode='balls';
+      newForm.rateEntries=[{ id:uid(), kind:'balls', amount:String(s.metrics.currentBalls), reading:'' }];
+    }
+    newForm.notes=inheritLines.join('\n');
+    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
+    setForm(newForm);
+    setInheritDialogOpen(false);
+    setActiveTab('rate');
+  }
   function saveDraftNow() { setSaveStatus('saving'); const p=buildPersistedSession(form,'draft'); upsertSession(p); skipAutosaveRef.current=true; setForm(p); setSaveStatus('saved'); }
   function continueSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s}); setActiveTab('rate'); }
 
@@ -957,11 +997,66 @@ export default function PachinkoCalculatorComplete() {
                     </div>
                   </div>
                   <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    <span style={{ background:'rgba(255,255,255,0.2)', color:'white', borderRadius:8, padding:'3px 10px', fontSize:12, fontWeight:600 }}>{form.status==='draft'?'途中':'終了'}</span>
-                    <button onClick={createNewSession} style={{ ...btnOutline, padding:'7px 14px', fontSize:12, borderColor:'rgba(255,255,255,0.3)', color:'white', background:'rgba(255,255,255,0.15)' }}>新規</button>
+                    <button onClick={openInheritDialog} style={{ background:'rgba(255,255,255,0.2)', border:'1.5px solid rgba(255,255,255,0.4)', borderRadius:12, padding:'8px 14px', fontSize:13, fontWeight:700, color:'white', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                      🔗 引き継ぎ
+                    </button>
                   </div>
                 </div>
               </div>
+
+              {/* 引き継ぎダイアログ */}
+              {inheritDialogOpen&&(()=>{
+                const s=enrichedSessions.find(e=>e.id===inheritConfirmSessionId);
+                if(!s) return null;
+                const hasBalls=s.metrics.currentBalls!==null&&s.metrics.currentBalls>0;
+                return (
+                  <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}>
+                    <div style={{ background:C.card, borderRadius:24, padding:'20px', width:'100%', maxWidth:400, maxHeight:'90vh', overflow:'auto' }}>
+                      <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary, marginBottom:4 }}>🔗 引き継ぎ</div>
+                      <div style={{ fontSize:12, color:C.textMuted, marginBottom:14 }}>最新の完了済み記録から引き継ぐ内容を選んでください</div>
+
+                      {/* 元データ表示 */}
+                      <div style={{ background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px', marginBottom:14 }}>
+                        <div style={{ fontWeight:700, color:C.textPrimary, fontSize:13, marginBottom:6 }}>📋 {s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定'}</div>
+                        <div style={{ fontSize:11, color:C.textMuted, marginBottom:8 }}>{s.date} / {s.shop||'店舗未入力'}</div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, fontSize:12 }}>
+                          <div>現金投資: <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
+                          <div>収支: <span style={{ fontWeight:700, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</span></div>
+                          {hasBalls&&<div style={{ gridColumn:'1/-1' }}>持ち玉: <span style={{ fontWeight:700, color:C.amber }}>{s.metrics.currentBalls.toLocaleString()}玉</span></div>}
+                        </div>
+                      </div>
+
+                      {/* チェックボックス */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:18 }}>
+                        {[
+                          ['shop','🏪 店舗名・換金率を引き継ぐ',true],
+                          ['cashInvest','💴 現金投資をメモに記録',true],
+                          ['balance','💰 収支をメモに記録',true],
+                          ['balls', hasBalls?`🎰 持ち玉（${s.metrics.currentBalls?.toLocaleString()}玉）を引き継ぐ`:'🎰 持ち玉（なし）', hasBalls],
+                        ].map(([key,label,enabled])=>(
+                          <label key={key} style={{ display:'flex', alignItems:'center', gap:10, cursor:enabled?'pointer':'default', opacity:enabled?1:0.4 }}>
+                            <input type="checkbox" checked={inheritOptions[key]&&enabled} disabled={!enabled}
+                              onChange={e=>setInheritOptions(p=>({...p,[key]:e.target.checked}))}
+                              style={{ width:18, height:18, cursor:enabled?'pointer':'default' }}/>
+                            <span style={{ fontSize:13, color:C.textPrimary, fontWeight:500 }}>{label}</span>
+                          </label>
+                        ))}
+                      </div>
+
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                        <button onClick={()=>setInheritDialogOpen(false)}
+                          style={{ padding:'12px', borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                          キャンセル
+                        </button>
+                        <button onClick={executeInherit}
+                          style={{ padding:'12px', borderRadius:14, border:'none', background:C.primary, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                          🔗 引き継いで新規
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:16 }}>
                 {/* 台データ設定アコーディオン */}
