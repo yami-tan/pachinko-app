@@ -1660,12 +1660,12 @@ export default function PachinkoCalculatorComplete() {
                 {/* スティッキーサマリー */}
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 16px rgba(0,0,0,0.08)' }}>
                   <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:8 }}>今日の1台サマリー</div>
-                  <div style={{ display:'grid', gridTemplateColumns:`repeat(${formMetrics.currentBalls!==null?5:4},1fr)`, gap:4, textAlign:'center' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:`repeat(${formMetrics.ballInvestBalls>0||formMetrics.currentBalls!==null?5:4},1fr)`, gap:4, textAlign:'center' }}>
                     {[
                       ['総回転', Math.round(formMetrics.totalSpins)+'回', null],
                       ['現金投資', fmtYen(formMetrics.totalInvestYen), null],
                       ['平均率', fmtRate(formMetrics.avgSpinPerThousand), C.accent],
-                      ...(formMetrics.currentBalls!==null?[['持ち玉', formMetrics.currentBalls.toLocaleString()+'玉', C.amber]]:[]),
+                      ...((formMetrics.ballInvestBalls>0||formMetrics.currentBalls!==null)?[['玉投資', formMetrics.ballInvestBalls.toLocaleString()+'玉', C.amber]]:[]),
                       ['収支', fmtYen(formMetrics.balanceYen), formMetrics.balanceYen>=0?C.positive:C.negative],
                     ].map(([l,v,c])=>(
                       <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', borderRadius:10, padding:'6px 2px' }}>
