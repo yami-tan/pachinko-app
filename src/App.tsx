@@ -305,13 +305,14 @@ function calcRateMetrics(session,machine,settings) {
   const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
-  // ── 収支：残り持ち玉の価値 − 現金投資のみ（引き継ぎ収支も加算） ──
-  // 持ち玉を引き継いでいる場合はinheritedBalを加算しない（二重計上防止）
-  // 持ち玉なしで収支のみ引き継ぐ場合のみinheritedBalを加算
+  // ── 収支：残り持ち玉の価値 − 今回の現金投資のみ + 引き継ぎ収支 ──
+  // allCashInvestYenはinheritedCashを含むが、収支計算ではinheritedCashを除く
+  // （inheritedBalがすでに「前回収支 = 前回回収 - 前回現金投資」を表しているため二重計上防止）
+  const todayCashInvestYen = allCashInvestYen - inheritedCash;
   const useInheritedBal = inheritedBallsBase <= 0 ? inheritedBal : 0;
   const autoBalanceYen=currentBalls!==null
-    ? (currentBallsYen - allCashInvestYen) + useInheritedBal   // 持ち玉あり
-    : (returnYen - allCashInvestYen) + useInheritedBal;         // 持ち玉なし
+    ? (currentBallsYen - todayCashInvestYen) + useInheritedBal   // 持ち玉あり
+    : (returnYen - todayCashInvestYen) + useInheritedBal;         // 持ち玉なし
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?allEstimatedEVYen/hours:0;
 
@@ -782,13 +783,23 @@ export default function PachinkoCalculatorComplete() {
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
   function createNewSession() { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate'); }
 
-  // 引き継ぎダイアログを開く（最新の完了済みセッションを取得）
+  // 引き継ぎダイアログを開く（完了済みセッション全件対象）
+  const completedSessions=useMemo(()=>enrichedSessions.filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)),[enrichedSessions]);
+  const [inheritSessionIndex,setInheritSessionIndex]=useState(0);
+
   function openInheritDialog() {
-    const latest=enrichedSessions.filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
-    if(!latest){ alert('引き継ぎ可能な完了済み記録がないぜ。'); return; }
-    setInheritConfirmSessionId(latest.id);
+    if(completedSessions.length===0){ alert('引き継ぎ可能な完了済み記録がないぜ。'); return; }
+    setInheritSessionIndex(0);
+    setInheritConfirmSessionId(completedSessions[0].id);
     setInheritOptions({cashInvest:true,balance:true,balls:true,shop:true});
     setInheritDialogOpen(true);
+  }
+
+  function moveInheritSession(dir) {
+    const next=Math.max(0,Math.min(completedSessions.length-1,inheritSessionIndex+dir));
+    setInheritSessionIndex(next);
+    setInheritConfirmSessionId(completedSessions[next].id);
+    setInheritOptions({cashInvest:true,balance:true,balls:true,shop:true});
   }
 
   // 引き継ぎを実行
@@ -1025,22 +1036,50 @@ export default function PachinkoCalculatorComplete() {
                 const s=enrichedSessions.find(e=>e.id===inheritConfirmSessionId);
                 if(!s) return null;
                 const hasBalls=s.metrics.currentBalls!==null&&s.metrics.currentBalls>0;
+                const total=completedSessions.length;
+                const idx=inheritSessionIndex;
                 return (
                   <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}>
                     <div style={{ background:C.card, borderRadius:24, padding:'20px', width:'100%', maxWidth:400, maxHeight:'90vh', overflow:'auto' }}>
                       <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary, marginBottom:4 }}>🔗 引き継ぎ</div>
-                      <div style={{ fontSize:12, color:C.textMuted, marginBottom:14 }}>最新の完了済み記録から引き継ぐ内容を選んでください</div>
+                      <div style={{ fontSize:12, color:C.textMuted, marginBottom:12 }}>引き継ぐ記録を選んでチェックを入れてください</div>
 
-                      {/* 元データ表示 */}
-                      <div style={{ background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px', marginBottom:14 }}>
-                        <div style={{ fontWeight:700, color:C.textPrimary, fontSize:13, marginBottom:6 }}>📋 {s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定'}</div>
-                        <div style={{ fontSize:11, color:C.textMuted, marginBottom:8 }}>{s.date} / {s.shop||'店舗未入力'}</div>
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, fontSize:12 }}>
-                          <div>現金投資: <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
-                          <div>収支: <span style={{ fontWeight:700, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</span></div>
-                          {hasBalls&&<div style={{ gridColumn:'1/-1' }}>持ち玉: <span style={{ fontWeight:700, color:C.amber }}>{s.metrics.currentBalls.toLocaleString()}玉</span></div>}
+                      {/* スライドナビ */}
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                        <button onClick={()=>moveInheritSession(-1)} disabled={idx===0}
+                          style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:idx===0?(isDark?'#1e293b':'#f1f5f9'):C.card, cursor:idx===0?'default':'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <ChevronLeft size={16} color={idx===0?C.textMuted:C.primary}/>
+                        </button>
+                        <div style={{ flex:1, background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'10px 14px' }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                            <div style={{ fontWeight:700, color:C.textPrimary, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, marginRight:8 }}>
+                              {s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定'}
+                            </div>
+                            <span style={{ fontSize:11, color:C.textMuted, flexShrink:0 }}>{idx+1}/{total}</span>
+                          </div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginBottom:6 }}>{s.date} / {s.shop||'店舗未入力'}</div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, fontSize:12 }}>
+                            <div>現金投資: <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
+                            <div>収支: <span style={{ fontWeight:700, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</span></div>
+                            {hasBalls&&<div style={{ gridColumn:'1/-1' }}>持ち玉: <span style={{ fontWeight:700, color:C.amber }}>{s.metrics.currentBalls.toLocaleString()}玉</span></div>}
+                          </div>
                         </div>
+                        <button onClick={()=>moveInheritSession(1)} disabled={idx===total-1}
+                          style={{ width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`, background:idx===total-1?(isDark?'#1e293b':'#f1f5f9'):C.card, cursor:idx===total-1?'default':'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <ChevronRight size={16} color={idx===total-1?C.textMuted:C.primary}/>
+                        </button>
                       </div>
+
+                      {/* ドットインジケーター */}
+                      {total>1&&(
+                        <div style={{ display:'flex', justifyContent:'center', gap:5, marginBottom:14 }}>
+                          {Array.from({length:Math.min(total,7)}).map((_,i)=>{
+                            const dotIdx=total<=7?i:Math.round(i*(total-1)/6);
+                            const isActive=total<=7?i===idx:Math.abs(dotIdx-idx)<=Math.round((total-1)/12);
+                            return <div key={i} style={{ width:isActive?16:6, height:6, borderRadius:3, background:isActive?C.primary:C.border, transition:'all 0.2s' }}/>;
+                          })}
+                        </div>
+                      )}
 
                       {/* チェックボックス */}
                       <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:18 }}>
