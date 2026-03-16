@@ -992,16 +992,24 @@ export default function PachinkoCalculatorComplete() {
 
               <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:16 }}>
                 {/* 台データ設定アコーディオン */}
-                <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
-                  <button onClick={()=>setMachinePanelOpen(p=>!p)} style={{ width:'100%', background:C.primaryLight, border:'none', padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
-                    <div style={{ textAlign:'left' }}>
-                      <div style={{ fontWeight:700, color:C.primary, fontSize:14 }}>台データ設定</div>
-                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>店舗・機種・台番号・ボーダー設定</div>
+                <div style={{ border:`2px solid ${machinePanelOpen?'#f0abfc':'#e9d5ff'}`, borderRadius:20, overflow:'hidden', boxShadow:machinePanelOpen?'0 4px 20px rgba(217,70,219,0.15)':'0 2px 8px rgba(0,0,0,0.04)', transition:'box-shadow 0.2s' }}>
+                  <button onClick={()=>setMachinePanelOpen(p=>!p)} style={{ width:'100%', background:isDark?'rgba(217,70,219,0.15)':'linear-gradient(135deg,#fdf4ff,#fae8ff)', border:'none', padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{ fontSize:22 }}>🎰</div>
+                      <div style={{ textAlign:'left' }}>
+                        <div style={{ fontWeight:800, color:'#a21caf', fontSize:14 }}>台データ設定</div>
+                        <div style={{ fontSize:11, color:isDark?'#e879f9':'#c026d3', marginTop:2 }}>
+                          {machinePanelOpen ? '▼ 店舗・機種・台番号・ボーダー設定' : (form.shop||form.machineNameSnapshot||form.machineFreeName ? `📍 ${form.shop||'店舗未入力'} / ${form.machine?.name||form.machineFreeName||form.machineNameSnapshot||'機種未選択'}` : '店舗・機種・台番号・ボーダー設定')}
+                        </div>
+                      </div>
                     </div>
-                    <ChevronDown size={16} color={C.primary} style={{ transform:machinePanelOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    <div style={{ background:isDark?'rgba(217,70,219,0.2)':'#f5d0fe', borderRadius:10, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#a21caf' }}>{machinePanelOpen?'閉じる':'開く'}</span>
+                      <ChevronDown size={14} color="#a21caf" style={{ transform:machinePanelOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    </div>
                   </button>
                   {machinePanelOpen&&(
-                    <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                    <div style={{ background:isDark?'rgba(217,70,219,0.05)':'#fdf4ff', borderTop:'1.5px dashed #f0abfc', padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                         <div><label style={labelStyle}>日付</label><input type="date" value={form.date} onChange={e=>updateForm('date',e.target.value)} style={inputStyle}/></div>
                         <div style={{ position:'relative' }}>
@@ -1219,35 +1227,35 @@ export default function PachinkoCalculatorComplete() {
                 )}
 
                 {/* 指標グリッド（折りたたみ） */}
-                <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
-                  {/* ヘッダー：常時表示の主要2指標＋開閉ボタン */}
+                <div style={{ border:`2px solid ${metricsPanelOpen?C.accentLight:'#bae6fd'}`, borderRadius:20, overflow:'hidden', boxShadow:metricsPanelOpen?'0 4px 20px rgba(14,165,233,0.15)':'0 2px 8px rgba(0,0,0,0.04)', transition:'box-shadow 0.2s' }}>
+                  {/* ヘッダー：常時表示の主要指標＋開閉ボタン */}
                   <button
                     onClick={()=>setMetricsPanelOpen(p=>!p)}
-                    style={{ width:'100%', background:C.primaryLight, border:'none', padding:'13px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}
+                    style={{ width:'100%', background:isDark?'rgba(14,165,233,0.12)':'linear-gradient(135deg,#f0f9ff,#e0f2fe)', border:'none', padding:'13px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}
                   >
                     <div style={{ display:'flex', gap:14, alignItems:'center', flexWrap:'wrap' }}>
                       <div style={{ textAlign:'left' }}>
-                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>平均回転率</div>
+                        <div style={{ fontSize:11, color:'#0369a1', fontWeight:700 }}>📊 平均回転率</div>
                         <div style={{ fontSize:20, fontWeight:800, color:C.accent }}>{fmtRate(formMetrics.avgSpinPerThousand)}</div>
                       </div>
                       <div style={{ textAlign:'left' }}>
-                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>ボーダー</div>
-                        <div style={{ fontSize:20, fontWeight:800, color:C.primary }}>{currentBorderInputValue||DEFAULT_BORDER}</div>
+                        <div style={{ fontSize:11, color:'#0369a1', fontWeight:700 }}>🎯 ボーダー</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:'#7c3aed' }}>{currentBorderInputValue||DEFAULT_BORDER}</div>
                       </div>
                       {formMetrics.currentBalls!==null&&(
                         <div style={{ textAlign:'left' }}>
-                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>持ち玉</div>
+                          <div style={{ fontSize:11, color:'#0369a1', fontWeight:700 }}>🎰 持ち玉</div>
                           <div style={{ fontSize:20, fontWeight:800, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</div>
                         </div>
                       )}
                       <div style={{ textAlign:'left' }}>
-                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>収支</div>
+                        <div style={{ fontSize:11, color:'#0369a1', fontWeight:700 }}>💰 収支</div>
                         <div style={{ fontSize:20, fontWeight:800, color:formMetrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(formMetrics.balanceYen)}</div>
                       </div>
                     </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      <span style={{ fontSize:12, color:C.primary, fontWeight:600 }}>{metricsPanelOpen?'閉じる':'詳細'}</span>
-                      <ChevronDown size={16} color={C.primary} style={{ transform:metricsPanelOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    <div style={{ background:isDark?'rgba(14,165,233,0.2)':'#bae6fd', borderRadius:10, padding:'4px 10px', display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                      <span style={{ fontSize:11, color:'#0369a1', fontWeight:700 }}>{metricsPanelOpen?'閉じる':'詳細'}</span>
+                      <ChevronDown size={14} color="#0369a1" style={{ transform:metricsPanelOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
                     </div>
                   </button>
 
@@ -1322,16 +1330,22 @@ export default function PachinkoCalculatorComplete() {
                 )}
 
                 {/* 投資設定アコーディオン */}
-                <div style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
-                  <button onClick={()=>setAdvancedInvestOpen(p=>!p)} style={{ width:'100%', background:C.primaryLight, border:'none', padding:'11px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
-                    <div style={{ textAlign:'left' }}>
-                      <div style={{ fontWeight:700, color:C.primary, fontSize:13 }}>投資設定</div>
-                      <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>500円行・持ち玉行の追加</div>
+                <div style={{ border:`2px solid ${advancedInvestOpen?'#86efac':'#bbf7d0'}`, borderRadius:20, overflow:'hidden', boxShadow:advancedInvestOpen?'0 4px 20px rgba(22,163,74,0.15)':'0 2px 8px rgba(0,0,0,0.04)', transition:'box-shadow 0.2s' }}>
+                  <button onClick={()=>setAdvancedInvestOpen(p=>!p)} style={{ width:'100%', background:isDark?'rgba(22,163,74,0.15)':'linear-gradient(135deg,#f0fdf4,#dcfce7)', border:'none', padding:'12px 18px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <div style={{ fontSize:20 }}>💴</div>
+                      <div style={{ textAlign:'left' }}>
+                        <div style={{ fontWeight:800, color:'#15803d', fontSize:13 }}>投資設定</div>
+                        <div style={{ fontSize:11, color:isDark?'#4ade80':'#16a34a', marginTop:1 }}>500円行・持ち玉行の追加</div>
+                      </div>
                     </div>
-                    <ChevronDown size={16} color={C.primary} style={{ transform:advancedInvestOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    <div style={{ background:isDark?'rgba(22,163,74,0.2)':'#bbf7d0', borderRadius:10, padding:'4px 10px', display:'flex', alignItems:'center', gap:4 }}>
+                      <span style={{ fontSize:11, fontWeight:700, color:'#15803d' }}>{advancedInvestOpen?'閉じる':'開く'}</span>
+                      <ChevronDown size={14} color="#15803d" style={{ transform:advancedInvestOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                    </div>
                   </button>
                   {advancedInvestOpen&&(
-                    <div style={{ padding:'12px 16px', display:'flex', flexDirection:'column', gap:10 }}>
+                    <div style={{ background:isDark?'rgba(22,163,74,0.05)':'#f0fdf4', borderTop:'1.5px dashed #86efac', padding:'12px 16px', display:'flex', flexDirection:'column', gap:10 }}>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
                         <div><label style={labelStyle}>現金標準</label><input value={settings.defaultCashUnitYen} onChange={e=>setSettings(p=>({...p,defaultCashUnitYen:e.target.value}))} style={inputStyle} inputMode="numeric"/></div>
                         <div><label style={labelStyle}>500円用</label><input value={settings.subCashUnitYen} onChange={e=>setSettings(p=>({...p,subCashUnitYen:e.target.value}))} style={inputStyle} inputMode="numeric"/></div>
