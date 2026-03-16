@@ -983,7 +983,7 @@ export default function PachinkoCalculatorComplete() {
                   </button>
                   {machinePanelOpen&&(
                     <div style={{ background:isDark?'rgba(217,70,219,0.05)':'#fdf4ff', borderTop:'1.5px dashed #f0abfc', padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
-                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                         <div><label style={labelStyle}>日付</label><input type="date" value={form.date} onChange={e=>updateForm('date',e.target.value)} style={inputStyle}/></div>
                         <div style={{ position:'relative' }}>
                           <label style={labelStyle}>店舗名</label>
