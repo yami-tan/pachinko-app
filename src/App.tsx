@@ -198,7 +198,7 @@ function getSessionTrendData(session,settings) {
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
 function emptySession(settings=defaultSettings) {
-  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',notes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
+  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
 }
 
 function hasMeaningfulSession(s) {
@@ -673,7 +673,21 @@ export default function PachinkoCalculatorComplete() {
     if(document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setTimeout(()=>{ setShowResultRateGraph(false); setShowMoneySwitchGraph(false); setResultDialogOpen(true); }, 50);
   }
-  function finalizeSession() { setSaveStatus('saving'); const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:appendLine(appendLine(form.notes,form.resultGoodMemo?`【良かった点】${form.resultGoodMemo}`:''),form.resultBadMemo?`【悪かった点】${form.resultBadMemo}`:'')  },'completed'); upsertSession(p); setSelectedDate(p.date); setCurrentMonth(monthKey(p.date)); setCurrentYear(yearKey(p.date)); skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history'); }
+  function finalizeSession() {
+    setSaveStatus('saving');
+    // freeMemo・inheritNotes・自動notesを統合してnotesに保存
+    const autoNotes=(form.firstHits||[]).map((hit,i)=>
+      `[初当たり${i+1}回目] ${hit.rounds}R / 獲得${Math.round(hit.gainedBalls)}玉 / 1R ${hit.oneRound>0?hit.oneRound.toFixed(1):'-'} / ${hit.chainResultLabel||'単発'}`
+    ).join('\n');
+    const inheritPart=form.inheritNotes||'';
+    const freePart=form.freeMemo||'';
+    const goodPart=form.resultGoodMemo?`【良かった点】${form.resultGoodMemo}`:'';
+    const badPart=form.resultBadMemo?`【悪かった点】${form.resultBadMemo}`:'';
+    const combined=[inheritPart,autoNotes,freePart,goodPart,badPart].filter(Boolean).join('\n');
+    const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:combined},'completed');
+    upsertSession(p); setSelectedDate(p.date); setCurrentMonth(monthKey(p.date)); setCurrentYear(yearKey(p.date));
+    skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history');
+  }
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
   function setCurrentInputMode(m) { applyFormUpdate(p=>({...p,currentInputMode:m})); }
   function syncBorderToMachine() { if(!selectedMachine||currentBorderInputValue==='')return; const f=getBorderFieldByCategory(form.exchangeCategory||'25'); setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,[f]:numberOrZero(currentBorderInputValue)}:m)); }
@@ -821,13 +835,14 @@ export default function PachinkoCalculatorComplete() {
       newForm.currentInputMode='balls';
       newForm.rateEntries=[emptyRateEntry('balls',numberOrZero(settings.defaultBallUnit)||250,'')];
     }
-    // メモに引き継ぎ内容を記録
+    // 引き継ぎ内容をinheritNotesに記録（notesとは分離）
     const lines=[];
     if(inheritOptions.shop && s.shop) lines.push(`🏪 引継店舗: ${s.shop}`);
     if(inheritOptions.cashInvest) lines.push(`💴 引継現金投資: ${fmtYen(s.metrics.cashInvestYen)}`);
     if(inheritOptions.balance) lines.push(`💰 引継収支: ${fmtYen(s.metrics.balanceYen)}`);
     if(inheritOptions.balls && s.metrics.currentBalls>0) lines.push(`🎰 引継持ち玉: ${s.metrics.currentBalls.toLocaleString()}玉`);
-    newForm.notes=lines.join('\n');
+    newForm.inheritNotes=lines.join('\n');
+    newForm.notes='';
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
     setForm(newForm);
     setInheritDialogOpen(false);
@@ -1902,9 +1917,56 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 )}
 
-                <div>
-                  <label style={labelStyle}>初当たりメモ</label>
-                  <Textarea value={form.notes} onChange={e=>updateForm('notes',e.target.value)} className="rounded-2xl min-h-[80px]" placeholder="初当たり結果は自動追記されるぜ"/>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {/* 引き継ぎメモ（引き継ぎ時のみ表示） */}
+                  {form.inheritNotes&&(
+                    <div style={{ background:isDark?'rgba(99,102,241,0.12)':'#eef2ff', border:`1px solid #c7d2fe`, borderRadius:14, padding:'10px 14px' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.primary, marginBottom:6, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <span>🔗 引き継ぎ情報</span>
+                        <button onClick={()=>applyFormUpdate(p=>({...p,inheritNotes:''}))} style={{ background:'none', border:'none', fontSize:11, color:C.textMuted, cursor:'pointer' }}>✕ 消す</button>
+                      </div>
+                      {form.inheritNotes.split('\n').filter(Boolean).map((line,i)=>(
+                        <div key={i} style={{ fontSize:12, color:isDark?'#a5b4fc':C.primary, lineHeight:'1.8' }}>{line}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 初当たり記録テーブル（自動生成・読み取り専用） */}
+                  {(form.firstHits||[]).length>0&&(
+                    <div style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:C.textPrimary, padding:'8px 14px', background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', borderBottom:`1px solid ${C.border}` }}>
+                        ⭐ 初当たり記録（{form.firstHits.length}回）
+                      </div>
+                      <div style={{ overflowX:'auto' }}>
+                        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                          <thead>
+                            <tr style={{ background:isDark?'rgba(255,255,255,0.03)':'#f8fafc' }}>
+                              {['回目','R数','獲得玉','1R','連チャン'].map(h=>(
+                                <th key={h} style={{ padding:'6px 8px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {form.firstHits.map((hit,i)=>(
+                              <tr key={hit.id} style={{ borderBottom:i<form.firstHits.length-1?`1px solid ${C.border}`:'none', background:i%2===0?(isDark?'rgba(255,255,255,0.02)':'#fafafa'):'transparent' }}>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.textMuted, fontWeight:600 }}>{i+1}</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', fontWeight:700, color:C.textPrimary }}>{hit.rounds}R</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.positive }}>{Math.round(hit.gainedBalls).toLocaleString()}</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.accent }}>{hit.oneRound>0?hit.oneRound.toFixed(1):'-'}</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.textSecondary, whiteSpace:'nowrap' }}>{hit.chainResultLabel||'単発'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 自由メモ */}
+                  <div>
+                    <label style={labelStyle}>自由メモ</label>
+                    <Textarea value={form.freeMemo||''} onChange={e=>updateForm('freeMemo',e.target.value)} className="rounded-2xl min-h-[70px]" placeholder="感想・気づきなど自由に書けるぜ"/>
+                  </div>
                 </div>
 
                 {/* 下部アクションバー */}
