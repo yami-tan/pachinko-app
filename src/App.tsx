@@ -296,12 +296,13 @@ function calcRateMetrics(session,machine,settings) {
   const allSpinPerThousand=allTotalInvestYen>0?allTotalSpins/(allTotalInvestYen/1000):spinPerThousand;
   const allHoldBallRatio=allTotalInvestYen>0?(allBallInvestYen/allTotalInvestYen)*100:holdBallRatio;
 
-  // ── 持ち玉残枚数（全持ち玉投資を差し引いた残り） ──
+  // ── 持ち玉残枚数 ──
   const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
   const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
-  // 引き継ぎ持ち玉または初当たり終了持ち玉をベースに、投資した持ち玉分を引く
   const ballsBase=lastEndBalls>0?lastEndBalls:inheritedBallsBase;
-  const currentBalls=ballsBase>0?Math.max(0,ballsBase-allBallInvestBalls):null;
+  // 大当たり後は現在枠の投資玉のみ引く（大当たり前の投資は含めない）
+  const ballsDeducted=lastEndBalls>0?cBalls:allBallInvestBalls;
+  const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
   // ── 収支：残り持ち玉の価値 − 現金投資のみ（引き継ぎ収支も加算） ──
