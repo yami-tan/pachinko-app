@@ -554,7 +554,7 @@ export default function PachinkoCalculatorComplete() {
     selectedBorderMachineId:'', // ボーダー算出用に選んだ機種ID
     expandedIntRows: [],    // 展開中の整数行（Set的に使用）
   });
-  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
+  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
@@ -873,7 +873,7 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'100',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
@@ -1448,6 +1448,7 @@ export default function PachinkoCalculatorComplete() {
                 {form.currentInputMode==='balls'&&(
                   <div>
                     <label style={labelStyle}>持ち玉数（玉）</label>
+                    {/* 持ち玉のベース設定欄（初回のみ入力） */}
                     <input
                       value={form.inheritedBalls>0?String(form.inheritedBalls):(form.currentBallsInput||'')}
                       onChange={e=>{
@@ -1458,15 +1459,31 @@ export default function PachinkoCalculatorComplete() {
                       inputMode="numeric"
                       placeholder="例: 2500"
                     />
-                    {formMetrics.currentBalls!==null&&form.inheritedBalls>0&&(
-                      <div style={{ marginTop:6, background:C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:10, padding:'8px 12px', fontSize:12 }}>
-                        <span style={{ color:C.textSecondary }}>残り持ち玉：</span>
-                        <span style={{ fontWeight:700, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</span>
-                        <span style={{ color:C.textMuted, marginLeft:6 }}>（{form.inheritedBalls.toLocaleString()}玉 − 投資{formMetrics.ballInvestBalls.toLocaleString()}玉）</span>
-                      </div>
-                    )}
+                    {/* リアルタイム残り持ち玉表示 */}
+                    {(()=>{
+                      const base=formMetrics.currentBalls!==null?formMetrics.currentBalls
+                        : (form.inheritedBalls>0?form.inheritedBalls:null);
+                      if(base===null) return null;
+                      const invested=formMetrics.ballInvestBalls||0;
+                      const baseAmount=form.inheritedBalls>0?form.inheritedBalls:(numberOrZero(form.currentBallsInput));
+                      const lastHit=(form.firstHits||[]).slice(-1)[0];
+                      const isFromHit=lastHit&&numberOrZero(lastHit.endBalls)>0;
+                      const displayBase=isFromHit?numberOrZero(lastHit.endBalls):baseAmount;
+                      const remaining=Math.max(0,displayBase-invested);
+                      return (
+                        <div style={{ marginTop:6, background:remaining>0?C.amberBg:C.negativeBg, border:`1px solid ${remaining>0?C.amberBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 12px', fontSize:12 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ color:C.textSecondary }}>残り持ち玉：</span>
+                            <span style={{ fontWeight:800, fontSize:16, color:remaining>0?C.amber:C.negative }}>{remaining.toLocaleString()}玉</span>
+                          </div>
+                          <div style={{ color:C.textMuted, fontSize:11, marginTop:3 }}>
+                            {displayBase.toLocaleString()}玉 − 投資{invested.toLocaleString()}玉 = {remaining.toLocaleString()}玉
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
-                      引き継ぎ持ち玉が自動入力されます。持ち玉行で投資するたびに残枚数が減るぜ。
+                      持ち玉行で投資するたびに残枚数が減るぜ。初当たり後は自動で更新されるぜ。
                     </div>
                     </div>
                 )}
@@ -1780,7 +1797,7 @@ export default function PachinkoCalculatorComplete() {
                         <div><Label className="text-xs">開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={e=>setFirstHitForm(p=>({...p,startBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
                         <div><Label className="text-xs">終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={e=>setFirstHitForm(p=>({...p,endBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
                         <div><Label className="text-xs">上皿玉数(任意)</Label><Input value={firstHitForm.upperBalls} onChange={e=>setFirstHitForm(p=>({...p,upperBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
-                        <div><Label className="text-xs">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>setFirstHitForm(p=>({...p,chainCount:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="1"/></div>
+                        <div><Label className="text-xs">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>{const v=e.target.value; const n=numberOrZero(v); setFirstHitForm(p=>({...p,chainCount:v,restartReason:n>1?'st':p.restartReason}));}} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="1"/></div>
                         <div><Label className="text-xs">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={e=>setFirstHitForm(p=>({...p,restartRotation:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
                         <div><Label className="text-xs">残り保留数</Label><Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 3"/></div>
                       </div>
