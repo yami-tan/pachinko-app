@@ -2133,7 +2133,7 @@ export default function PachinkoCalculatorComplete() {
                   {intRows.map(intRate=>{
                     const evInt=calcEVForRate(intRate);
                     const diffInt=intRate-displayBorder;
-                    const isBorderRow=intRate===Math.round(displayBorder)||Math.abs(intRate-displayBorder)<1;
+                    const isBorderRow=intRate===Math.round(displayBorder);
                     const isExpanded=(bc.expandedIntRows||[]).includes(intRate);
                     const isCurrentInt=Math.round(currentRate)===intRate;
 
