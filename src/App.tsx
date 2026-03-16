@@ -198,7 +198,7 @@ function getSessionTrendData(session,settings) {
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
 function emptySession(settings=defaultSettings) {
-  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',notes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')] };
+  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',notes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
 }
 
 function hasMeaningfulSession(s) {
@@ -280,10 +280,15 @@ function calcRateMetrics(session,machine,settings) {
     };
   },{spins:0,investYen:0,cashInvest:0,ballBalls:0,ballYen:0,evYen:0});
 
+  // ── 引き継ぎデータの加算 ──
+  const inheritedCash=numberOrZero(session.inheritedCashInvestYen);
+  const inheritedBal=numberOrZero(session.inheritedBalanceYen);
+  const inheritedBallsBase=numberOrZero(session.inheritedBalls);
+
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
   const allTotalInvestYen= logTotals.investYen + totalInvestYen;   // 回転率計算用（現金+持ち玉）
-  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen;    // 表示・収支用（現金のみ）
+  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen + inheritedCash;    // 表示・収支用（現金のみ＋引き継ぎ現金）
   const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
   const allBallInvestYen = logTotals.ballYen   + ballInvestYen;
   const allEstimatedEVYen= logTotals.evYen     + estimatedEVYen;
@@ -294,14 +299,15 @@ function calcRateMetrics(session,machine,settings) {
   // ── 持ち玉残枚数（全持ち玉投資を差し引いた残り） ──
   const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
   const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
-  const currentBalls=lastEndBalls>0?Math.max(0,lastEndBalls-allBallInvestBalls):null;
+  // 引き継ぎ持ち玉または初当たり終了持ち玉をベースに、投資した持ち玉分を引く
+  const ballsBase=lastEndBalls>0?lastEndBalls:inheritedBallsBase;
+  const currentBalls=ballsBase>0?Math.max(0,ballsBase-allBallInvestBalls):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
-  // ── 収支：残り持ち玉の価値 − 現金投資のみ ──
-  // 例: 持ち玉5620玉(等価22480円) - 現金34000円 = -11520円
+  // ── 収支：残り持ち玉の価値 − 現金投資のみ（引き継ぎ収支も加算） ──
   const autoBalanceYen=currentBalls!==null
-    ? (currentBallsYen - allCashInvestYen)          // 持ち玉あり: 残り玉価値 − 現金
-    : (returnYen - allCashInvestYen);                // 持ち玉なし: 回収玉価値 − 現金
+    ? (currentBallsYen - allCashInvestYen) + inheritedBal   // 持ち玉あり
+    : (returnYen - allCashInvestYen) + inheritedBal;         // 持ち玉なし
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?allEstimatedEVYen/hours:0;
 
@@ -787,20 +793,23 @@ export default function PachinkoCalculatorComplete() {
       ...base,
       shop: inheritOptions.shop ? (s.shop||base.shop) : base.shop,
       exchangeCategory: inheritOptions.shop ? (s.exchangeCategory||base.exchangeCategory) : base.exchangeCategory,
-      machineId: base.machineId,
+      // 引き継ぎフィールド
+      inheritedCashInvestYen: inheritOptions.cashInvest ? s.metrics.cashInvestYen : 0,
+      inheritedBalanceYen:    inheritOptions.balance    ? s.metrics.balanceYen    : 0,
+      inheritedBalls:         (inheritOptions.balls && s.metrics.currentBalls>0) ? s.metrics.currentBalls : 0,
     };
-    // 現金投資を引き継ぎ：メモに記録
-    const inheritLines=[];
-    if(inheritOptions.shop && s.shop) inheritLines.push(`【引継ぎ】店舗: ${s.shop}`);
-    if(inheritOptions.cashInvest) inheritLines.push(`【引継ぎ】前回現金投資: ${fmtYen(s.metrics.cashInvestYen)}`);
-    if(inheritOptions.balance) inheritLines.push(`【引継ぎ】前回収支: ${fmtYen(s.metrics.balanceYen)}`);
-    if(inheritOptions.balls && s.metrics.currentBalls!==null && s.metrics.currentBalls>0){
-      inheritLines.push(`【引継ぎ】持ち玉: ${s.metrics.currentBalls.toLocaleString()}玉`);
-      // 持ち玉モードで1行目に持ち玉をセット
+    // 持ち玉を引き継ぐ場合：持ち玉モードに切り替え（rateEntriesはリセット、初期投資行は空）
+    if(inheritOptions.balls && s.metrics.currentBalls>0){
       newForm.currentInputMode='balls';
-      newForm.rateEntries=[{ id:uid(), kind:'balls', amount:String(s.metrics.currentBalls), reading:'' }];
+      newForm.rateEntries=[emptyRateEntry('balls',numberOrZero(settings.defaultBallUnit)||250,'')];
     }
-    newForm.notes=inheritLines.join('\n');
+    // メモに引き継ぎ内容を記録
+    const lines=[];
+    if(inheritOptions.shop && s.shop) lines.push(`🏪 引継店舗: ${s.shop}`);
+    if(inheritOptions.cashInvest) lines.push(`💴 引継現金投資: ${fmtYen(s.metrics.cashInvestYen)}`);
+    if(inheritOptions.balance) lines.push(`💰 引継収支: ${fmtYen(s.metrics.balanceYen)}`);
+    if(inheritOptions.balls && s.metrics.currentBalls>0) lines.push(`🎰 引継持ち玉: ${s.metrics.currentBalls.toLocaleString()}玉`);
+    newForm.notes=lines.join('\n');
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
     setForm(newForm);
     setInheritDialogOpen(false);
@@ -819,7 +828,7 @@ export default function PachinkoCalculatorComplete() {
         currentInputMode:'balls',
         rateEntries:[{ id:uid(), kind:'balls', amount:String(s.metrics.currentBalls), reading:'' }],
         // 前回の現金投資をメモに記録
-        notes: s.notes ? s.notes + `\n【引継ぎ】前回現金投資 ${fmtYen(s.metrics.cashInvestYen)} / 引継ぎ持ち玉 ${s.metrics.currentBalls}玉` : `【引継ぎ】前回現金投資 ${fmtYen(s.metrics.cashInvestYen)} / 引継ぎ持ち玉 ${s.metrics.currentBalls}玉`,
+        notes: s.notes ? s.notes + '\n【引継ぎ】前回現金投資 '+fmtYen(s.metrics.cashInvestYen)+' / 引継ぎ持ち玉 '+s.metrics.currentBalls+'玉' : '【引継ぎ】前回現金投資 '+fmtYen(s.metrics.cashInvestYen)+' / 引継ぎ持ち玉 '+s.metrics.currentBalls+'玉',
       };
       setForm(newSession);
     } else {
@@ -865,8 +874,8 @@ export default function PachinkoCalculatorComplete() {
     const label=firstHitForm.label||`初当たり${(form.firstHits||[]).length+1}回目`;
     const crl=getChainResultLabel(firstHitForm.chainCount);
     const rh=numberOrZero(firstHitForm.remainingHolds);
-    const rhStr=rh>0?` / 残り保留${rh}個`:'';
-    const ml=`[${label}] ${firstHitMetrics.rounds}R / 獲得${Math.round(firstHitMetrics.gainedBalls)}玉 / 1R ${Number(firstHitMetrics.oneRound.toFixed(1))} / ${crl}${rhStr}`;
+    const rhStr=rh>0?(' / 残り保留'+rh+'個'):'';
+    const ml='['+label+'] '+firstHitMetrics.rounds+'R / 獲得'+Math.round(firstHitMetrics.gainedBalls)+'玉 / 1R '+Number(firstHitMetrics.oneRound.toFixed(1))+' / '+crl+rhStr;
     const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml};
     applyFormUpdate(prev=>{
       const nb={...prev,firstHits:[...(prev.firstHits||[]),hit],notes:appendLine(prev.notes,ml)};
@@ -876,7 +885,7 @@ export default function PachinkoCalculatorComplete() {
       const rsr=numberOrZero(firstHitForm.restartRotation);
       const rrl=getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote);
       const sl=`通常${(nb.rateSections||[]).length+1}区間`;
-      const rl=`[${sl}] ${met.currentSpins}回転 / ${Math.round(met.currentInvestYen).toLocaleString()}円 / ${Number(met.currentSpinPerThousand.toFixed(2))} で区切って再スタート (${rsr}回転から / ${rrl})`;
+      const rl='['+sl+'] '+met.currentSpins+'回転 / '+Math.round(met.currentInvestYen).toLocaleString()+'円 / '+Number(met.currentSpinPerThousand.toFixed(2))+' で区切って再スタート ('+rsr+'回転から / '+rrl+')';
 
       // ① 大当たり前の計測をアーカイブ（kind:'jackpot_before'）
       const logCount=(nb.measurementLogs||[]).length+1;
@@ -1381,16 +1390,26 @@ export default function PachinkoCalculatorComplete() {
                   <div>
                     <label style={labelStyle}>持ち玉数（玉）</label>
                     <input
-                      value={form.currentBallsInput||''}
-                      onChange={e=>applyFormUpdate(p=>({...p,currentBallsInput:e.target.value}))}
+                      value={form.inheritedBalls>0?String(form.inheritedBalls):(form.currentBallsInput||'')}
+                      onChange={e=>{
+                        const v=e.target.value;
+                        applyFormUpdate(p=>({...p,currentBallsInput:v,inheritedBalls:numberOrZero(v)}));
+                      }}
                       style={{ ...inputStyle, textAlign:'center', fontWeight:700, fontSize:18, color:C.amber }}
                       inputMode="numeric"
                       placeholder="例: 2500"
                     />
+                    {formMetrics.currentBalls!==null&&form.inheritedBalls>0&&(
+                      <div style={{ marginTop:6, background:C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:10, padding:'8px 12px', fontSize:12 }}>
+                        <span style={{ color:C.textSecondary }}>残り持ち玉：</span>
+                        <span style={{ fontWeight:700, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</span>
+                        <span style={{ color:C.textMuted, marginLeft:6 }}>（{form.inheritedBalls.toLocaleString()}玉 − 投資{formMetrics.ballInvestBalls.toLocaleString()}玉）</span>
+                      </div>
+                    )}
                     <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
-                      持ち玉の現在数を入力してください（任意）。入力すると収支計算に反映されるぜ。
+                      引き継ぎ持ち玉が自動入力されます。持ち玉行で投資するたびに残枚数が減るぜ。
                     </div>
-                  </div>
+                    </div>
                 )}
 
                 {/* 投資設定アコーディオン */}
