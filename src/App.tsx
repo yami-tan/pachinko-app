@@ -1448,7 +1448,6 @@ export default function PachinkoCalculatorComplete() {
                 {form.currentInputMode==='balls'&&(
                   <div>
                     <label style={labelStyle}>持ち玉数（玉）</label>
-                    {/* 持ち玉のベース設定欄（初回のみ入力） */}
                     <input
                       value={form.inheritedBalls>0?String(form.inheritedBalls):(form.currentBallsInput||'')}
                       onChange={e=>{
@@ -1459,33 +1458,10 @@ export default function PachinkoCalculatorComplete() {
                       inputMode="numeric"
                       placeholder="例: 2500"
                     />
-                    {/* リアルタイム残り持ち玉表示 */}
-                    {(()=>{
-                      const base=formMetrics.currentBalls!==null?formMetrics.currentBalls
-                        : (form.inheritedBalls>0?form.inheritedBalls:null);
-                      if(base===null) return null;
-                      const invested=formMetrics.ballInvestBalls||0;
-                      const baseAmount=form.inheritedBalls>0?form.inheritedBalls:(numberOrZero(form.currentBallsInput));
-                      const lastHit=(form.firstHits||[]).slice(-1)[0];
-                      const isFromHit=lastHit&&numberOrZero(lastHit.endBalls)>0;
-                      const displayBase=isFromHit?numberOrZero(lastHit.endBalls):baseAmount;
-                      const remaining=Math.max(0,displayBase-invested);
-                      return (
-                        <div style={{ marginTop:6, background:remaining>0?C.amberBg:C.negativeBg, border:`1px solid ${remaining>0?C.amberBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 12px', fontSize:12 }}>
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <span style={{ color:C.textSecondary }}>残り持ち玉：</span>
-                            <span style={{ fontWeight:800, fontSize:16, color:remaining>0?C.amber:C.negative }}>{remaining.toLocaleString()}玉</span>
-                          </div>
-                          <div style={{ color:C.textMuted, fontSize:11, marginTop:3 }}>
-                            {displayBase.toLocaleString()}玉 − 投資{invested.toLocaleString()}玉 = {remaining.toLocaleString()}玉
-                          </div>
-                        </div>
-                      );
-                    })()}
                     <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
-                      持ち玉行で投資するたびに残枚数が減るぜ。初当たり後は自動で更新されるぜ。
+                      持ち玉の初期数を入力してください。ゲーム数を入力すると上のサマリーの持ち玉が減っていくぜ。
                     </div>
-                    </div>
+                  </div>
                 )}
 
                 {/* 投資設定アコーディオン */}
