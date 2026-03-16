@@ -300,8 +300,8 @@ function calcRateMetrics(session,machine,settings) {
   const lastFirstHit=(session.firstHits||[]).slice(-1)[0];
   const lastEndBalls=numberOrZero(lastFirstHit?.endBalls);
   const ballsBase=lastEndBalls>0?lastEndBalls:inheritedBallsBase;
-  // 大当たり後は現在枠の投資玉のみ引く（大当たり前の投資は含めない）
-  const ballsDeducted=lastEndBalls>0?cBalls:allBallInvestBalls;
+  // 大当たり後は現在枠＋アーカイブ済み投資玉を引く（measurementLogsも含む）
+  const ballsDeducted=lastEndBalls>0?(logTotals.ballBalls+cBalls):allBallInvestBalls;
   const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
