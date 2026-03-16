@@ -559,6 +559,8 @@ export default function PachinkoCalculatorComplete() {
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
   const [addMachineDialogOpen,setAddMachineDialogOpen]=useState(false);
+  const [machineListDialogOpen,setMachineListDialogOpen]=useState(false);
+  const [shopListDialogOpen,setShopListDialogOpen]=useState(false);
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
@@ -1093,40 +1095,56 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ background:isDark?'rgba(217,70,219,0.05)':'#fdf4ff', borderTop:'1.5px dashed #f0abfc', padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                         <div><label style={labelStyle}>日付</label><input type="date" value={form.date} onChange={e=>updateForm('date',e.target.value)} style={inputStyle}/></div>
-                        <div style={{ position:'relative' }}>
-                          <label style={labelStyle}>店舗名</label>
-                          <input
-                            value={form.shop}
-                            onChange={e=>{ applyShopValue(e.target.value); setShopSuggestOpen(true); }}
-                            onFocus={()=>setShopSuggestOpen(true)}
-                            onBlur={()=>setTimeout(()=>setShopSuggestOpen(false),150)}
-                            style={inputStyle}
-                            placeholder="店舗名を入力…"
-                          />
-                          {shopSuggestOpen&&form.shop.trim()&&(()=>{
-                            const hits=recentShopPresets.filter(n=>fuzzyMatch(n,form.shop)).slice(0,8);
-                            return hits.length>0?(
-                              <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', background:C.card, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4 }}>
-                                {hits.map((n,i)=>(
-                                  <button key={n} onMouseDown={()=>{applyShopValue(n);setShopSuggestOpen(false);}}
-                                    style={{ width:'100%', display:'block', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:C.card, cursor:'pointer', textAlign:'left', fontSize:13, color:C.textPrimary, fontWeight: n===form.shop?700:400 }}>
-                                    {n}
-                                  </button>
-                                ))}
-                              </div>
-                            ):null;
-                          })()}
+                        <div style={{ display:'flex', gap:6, alignItems:'flex-end' }}>
+                          <div style={{ flex:1, position:'relative' }}>
+                            <label style={labelStyle}>店舗名</label>
+                            <input
+                              value={form.shop}
+                              onChange={e=>{ applyShopValue(e.target.value); setShopSuggestOpen(true); }}
+                              onFocus={()=>setShopSuggestOpen(true)}
+                              onBlur={()=>setTimeout(()=>setShopSuggestOpen(false),150)}
+                              style={inputStyle}
+                              placeholder="店舗名を入力…"
+                            />
+                            {shopSuggestOpen&&form.shop.trim()&&(()=>{
+                              const hits=recentShopPresets.filter(n=>fuzzyMatch(n,form.shop)).slice(0,8);
+                              return hits.length>0?(
+                                <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:50, border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', background:C.card, boxShadow:'0 4px 16px rgba(0,0,0,0.12)', marginTop:4 }}>
+                                  {hits.map((n,i)=>(
+                                    <button key={n} onMouseDown={()=>{applyShopValue(n);setShopSuggestOpen(false);}}
+                                      style={{ width:'100%', display:'block', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:C.card, cursor:'pointer', textAlign:'left', fontSize:13, color:C.textPrimary, fontWeight: n===form.shop?700:400 }}>
+                                      {n}
+                                    </button>
+                                  ))}
+                                </div>
+                              ):null;
+                            })()}
+                          </div>
+                          {recentShopPresets.length>0&&(
+                            <button onClick={()=>setShopListDialogOpen(true)}
+                              style={{ padding:'13px 12px', borderRadius:14, border:`1.5px solid ${C.border}`, background:C.card, color:C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                              📋 一覧
+                            </button>
+                          )}
                         </div>
-                        {/* 空欄フォーカス時：全店舗スワイプリスト */}
-                        {shopSuggestOpen&&!form.shop.trim()&&recentShopPresets.length>0&&(
-                          <div style={{ marginTop:6 }}>
-                            <div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>← 左右にスワイプ　全{recentShopPresets.length}件</div>
-                            <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', scrollbarWidth:'none', paddingBottom:4 }}>
-                              <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
+
+                        {/* 店舗一覧ダイアログ */}
+                        {shopListDialogOpen&&(
+                          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setShopListDialogOpen(false)}>
+                            <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'70vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                              <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                  <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🏪 店舗を選ぶ</div>
+                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>全{recentShopPresets.length}件 / 上下スワイプで閲覧</div>
+                                </div>
+                                <button onClick={()=>setShopListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                              </div>
+                              <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
                                 {recentShopPresets.map(n=>(
-                                  <button key={n} onMouseDown={()=>{applyShopValue(n);setShopSuggestOpen(false);}}
-                                    style={{ padding:'8px 12px', borderRadius:12, border:`1.5px solid ${form.shop===n?C.primary:C.border}`, background:form.shop===n?C.primary:C.card, color:form.shop===n?'white':C.textSecondary, fontWeight:form.shop===n?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-                                    {n}
+                                  <button key={n} onClick={()=>{applyShopValue(n);setShopListDialogOpen(false);}}
+                                    style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 14px', borderRadius:12, border:'none', borderBottom:`1px solid ${C.border}`, background:form.shop===n?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', marginBottom:2 }}>
+                                    <span style={{ fontSize:14, fontWeight:form.shop===n?700:400, color:form.shop===n?C.primary:C.textPrimary }}>{n}</span>
+                                    {form.shop===n&&<span style={{ fontSize:12, color:C.primary }}>✓ 選択中</span>}
                                   </button>
                                 ))}
                               </div>
@@ -1144,38 +1162,70 @@ export default function PachinkoCalculatorComplete() {
                             <button onClick={()=>selectMachine('__none__')} style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:12 }}>✕ 解除</button>
                           </div>
                         )}
-                        {/* 検索ボックス */}
-                        <div style={{ position:'relative' }}>
-                          <input
-                            value={machineSearchQuery}
-                            onChange={e=>setMachineSearchQuery(e.target.value)}
-                            style={{ ...inputStyle, paddingLeft:36 }}
-                            placeholder="機種名を入力して検索…"
-                          />
-                          <Search size={15} color={C.textMuted} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}/>
+                        {/* 検索ボックス＋一覧ボタン */}
+                        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                          <div style={{ flex:1, position:'relative' }}>
+                            <input
+                              value={machineSearchQuery}
+                              onChange={e=>setMachineSearchQuery(e.target.value)}
+                              style={{ ...inputStyle, paddingLeft:36 }}
+                              placeholder="機種名を入力して検索…"
+                            />
+                            <Search size={15} color={C.textMuted} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}/>
+                          </div>
+                          <button onClick={()=>setMachineListDialogOpen(true)}
+                            style={{ padding:'13px 12px', borderRadius:14, border:`1.5px solid ${C.border}`, background:C.card, color:C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                            📋 一覧
+                          </button>
                         </div>
-                        {/* サジェスト／全機種一覧 */}
-                        {(()=>{
+                        {/* テキスト入力時のサジェスト */}
+                        {machineSearchQuery.trim()&&(()=>{
                           const q=machineSearchQuery.trim();
-                          const hits=q ? machines.filter(m=>fuzzyMatchMachine(m,q)).slice(0,12) : machines;
-                          if(q&&hits.length===0) return <div style={{ marginTop:4, fontSize:12, color:C.textMuted, padding:'6px 12px' }}>一致する機種が見つからないぜ</div>;
-                          return (
-                            <div style={{ marginTop:6 }}>
-                              {!q&&<div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>← 左右にスワイプ　全{machines.length}件</div>}
-                              <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', scrollbarWidth:'none', paddingBottom:4 }}>
-                                <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
-                                  {hits.map(m=>(
-                                    <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');}}
-                                      style={{ padding:'8px 12px', borderRadius:12, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primary:C.card, color:form.machineId===m.id?'white':C.textSecondary, fontWeight:form.machineId===m.id?700:500, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-                                      {m.name.length>14?m.name.slice(0,14)+'…':m.name}
-                                      {m.totalProbability>0&&<span style={{ marginLeft:4, fontSize:9, opacity:0.7 }}>✓</span>}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
+                          const hits=machines.filter(m=>fuzzyMatchMachine(m,q)).slice(0,12);
+                          return hits.length>0?(
+                            <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginTop:4 }}>
+                              {hits.map((m,i)=>(
+                                <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');}}
+                                  style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left' }}>
+                                  <span style={{ fontSize:13, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</span>
+                                  {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
+                                </button>
+                              ))}
                             </div>
+                          ):(
+                            <div style={{ marginTop:4, fontSize:12, color:C.textMuted, padding:'6px 12px' }}>一致する機種が見つからないぜ</div>
                           );
                         })()}
+
+                        {/* 機種一覧ダイアログ（縦スクロール） */}
+                        {machineListDialogOpen&&(
+                          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setMachineListDialogOpen(false)}>
+                            <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'75vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                              <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                  <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🎰 機種を選ぶ</div>
+                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>全{machines.length}件 / 上下スワイプで閲覧</div>
+                                </div>
+                                <button onClick={()=>setMachineListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                              </div>
+                              <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
+                                {machines.map(m=>(
+                                  <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');setMachineListDialogOpen(false);}}
+                                    style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 14px', borderRadius:12, border:'none', borderBottom:`1px solid ${C.border}`, background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', marginBottom:2 }}>
+                                    <div>
+                                      <div style={{ fontSize:14, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</div>
+                                      {m.border25>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>等価B: {m.border25} / 確率: {m.totalProbability||'-'}</div>}
+                                    </div>
+                                    <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+                                      {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
+                                      {form.machineId===m.id&&<span style={{ fontSize:12, color:C.primary }}>✓</span>}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
