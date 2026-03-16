@@ -556,7 +556,7 @@ export default function PachinkoCalculatorComplete() {
     selectedBorderMachineId:'', // ボーダー算出用に選んだ機種ID
     expandedIntRows: [],    // 展開中の整数行（Set的に使用）
   });
-  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
+  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
   const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
@@ -900,7 +900,7 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'20',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
@@ -909,9 +909,31 @@ export default function PachinkoCalculatorComplete() {
     const rh=numberOrZero(firstHitForm.remainingHolds);
     const rhStr=rh>0?(' / 残り保留'+rh+'個'):'';
     const ml='['+label+'] '+firstHitMetrics.rounds+'R / 獲得'+Math.round(firstHitMetrics.gainedBalls)+'玉 / 1R '+Number(firstHitMetrics.oneRound.toFixed(1))+' / '+crl+rhStr;
-    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml};
+    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml,hitSpins:numberOrZero(firstHitForm.hitSpins)};
+
+    // 差玉投資行の自動生成
+    // 条件：初当たりゲーム数入力あり かつ 開始持ち玉 < 現在の持ち玉
+    const hitSpins=numberOrZero(firstHitForm.hitSpins);
+    const startBalls=numberOrZero(firstHitForm.startBalls);
+    const currentBallsNow=formMetrics.currentBalls;  // 現在の持ち玉残枚数
+    const diffBalls=(currentBallsNow!==null&&hitSpins>0&&startBalls<currentBallsNow)
+      ? (currentBallsNow - startBalls)
+      : 0;
+
     applyFormUpdate(prev=>{
-      const nb={...prev,firstHits:[...(prev.firstHits||[]),hit],notes:appendLine(prev.notes,ml)};
+      let nb={...prev,firstHits:[...(prev.firstHits||[]),hit],notes:appendLine(prev.notes,ml)};
+
+      // 差玉がある場合：差玉分の持ち玉投資行を最新の投資行の前に挿入（reading=hitSpins）
+      if(diffBalls>0&&hitSpins>0){
+        const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:String(hitSpins)};
+        // 現在のrateEntriesの末尾（reading未入力行）の前に挿入
+        const entries=nb.rateEntries||[];
+        const lastEmpty=entries.findIndex(e=>!numberOrZero(e.reading));
+        const insertAt=lastEmpty>=0?lastEmpty:entries.length;
+        const newEntries=[...entries.slice(0,insertAt),diffEntry,...entries.slice(insertAt)];
+        nb={...nb,rateEntries:newEntries};
+      }
+
       if(!restartAfter)return nb;
       const m=nb.machineId&&nb.machineId!=='__none__'?machines.find(m=>m.id===nb.machineId)||null:null;
       const met=calcRateMetrics(nb,m,settings);
@@ -938,7 +960,7 @@ export default function PachinkoCalculatorComplete() {
         createdAt:Date.now(),
       };
 
-      // ② 大当たり終了後の行: ゲーム数=再スタート回転、種別='jackpot_after'
+      // ② 大当たり終了後の行
       const afterEntry={ id:uid(), kind:'jackpot_after', amount:'0', reading:rsr>0?String(rsr):'' };
       const na=nb.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
       const nextEntry=emptyRateEntry(nb.currentInputMode||'cash',na,'');
@@ -1831,6 +1853,33 @@ export default function PachinkoCalculatorComplete() {
                         <div><Label className="text-xs">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>{const v=e.target.value; const n=numberOrZero(v); setFirstHitForm(p=>({...p,chainCount:v,restartReason:n>1?'st':p.restartReason}));}} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="1"/></div>
                         <div><Label className="text-xs">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={e=>setFirstHitForm(p=>({...p,restartRotation:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
                         <div><Label className="text-xs">残り保留数</Label><Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 3"/></div>
+                      </div>
+                      {/* 初当たりゲーム数（差玉投資計算用） */}
+                      <div style={{ border:`1px solid ${C.amberBorder}`, borderRadius:12, padding:'10px 12px', background:C.amberBg }}>
+                        <Label className="text-xs" style={{ color:C.amber, fontWeight:700 }}>🎯 初当たりゲーム数（任意）</Label>
+                        <Input value={firstHitForm.hitSpins} onChange={e=>setFirstHitForm(p=>({...p,hitSpins:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 109"/>
+                        {(()=>{
+                          const hitSpins=numberOrZero(firstHitForm.hitSpins);
+                          const startBalls=numberOrZero(firstHitForm.startBalls);
+                          const curBalls=formMetrics.currentBalls;
+                          if(hitSpins<=0||curBalls===null||startBalls>=curBalls) return (
+                            <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>入力すると持ち玉の差分から回転率を自動計算するぜ。</div>
+                          );
+                          const diff=curBalls-startBalls;
+                          const investYen=diff*4; // 等価非等価問わず4円固定
+                          const rate=investYen>0?hitSpins/(investYen/1000):0;
+                          return (
+                            <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
+                              <div style={{ fontSize:11, color:C.amber, fontWeight:600 }}>
+                                差玉: {curBalls.toLocaleString()}玉 − {startBalls.toLocaleString()}玉 = {diff.toLocaleString()}玉（{fmtYen(investYen)}）
+                              </div>
+                              <div style={{ fontSize:13, fontWeight:800, color:C.amber }}>
+                                回転率: {hitSpins} ÷ {investYen.toLocaleString()} = {fmtRate(rate)} 回/千円
+                              </div>
+                              <div style={{ fontSize:10, color:C.textMuted }}>✅ 大当たり終了時に投資行へ自動追加されるぜ</div>
+                            </div>
+                          );
+                        })()}
                       </div>
                       {/* 再スタート理由 */}
                       <div>
