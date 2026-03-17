@@ -915,7 +915,12 @@ export default function PachinkoCalculatorComplete() {
     // 条件：初当たりゲーム数入力あり かつ 開始持ち玉 < 現在の持ち玉
     const hitSpins=numberOrZero(firstHitForm.hitSpins);
     const startBalls=numberOrZero(firstHitForm.startBalls);
-    const currentBallsNow=formMetrics.currentBalls;  // 現在の持ち玉残枚数
+    const currentBallsNow=formMetrics.currentBalls;
+    // 現在枠の最新ゲーム数（最後に入力済みのreading）
+    const lastReadingNow=(form.rateEntries||[]).reduce((last,e)=>{
+      const r=numberOrZero(e.reading); return (r>0&&r>last)?r:last;
+    }, numberOrZero(form.startRotation));
+    const spinsUsed=lastReadingNow>0?Math.max(0,hitSpins-lastReadingNow):hitSpins;
     const diffBalls=(currentBallsNow!==null&&hitSpins>0&&startBalls<currentBallsNow)
       ? (currentBallsNow - startBalls)
       : 0;
@@ -925,6 +930,7 @@ export default function PachinkoCalculatorComplete() {
 
       // 差玉がある場合：差玉分の持ち玉投資行を最新の投資行の前に挿入（reading=hitSpins）
       if(diffBalls>0&&hitSpins>0){
+        // reading = 最新ゲーム数 + spinsUsed（= hitSpins）
         const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:String(hitSpins)};
         // 現在のrateEntriesの末尾（reading未入力行）の前に挿入
         const entries=nb.rateEntries||[];
@@ -1855,31 +1861,46 @@ export default function PachinkoCalculatorComplete() {
                         <div><Label className="text-xs">残り保留数</Label><Input value={firstHitForm.remainingHolds} onChange={e=>setFirstHitForm(p=>({...p,remainingHolds:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 3"/></div>
                       </div>
                       {/* 初当たりゲーム数（差玉投資計算用） */}
-                      <div style={{ border:`1px solid ${C.amberBorder}`, borderRadius:12, padding:'10px 12px', background:C.amberBg }}>
-                        <Label className="text-xs" style={{ color:C.amber, fontWeight:700 }}>🎯 初当たりゲーム数（任意）</Label>
-                        <Input value={firstHitForm.hitSpins} onChange={e=>setFirstHitForm(p=>({...p,hitSpins:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 109"/>
-                        {(()=>{
-                          const hitSpins=numberOrZero(firstHitForm.hitSpins);
-                          const startBalls=numberOrZero(firstHitForm.startBalls);
-                          const curBalls=formMetrics.currentBalls;
-                          if(hitSpins<=0||curBalls===null||startBalls>=curBalls) return (
-                            <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>入力すると持ち玉の差分から回転率を自動計算するぜ。</div>
-                          );
-                          const diff=curBalls-startBalls;
-                          const investYen=diff*4; // 等価非等価問わず4円固定
-                          const rate=investYen>0?hitSpins/(investYen/1000):0;
-                          return (
-                            <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
-                              <div style={{ fontSize:11, color:C.amber, fontWeight:600 }}>
-                                差玉: {curBalls.toLocaleString()}玉 − {startBalls.toLocaleString()}玉 = {diff.toLocaleString()}玉（{fmtYen(investYen)}）
+                      <div style={{ border:`2px solid ${C.amberBorder}`, borderRadius:16, overflow:'hidden', background:C.amberBg }}>
+                        <div style={{ background:isDark?'rgba(245,158,11,0.2)':'#fef3c7', padding:'10px 14px', borderBottom:`1px solid ${C.amberBorder}` }}>
+                          <div style={{ fontWeight:800, fontSize:14, color:C.amber }}>🎯 初当たりゲーム数</div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>大当りが来たゲーム数（任意）</div>
+                        </div>
+                        <div style={{ padding:'10px 14px' }}>
+                          <Input value={firstHitForm.hitSpins} onChange={e=>setFirstHitForm(p=>({...p,hitSpins:e.target.value}))} className="rounded-xl text-center font-bold" style={{ fontSize:28, height:56, color:C.amber }} inputMode="numeric" placeholder="例: 301"/>
+                          {(()=>{
+                            const hitSpins=numberOrZero(firstHitForm.hitSpins);
+                            const startBalls=numberOrZero(firstHitForm.startBalls);
+                            const curBalls=formMetrics.currentBalls;
+                            // 現在枠の最新ゲーム数（reading入力済みの最大値）
+                            const lastReading=(form.rateEntries||[]).reduce((last,e)=>{
+                              const r=numberOrZero(e.reading); return (r>0&&r>last)?r:last;
+                            }, numberOrZero(form.startRotation));
+                            if(hitSpins<=0||curBalls===null||startBalls>=curBalls) return (
+                              <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>開始持ち玉を入力すると差玉から回転率を自動計算するぜ。</div>
+                            );
+                            const diff=curBalls-startBalls;
+                            const investYen=diff*4;
+                            const spinsUsed=lastReading>0?Math.max(0,hitSpins-lastReading):hitSpins;
+                            const rate=investYen>0?spinsUsed/(investYen/1000):0;
+                            return (
+                              <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
+                                <div style={{ background:isDark?'rgba(245,158,11,0.1)':'white', borderRadius:10, padding:'8px 12px', border:`1px solid ${C.amberBorder}` }}>
+                                  <div style={{ fontSize:11, color:C.textMuted, marginBottom:2 }}>計算の内訳</div>
+                                  <div style={{ fontSize:12, color:C.amber, lineHeight:'1.8' }}>
+                                    差玉: {curBalls.toLocaleString()} − {startBalls.toLocaleString()} = <b>{diff.toLocaleString()}玉</b>（{fmtYen(investYen)}）<br/>
+                                    回転数: {hitSpins} − {lastReading} = <b>{spinsUsed}回転</b>
+                                  </div>
+                                </div>
+                                <div style={{ background:isDark?'rgba(245,158,11,0.15)':'#fffbeb', borderRadius:12, padding:'10px 14px', border:`1.5px solid ${C.amberBorder}`, textAlign:'center' }}>
+                                  <div style={{ fontSize:11, color:C.textMuted, marginBottom:2 }}>算出回転率</div>
+                                  <div style={{ fontSize:28, fontWeight:900, color:C.amber }}>{fmtRate(rate)}<span style={{ fontSize:13, fontWeight:600, marginLeft:4 }}>回/千円</span></div>
+                                </div>
+                                <div style={{ fontSize:10, color:C.textMuted }}>✅ 大当たり終了時に持ち玉{diff.toLocaleString()}玉 / {spinsUsed}回転の投資行へ自動追加</div>
                               </div>
-                              <div style={{ fontSize:13, fontWeight:800, color:C.amber }}>
-                                回転率: {hitSpins} ÷ {investYen.toLocaleString()} = {fmtRate(rate)} 回/千円
-                              </div>
-                              <div style={{ fontSize:10, color:C.textMuted }}>✅ 大当たり終了時に投資行へ自動追加されるぜ</div>
-                            </div>
-                          );
-                        })()}
+                            );
+                          })()}
+                        </div>
                       </div>
                       {/* 再スタート理由 */}
                       <div>
