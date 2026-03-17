@@ -1976,12 +1976,20 @@ export default function PachinkoCalculatorComplete() {
                     </div>
                     {(form.firstHits||[]).map(hit=>(
                       <div key={hit.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'13px 16px', marginBottom:8 }}>
-                        <div>
-                          <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14 }}>{hit.label}</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14 }}>{hit.label}</div>
+                            {hit.hitSpins>0&&<div style={{ fontSize:12, fontWeight:700, color:C.amber, background:isDark?'rgba(245,158,11,0.15)':C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:8, padding:'2px 8px' }}>🎯 初当たり{hit.hitSpins}回転</div>}
+                          </div>
                           <div style={{ fontSize:12, color:C.textSecondary, marginTop:3 }}>{hit.rounds}R / 獲得{Math.round(hit.gainedBalls)}玉 / 1R {hit.oneRound.toFixed(1)} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
-                          {hit.remainingHolds>0&&<div style={{ fontSize:12, color:'#0369a1', marginTop:2, fontWeight:600 }}>残り保留: {hit.remainingHolds}個</div>}
+                          {hit.hitSpins>0&&hit.remainingHolds>0&&(
+                            <div style={{ fontSize:12, color:C.amber, marginTop:3, fontWeight:600 }}>
+                              {hit.hitSpins}回転 + 残{hit.remainingHolds}保留 = <b>{hit.hitSpins+hit.remainingHolds}回転</b>
+                            </div>
+                          )}
+                          {(!hit.hitSpins||hit.hitSpins<=0)&&hit.remainingHolds>0&&<div style={{ fontSize:12, color:'#0369a1', marginTop:2, fontWeight:600 }}>残り保留: {hit.remainingHolds}個</div>}
                         </div>
-                        <button onClick={()=>removeFirstHit(hit.id)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}><Trash2 size={15} color={C.textMuted}/></button>
+                        <button onClick={()=>removeFirstHit(hit.id)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:8 }}><Trash2 size={15} color={C.textMuted}/></button>
                       </div>
                     ))}
                   </div>
