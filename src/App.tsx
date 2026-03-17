@@ -305,11 +305,13 @@ function calcRateMetrics(session,machine,settings) {
   const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
 
-  // ── 収支：残り持ち玉の価値 − 今回の現金投資のみ + 引き継ぎ収支 ──
-  // allCashInvestYenはinheritedCashを含むが、収支計算ではinheritedCashを除く
-  // （inheritedBalがすでに「前回収支 = 前回回収 - 前回現金投資」を表しているため二重計上防止）
+  // ── 収支：残り持ち玉の価値 − 今回の現金投資のみ + 引き継ぎ収支補正 ──
   const todayCashInvestYen = allCashInvestYen - inheritedCash;
-  const useInheritedBal = inheritedBallsBase <= 0 ? inheritedBal : 0;
+  // 持ち玉引き継ぎ時：inheritedBal - inheritedBalls×換金率 を補正値として使う
+  // （開始時点の balance = currentBallsYen - 0 + 補正値 = inheritedBal になる）
+  const useInheritedBal = inheritedBallsBase > 0
+    ? inheritedBal - inheritedBallsBase * exchangeRate
+    : inheritedBal;
   const autoBalanceYen=currentBalls!==null
     ? (currentBallsYen - todayCashInvestYen) + useInheritedBal   // 持ち玉あり
     : (returnYen - todayCashInvestYen) + useInheritedBal;         // 持ち玉なし
@@ -1762,7 +1764,7 @@ export default function PachinkoCalculatorComplete() {
                       ['現金投資', fmtYen(formMetrics.totalInvestYen), null],
                       ['平均率', fmtRate(formMetrics.avgSpinPerThousand), C.accent],
                       ...((formMetrics.ballInvestBalls>0||formMetrics.currentBalls!==null)?[['玉投資', formMetrics.ballInvestBalls.toLocaleString()+'玉', C.amber]]:[]),
-                      ['収支', fmtYen(formMetrics.balanceYen), formMetrics.balanceYen>=0?C.positive:C.negative],
+                      ['総投資', fmtYen(Math.round(formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0))), C.primary],
                     ].map(([l,v,c])=>(
                       <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', borderRadius:10, padding:'6px 2px' }}>
                         <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
@@ -2154,6 +2156,32 @@ export default function PachinkoCalculatorComplete() {
                           </div>
                         ))}
                       </div>
+                      {/* 投資サマリー */}
+                      {(()=>{
+                        const cashInv=resultPreviewMetrics.cashInvestYen||0;
+                        const ballInvBalls=resultPreviewMetrics.ballInvestBalls||0;
+                        const ballInvYen=resultPreviewMetrics.ballInvestYen||0;
+                        const totalInv=cashInv+ballInvYen;
+                        if(totalInv<=0) return null;
+                        return (
+                          <div style={{ background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'10px 14px' }}>
+                            <div style={{ fontSize:11, fontWeight:700, color:C.textPrimary, marginBottom:8 }}>💴 投資内訳</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                              {[
+                                ['現金投資', fmtYen(cashInv), C.textPrimary],
+                                ['玉投資', ballInvBalls>0?`${Math.round(ballInvBalls).toLocaleString()}玉`:'0玉', ballInvBalls>0?C.amber:C.textMuted],
+                                ['総投資', fmtYen(Math.round(totalInv)), C.primary],
+                              ].map(([l,v,c])=>(
+                                <div key={l} style={{ textAlign:'center' }}>
+                                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>{l}</div>
+                                  <div style={{ fontSize:13, fontWeight:700, color:c, marginTop:2 }}>{v}</div>
+                                  {l==='玉投資'&&ballInvYen>0&&<div style={{ fontSize:9, color:C.textMuted }}>{fmtYen(Math.round(ballInvYen))}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {/* 終了時持ち玉（自動入力・編集可） */}
                       <div>
                         <Label className="text-xs">終了時持ち玉（自動入力）</Label>
@@ -2663,12 +2691,21 @@ export default function PachinkoCalculatorComplete() {
                       </summary>
                       <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0],['回転数',`${Math.round(s.metrics.totalSpins).toLocaleString()}回`,null]].map(([l,v,pos])=>(
+                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0],['平均回転率',fmtRate(s.metrics.avgSpinPerThousand),null]].map(([l,v,pos])=>(
                             <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                               <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
                               <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
                             </div>
                           ))}
+                          {/* 投資内訳 */}
+                          <div style={{ gridColumn:'1/-1', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                            <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>💴 投資内訳</div>
+                            <div style={{ display:'flex', gap:14, flexWrap:'wrap', fontSize:12 }}>
+                              <div>現金投資 <span style={{ fontWeight:700, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
+                              {s.metrics.ballInvestBalls>0&&<div>玉投資 <span style={{ fontWeight:700, color:C.amber }}>{Math.round(s.metrics.ballInvestBalls).toLocaleString()}玉（{fmtYen(Math.round(s.metrics.ballInvestYen))}）</span></div>}
+                              <div>総投資 <span style={{ fontWeight:700, color:C.primary }}>{fmtYen(Math.round(s.metrics.cashInvestYen+s.metrics.ballInvestYen))}</span></div>
+                            </div>
+                          </div>
                         </div>
                         {td.length>0&&<div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={td}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis tick={{fontSize:11}}/><Tooltip/><Line type="monotone" dataKey="rate" stroke={C.accent} strokeWidth={2} dot={false} name="累積回転率"/></LineChart></ResponsiveContainer></div>}
                         <Dialog>
@@ -2990,6 +3027,8 @@ export default function PachinkoCalculatorComplete() {
                           <div>総回転 <span style={{ fontWeight:600, color:C.textPrimary }}>{Math.round(s.metrics.totalSpins).toLocaleString()}回</span></div>
                           <div>現金投資 <span style={{ fontWeight:600, color:C.textPrimary }}>{fmtYen(s.metrics.cashInvestYen)}</span></div>
                           <div>初当たり <span style={{ fontWeight:600, color:C.textPrimary }}>{(s.firstHits||[]).length}件</span></div>
+                          {s.metrics.ballInvestBalls>0&&<div>玉投資 <span style={{ fontWeight:600, color:C.amber }}>{Math.round(s.metrics.ballInvestBalls).toLocaleString()}玉</span></div>}
+                          <div>総投資 <span style={{ fontWeight:600, color:C.primary }}>{fmtYen(Math.round(s.metrics.cashInvestYen+s.metrics.ballInvestYen))}</span></div>
                           {s.startTime&&<div>打ち始め <span style={{ fontWeight:600, color:C.primary }}>{s.startTime}</span></div>}
                           {s.endTime&&<div>終了 <span style={{ fontWeight:600, color:C.primary }}>{s.endTime}</span></div>}
                           {s.startTime&&s.endTime&&fmtElapsed(calcElapsedHours(s.startTime,s.endTime))&&(
