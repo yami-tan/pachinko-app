@@ -25,12 +25,22 @@ const STORAGE_KEYS = {
 };
 
 const EXCHANGE_PRESETS = {
-  '25': { label: '25個(等価)', yenPerBall: 4.0,                short: '等価' },
-  '28': { label: '28個',       yenPerBall: 100/28,             short: '28個' },
-  '30': { label: '30個',       yenPerBall: 100/30,             short: '30個' },
-  '33': { label: '33個',       yenPerBall: 100/33,             short: '33個' },
+  '25':   { label: '25個(等価)',      yenPerBall: 4.0,          short: '等価'  },
+  '26':   { label: '26個(3.85円)',    yenPerBall: 100/26,       short: '26個'  },
+  '27':   { label: '27個(3.70円)',    yenPerBall: 100/27,       short: '27個'  },
+  '27.5': { label: '27.5個(3.63円)', yenPerBall: 100/27.5,     short: '27.5個'},
+  '28':   { label: '28個(3.57円)',    yenPerBall: 100/28,       short: '28個'  },
+  '29':   { label: '29個(3.45円)',    yenPerBall: 100/29,       short: '29個'  },
+  '30':   { label: '30個(3.33円)',    yenPerBall: 100/30,       short: '30個'  },
+  '31':   { label: '31個(3.23円)',    yenPerBall: 100/31,       short: '31個'  },
+  '32':   { label: '32個(3.13円)',    yenPerBall: 100/32,       short: '32個'  },
+  '33':   { label: '33個(3.03円)',    yenPerBall: 100/33,       short: '33個'  },
+  '34':   { label: '34個(2.94円)',    yenPerBall: 100/34,       short: '34個'  },
+  '35':   { label: '35個(2.86円)',    yenPerBall: 100/35,       short: '35個'  },
+  '40':   { label: '40個(2.50円)',    yenPerBall: 100/40,       short: '40個'  },
+  '45':   { label: '45個(2.22円)',    yenPerBall: 100/45,       short: '45個'  },
 };
-const EXCHANGE_ORDER = ['25', '28', '30', '33'];
+const EXCHANGE_ORDER = ['25','26','27','27.5','28','29','30','31','32','33','34','35','40','45'];
 const DEFAULT_BORDER = 17;
 
 const defaultSettings = {
@@ -143,8 +153,15 @@ function formatExpectationValue(value, unit) {
   return `${r>=0?'+':''}${r.toLocaleString()}玉`;
 }
 function getBorderFieldByCategory(c) {
-  if(c==='28')return 'border28'; if(c==='30')return 'border30';
-  if(c==='33')return 'border33'; if(c==='40')return 'border40'; return 'border25';
+  // 25以下（等価）
+  if(c==='25'||c==='26'||c==='27'||c==='27.5') return 'border25';
+  // 28近辺
+  if(c==='28'||c==='29') return 'border28';
+  // 30近辺
+  if(c==='30'||c==='31'||c==='32') return 'border30';
+  // 33以上
+  if(c==='33'||c==='34'||c==='35'||c==='40'||c==='45') return 'border33';
+  return 'border25';
 }
 function getMachineBorderByCategory(m,c) { if(!m)return 0; return numberOrZero(m[getBorderFieldByCategory(c)]); }
 function getExchangePreset(c) { return EXCHANGE_PRESETS[c]||EXCHANGE_PRESETS['25']; }
@@ -1478,7 +1495,7 @@ export default function PachinkoCalculatorComplete() {
                     <Select value={form.exchangeCategory} onValueChange={v=>applyFormUpdate(p=>({...p,exchangeCategory:v,sessionBorderOverride:''}))}>
                       <SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger>
                       <SelectContent>
-                        {['28','30','33'].map(v=><SelectItem key={v} value={v}>{v}個</SelectItem>)}
+                        {EXCHANGE_ORDER.filter(v=>v!=='25').map(v=><SelectItem key={v} value={v}>{getExchangePreset(v).label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1630,7 +1647,10 @@ export default function PachinkoCalculatorComplete() {
                 {/* 打ち始め回転 */}
                 <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
                   <label style={{ ...labelStyle, color:C.primary }}>打ち始め回転数</label>
-                  <input value={form.startRotation} onChange={e=>updateForm('startRotation',e.target.value)} style={{ ...inputStyle, border:`1.5px solid ${C.primaryMid}` }} inputMode="numeric" placeholder="124"/>
+                  <input value={form.startRotation} onChange={e=>{
+                    const v=e.target.value;
+                    applyFormUpdate(p=>({...p,startRotation:v,...(!p.startTime&&v.trim()?{startTime:nowTimeStr()}:{})}));
+                  }} style={{ ...inputStyle, border:`1.5px solid ${C.primaryMid}` }} inputMode="numeric" placeholder="124"/>
                 </div>
 
                 {/* 回転率入力リスト（スマホ2段カード形式） */}
@@ -2265,8 +2285,8 @@ export default function PachinkoCalculatorComplete() {
         {activeTab==='judge'&&(()=>{
           // ── ボーダーライン算出ロジック ──
           const bc=borderCalc;
-          // 係数：等価250 / 28個280 / 30個300 / 33個330
-          const COEFF={'25':250,'28':280,'30':300,'33':330};
+          // 係数：等価250 / 玉数×10（1000円で買える玉数）
+          const COEFF={'25':250,'26':260,'27':270,'27.5':275,'28':280,'29':290,'30':300,'31':310,'32':320,'33':330,'34':340,'35':350,'40':400,'45':450};
           const coeff=COEFF[bc.exchangeCategory]||250;
           const oneR=numberOrZero(bc.oneRoundPayout);
           const totalRateDenom=numberOrZero(bc.totalRatePer1R);
@@ -2412,24 +2432,21 @@ export default function PachinkoCalculatorComplete() {
                 {/* 交換率切替 */}
                 <div>
                   <label style={labelStyle}>交換率</label>
-                  <div style={{ display:'flex', gap:8 }}>
-                    {[['25','等価(25個)'],['28','28個'],['30','30個'],['33','33個']].map(([v,l])=>(
-                      <button key={v} onClick={()=>{
-                        const holdRatio=Math.round(formMetrics.holdBallRatio);
-                        setBorderCalc(p=>({
-                          ...p,
-                          exchangeCategory:v,
-                          // 非等価に切り替えた時、持ち玉比率が未入力なら回転率タブから自動入力
-                          holdBallRatioInput: v!=='25' && (!p.holdBallRatioInput||p.holdBallRatioInput==='0') && holdRatio>0
-                            ? String(holdRatio)
-                            : p.holdBallRatioInput,
-                        }));
-                      }}
-                        style={{ flex:1, padding:'10px 4px', borderRadius:12, border:`2px solid ${bc.exchangeCategory===v?C.primary:C.border}`, background:bc.exchangeCategory===v?C.primary:'white', color:bc.exchangeCategory===v?'white':C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
-                        {l}
-                      </button>
-                    ))}
-                  </div>
+                  <Select value={bc.exchangeCategory} onValueChange={v=>{
+                    const holdRatio=Math.round(formMetrics.holdBallRatio);
+                    setBorderCalc(p=>({
+                      ...p,
+                      exchangeCategory:v,
+                      holdBallRatioInput: v!=='25' && (!p.holdBallRatioInput||p.holdBallRatioInput==='0') && holdRatio>0
+                        ? String(holdRatio)
+                        : p.holdBallRatioInput,
+                    }));
+                  }}>
+                    <SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger>
+                    <SelectContent>
+                      {EXCHANGE_ORDER.map(v=><SelectItem key={v} value={v}>{getExchangePreset(v).label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* 入力欄 */}
@@ -2504,7 +2521,7 @@ export default function PachinkoCalculatorComplete() {
                       </div>
                       {bc.exchangeCategory!=='25'&&(
                         <div style={{ background:C.card, borderRadius:12, padding:'12px', textAlign:'center' }}>
-                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>現金ボーダー({bc.exchangeCategory}個)</div>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>現金ボーダー({getExchangePreset(bc.exchangeCategory).label})</div>
                           <div style={{ fontSize:24, fontWeight:800, color:C.primary, marginTop:4 }}>{fmtRate(cashBorder)}</div>
                           <div style={{ fontSize:10, color:C.textMuted }}>回転/千円</div>
                         </div>
