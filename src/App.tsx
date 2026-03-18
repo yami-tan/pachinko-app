@@ -928,25 +928,41 @@ export default function PachinkoCalculatorComplete() {
       ? (currentBallsNow - effectiveStartBalls)
       : 0;
 
-    // 現金モード：この区間の純投資額のみをinheritedCashInvestYenに加算
-    // （rateEntriesの確定分はすでにcashInvestYenに含まれているため、純増分のみ追加）
+    // 現金モード：未確定の最新投資行の金額をcashInvestInputで上書き
     const cashInvestInput=numberOrZero(firstHitForm.cashInvestInput);
-    const netCashInvest=form.currentInputMode==='cash'&&cashInvestInput>0
-      ? Math.max(0, cashInvestInput - effectiveStartBalls*4)
-      : 0;
+    // netCashInvestはinheritedへの加算には使わない（rateEntriesで管理）
+    const netCashInvest=0;
 
     applyFormUpdate(prev=>{
       let nb={
         ...prev,
         firstHits:[...(prev.firstHits||[]),hit],
         notes:appendLine(prev.notes,ml),
-        // 現金モードの純投資額を既存のinheritedCashInvestYenに加算
-        inheritedCashInvestYen:(numberOrZero(prev.inheritedCashInvestYen)+netCashInvest),
+        inheritedCashInvestYen:numberOrZero(prev.inheritedCashInvestYen),
       };
 
-      // 差玉がある場合：差玉分の持ち玉投資行を最新の投資行の前に挿入（reading=hitSpins）
+      // 現金モード：cashInvestInputが入力されていたら未確定の最新投資行を上書き
+      if(form.currentInputMode==='cash'&&cashInvestInput>0){
+        const entries=nb.rateEntries||[];
+        const lastEmptyIdx=[...entries].reverse().findIndex(e=>e.kind==='cash'&&!numberOrZero(e.reading));
+        if(lastEmptyIdx>=0){
+          const realIdx=entries.length-1-lastEmptyIdx;
+          const newEntries=entries.map((e,i)=>i===realIdx?{...e,amount:String(cashInvestInput)}:e);
+          nb={...nb,rateEntries:newEntries};
+        }
+      }
+
+      // 差玉がある場合：差玉分の持ち玉投資行を挿入（hitSpinsあり）
       if(diffBalls>0&&hitSpins>0){
         const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:String(hitSpins)};
+        const entries=nb.rateEntries||[];
+        const lastEmpty=entries.findIndex(e=>!numberOrZero(e.reading));
+        const insertAt=lastEmpty>=0?lastEmpty:entries.length;
+        const newEntries=[...entries.slice(0,insertAt),diffEntry,...entries.slice(insertAt)];
+        nb={...nb,rateEntries:newEntries};
+      } else if(diffBalls>0&&hitSpins<=0){
+        // hitSpinsなしでも差玉がある場合→reading空のまま差玉行を追加（後で手動入力可）
+        const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:''};
         const entries=nb.rateEntries||[];
         const lastEmpty=entries.findIndex(e=>!numberOrZero(e.reading));
         const insertAt=lastEmpty>=0?lastEmpty:entries.length;
@@ -960,7 +976,6 @@ export default function PachinkoCalculatorComplete() {
           const newEntries=entries.map((e,i)=>i===lastEmptyIdx?{...e,reading:String(hitSpins)}:e);
           nb={...nb,rateEntries:newEntries};
         } else {
-          // 未入力行がない場合は新しい行を追加
           const newEntry={id:uid(),kind:nb.currentInputMode||'cash',amount:'0',reading:String(hitSpins)};
           nb={...nb,rateEntries:[...entries,newEntry]};
         }
@@ -1920,19 +1935,19 @@ export default function PachinkoCalculatorComplete() {
                               if(hitSpins<=0||cashInvest<=0) return (
                                 <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>初当たりゲーム数と現金投資額を入力すると回転率を計算するぜ。</div>
                               );
-                              const netThisSection=Math.max(0,cashInvest-(effectiveStart*4));
-                              // 既存投資：確定済みのみ（cashInvestInputがこの区間の全額を表すため未確定行は除外）
-                              const existingInvest=formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0);
-                              const totalInvestForRate=existingInvest+netThisSection;
+                              const netThisSection=cashInvest; // cashInvestInputがこの区間の現金全額
+                              // 既存投資：確定済みのみ（未確定行はcashInvestInputで上書きされる）
+                              const confirmedInvest=formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0);
+                              const totalInvestForRate=confirmedInvest+netThisSection;
                               const rate=totalInvestForRate>0?hitSpins/(totalInvestForRate/1000):0;
                               return (
                                 <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
                                   <div style={{ background:isDark?'rgba(245,158,11,0.1)':'white', borderRadius:10, padding:'8px 12px', border:`1px solid ${C.amberBorder}` }}>
                                     <div style={{ fontSize:11, color:C.textMuted, marginBottom:2 }}>計算の内訳</div>
                                     <div style={{ fontSize:12, color:C.amber, lineHeight:'1.8' }}>
-                                      この区間の純投資: {cashInvest.toLocaleString()}円 − ({startBalls}+{upperBalls})玉×4 = <b>{fmtYen(netThisSection)}</b><br/>
-                                      今までの総投資: <b>{fmtYen(existingInvest)}</b><br/>
-                                      合計投資: {fmtYen(existingInvest)} + {fmtYen(netThisSection)} = <b>{fmtYen(totalInvestForRate)}</b><br/>
+                                      この区間の現金投資: <b>{fmtYen(netThisSection)}</b><br/>
+                                      今までの確定投資: <b>{fmtYen(confirmedInvest)}</b><br/>
+                                      合計投資: {fmtYen(confirmedInvest)} + {fmtYen(netThisSection)} = <b>{fmtYen(totalInvestForRate)}</b><br/>
                                       総ゲーム数: <b>{hitSpins}回転</b>
                                     </div>
                                   </div>
