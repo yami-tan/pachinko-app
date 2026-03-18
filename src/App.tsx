@@ -586,6 +586,7 @@ export default function PachinkoCalculatorComplete() {
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
   const [inheritOptions,setInheritOptions]=useState({cashInvest:true,balance:true,balls:true,shop:true});
+  const [resetConfirmOpen,setResetConfirmOpen]=useState(false);
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
@@ -1130,6 +1131,9 @@ export default function PachinkoCalculatorComplete() {
                     <button onClick={openInheritDialog} style={{ background:'rgba(255,255,255,0.2)', border:'1.5px solid rgba(255,255,255,0.4)', borderRadius:12, padding:'8px 14px', fontSize:13, fontWeight:700, color:'white', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
                       🔗 引き継ぎ
                     </button>
+                    <button onClick={()=>setResetConfirmOpen(true)} style={{ background:'rgba(239,68,68,0.25)', border:'1.5px solid rgba(239,68,68,0.5)', borderRadius:12, padding:'8px 14px', fontSize:13, fontWeight:700, color:'white', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                      🔄 リセット
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1215,6 +1219,33 @@ export default function PachinkoCalculatorComplete() {
                   </div>
                 );
               })()}
+
+              {/* リセット確認ダイアログ */}
+              {resetConfirmOpen&&(
+                <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}>
+                  <div style={{ background:C.card, borderRadius:24, padding:'24px 20px', width:'100%', maxWidth:360 }}>
+                    <div style={{ textAlign:'center', marginBottom:16 }}>
+                      <div style={{ fontSize:36, marginBottom:8 }}>🔄</div>
+                      <div style={{ fontWeight:800, fontSize:17, color:C.textPrimary, marginBottom:6 }}>回転率をリセット</div>
+                      <div style={{ fontSize:13, color:C.textMuted, lineHeight:'1.6' }}>
+                        現在の回転率計算の内容を<br/>
+                        <b style={{ color:C.negative }}>全て削除</b>して新しく始めます。<br/>
+                        この操作は取り消せません。
+                      </div>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <button onClick={()=>setResetConfirmOpen(false)}
+                        style={{ padding:'13px', borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                        キャンセル
+                      </button>
+                      <button onClick={()=>{ createNewSession(); setResetConfirmOpen(false); }}
+                        style={{ padding:'13px', borderRadius:14, border:'none', background:'#ef4444', color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                        リセットする
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div style={{ padding:'16px 18px', display:'flex', flexDirection:'column', gap:16 }}>
                 {/* 台データ設定アコーディオン */}
