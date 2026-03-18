@@ -287,8 +287,8 @@ function calcRateMetrics(session,machine,settings) {
 
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
-  const allTotalInvestYen= logTotals.investYen + totalInvestYen;   // 回転率計算用（現金+持ち玉）
-  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen + inheritedCash;    // 表示・収支用（現金のみ＋引き継ぎ現金）
+  const allTotalInvestYen= logTotals.investYen + totalInvestYen + inheritedCash;  // 回転率計算用（現金+持ち玉+引き継ぎ現金）
+  const allCashInvestYen = logTotals.cashInvest+ cashInvestYen + inheritedCash;   // 表示・収支用（現金のみ＋引き継ぎ現金）
   const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
   const allBallInvestYen = logTotals.ballYen   + ballInvestYen;
   const allEstimatedEVYen= logTotals.evYen     + estimatedEVYen;
@@ -945,14 +945,24 @@ export default function PachinkoCalculatorComplete() {
 
       // 差玉がある場合：差玉分の持ち玉投資行を最新の投資行の前に挿入（reading=hitSpins）
       if(diffBalls>0&&hitSpins>0){
-        // reading = 最新ゲーム数 + spinsUsed（= hitSpins）
         const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:String(hitSpins)};
-        // 現在のrateEntriesの末尾（reading未入力行）の前に挿入
         const entries=nb.rateEntries||[];
         const lastEmpty=entries.findIndex(e=>!numberOrZero(e.reading));
         const insertAt=lastEmpty>=0?lastEmpty:entries.length;
         const newEntries=[...entries.slice(0,insertAt),diffEntry,...entries.slice(insertAt)];
         nb={...nb,rateEntries:newEntries};
+      } else if(hitSpins>0&&hitSpins>lastReadingNow){
+        // 差玉なし（現金モード等）でもhitSpinsを最新の未入力reading欄に自動セット
+        const entries=nb.rateEntries||[];
+        const lastEmptyIdx=entries.findIndex(e=>!numberOrZero(e.reading));
+        if(lastEmptyIdx>=0){
+          const newEntries=entries.map((e,i)=>i===lastEmptyIdx?{...e,reading:String(hitSpins)}:e);
+          nb={...nb,rateEntries:newEntries};
+        } else {
+          // 未入力行がない場合は新しい行を追加
+          const newEntry={id:uid(),kind:nb.currentInputMode||'cash',amount:'0',reading:String(hitSpins)};
+          nb={...nb,rateEntries:[...entries,newEntry]};
+        }
       }
 
       if(!restartAfter)return nb;
@@ -2691,12 +2701,17 @@ export default function PachinkoCalculatorComplete() {
                       </summary>
                       <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0],['平均回転率',fmtRate(s.metrics.avgSpinPerThousand),null]].map(([l,v,pos])=>(
+                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0]].map(([l,v,pos])=>(
                             <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                               <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
                               <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
                             </div>
                           ))}
+                          <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                            <div style={{ fontSize:11, color:C.textMuted }}>総回転数</div>
+                            <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.textPrimary }}>{Math.round(s.metrics.totalSpins).toLocaleString()}回</div>
+                            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>回転率 {fmtRate(s.metrics.avgSpinPerThousand)}</div>
+                          </div>
                           {/* 投資内訳 */}
                           <div style={{ gridColumn:'1/-1', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                             <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>💴 投資内訳</div>
