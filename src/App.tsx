@@ -1584,6 +1584,13 @@ export default function PachinkoCalculatorComplete() {
                       inputMode="numeric"
                       placeholder="例: 2500"
                     />
+                    {/* 残り持ち玉をリアルタイム表示 */}
+                    {formMetrics.currentBalls!==null&&formMetrics.ballInvestBalls>0&&(
+                      <div style={{ marginTop:6, background:C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:10, padding:'8px 12px', fontSize:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <span style={{ color:C.textSecondary }}>残り持ち玉</span>
+                        <span style={{ fontWeight:800, fontSize:16, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</span>
+                      </div>
+                    )}
                     <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
                       持ち玉の初期数を入力してください。ゲーム数を入力すると上のサマリーの持ち玉が減っていくぜ。
                     </div>
