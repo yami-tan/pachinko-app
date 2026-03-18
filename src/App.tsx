@@ -1921,8 +1921,12 @@ export default function PachinkoCalculatorComplete() {
                                 <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>初当たりゲーム数と現金投資額を入力すると回転率を計算するぜ。</div>
                               );
                               const netThisSection=Math.max(0,cashInvest-(effectiveStart*4));
-                              // 既存の総投資（確定済み現金+玉）
-                              const existingInvest=formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0);
+                              // 既存投資：確定済み＋未確定のrateEntries（reading未入力行も含む）
+                              const unconfirmedCash=(form.rateEntries||[]).reduce((a,e)=>{
+                                if(e.kind==='cash'&&numberOrZero(e.amount)>0&&!numberOrZero(e.reading)) return a+numberOrZero(e.amount);
+                                return a;
+                              },0);
+                              const existingInvest=formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0)+unconfirmedCash;
                               const totalInvestForRate=existingInvest+netThisSection;
                               // 回転率はhitSpins全体（区間ではなく総ゲーム数）で算出
                               const rate=totalInvestForRate>0?hitSpins/(totalInvestForRate/1000):0;
