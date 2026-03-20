@@ -266,7 +266,9 @@ function calcRateMetrics(session,machine,settings) {
   });
   const currentSpins=totalSpinsManual||cSpins;
   const currentEndRotation=startRotation+currentSpins;
-  const cBallYen=cBalls*exchangeRate, cInvestYen=cCash+cBallYen;
+  // 持ち玉は等価非等価問わず常に1玉=4円で投資額換算（貸し玉単価）
+  const BALL_UNIT_PRICE = 4;
+  const cBallYen=cBalls*BALL_UNIT_PRICE, cInvestYen=cCash+cBallYen;
   const cRate=cInvestYen>0?currentSpins/(cInvestYen/1000):0;
   const cEVYen=cInvestYen>0?calcEvYenFromRate(cRate,machineBorder,cInvestYen,settings):0;
   const archived=(session.rateSections||[]).reduce((acc,s)=>{ acc.spins+=numberOrZero(s.spins); acc.investYen+=numberOrZero(s.investYen); acc.cashInvestYen+=numberOrZero(s.cashInvestYen); acc.ballInvestBalls+=numberOrZero(s.ballInvestBalls); acc.ballInvestYen+=numberOrZero(s.ballInvestYen); acc.estimatedEVYen+=numberOrZero(s.estimatedEVYen); return acc; },{spins:0,investYen:0,cashInvestYen:0,ballInvestBalls:0,ballInvestYen:0,estimatedEVYen:0});
@@ -616,7 +618,23 @@ export default function PachinkoCalculatorComplete() {
     return Number(avg.toFixed(1));
   },[form.firstHits]);
   const saveStatusMeta=getSaveStatusMeta(saveStatus);
-  const currentBorderInputValue=form.sessionBorderOverride!==''?form.sessionBorderOverride:(selectedMachine?String(getMachineBorderByCategory(selectedMachine,form.exchangeCategory||'25')||''):'');
+  // 自動算出ボーダー（手動登録なし・1R出玉＆確率あり）
+  const autoCalcBorder=useMemo(()=>{
+    if(!selectedMachine) return 0;
+    const oneR=numberOrZero(selectedMachine.payoutPerRound);
+    const prob=numberOrZero(selectedMachine.totalProbability);
+    if(oneR<=0||prob<=0) return 0;
+    const cat=form.exchangeCategory||'25';
+    const coeff=numberOrZero(cat)*10||250;
+    return coeff/(oneR/prob);
+  },[selectedMachine,form.exchangeCategory]);
+  const currentBorderInputValue=form.sessionBorderOverride!==''
+    ? form.sessionBorderOverride
+    : selectedMachine
+      ? (getMachineBorderByCategory(selectedMachine,form.exchangeCategory||'25')>0
+          ? String(getMachineBorderByCategory(selectedMachine,form.exchangeCategory||'25'))
+          : (autoCalcBorder>0 ? String(Number(autoCalcBorder.toFixed(2))) : ''))
+      : '';
   const currentObservedBaseRate=Math.floor(formMetrics.spinPerThousand||0);
   const expectTargetTenthRate=Number((Math.round(((numberOrZero(expectManualRateInput)||formMetrics.spinPerThousand||0)*10))/10).toFixed(1));
   const sessionTrendData=useMemo(()=>getSessionTrendData(form,settings),[form,settings]);
@@ -1417,14 +1435,29 @@ export default function PachinkoCalculatorComplete() {
                               ✏️ 内容を変更
                             </button>
                           </div>
-                          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:10 }}>
-                            {EXCHANGE_ORDER.map(cat=>(
-                              <div key={cat} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'6px 4px', textAlign:'center' }}>
-                                <div style={{ fontSize:10, color:C.textMuted }}>{getExchangePreset(cat).short}</div>
-                                <div style={{ fontSize:14, fontWeight:700, color:C.accent, marginTop:2 }}>{fmtRate(getMachineBorderByCategory(selectedMachine,cat))}</div>
+                          {(()=>{
+                            const oneR=numberOrZero(selectedMachine.payoutPerRound);
+                            const prob=numberOrZero(selectedMachine.totalProbability);
+                            const canAuto=oneR>0&&prob>0;
+                            return (
+                              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6, marginBottom:10 }}>
+                                {EXCHANGE_ORDER.map(cat=>{
+                                  const manual=getMachineBorderByCategory(selectedMachine,cat);
+                                  const coeff=numberOrZero(cat)*10||250;
+                                  const auto=canAuto&&manual<=0?coeff/(oneR/prob):0;
+                                  const val=manual>0?manual:auto;
+                                  const isAuto=manual<=0&&auto>0;
+                                  return (
+                                    <div key={cat} style={{ background:C.card, border:`1px solid ${isAuto?C.primaryMid:C.border}`, borderRadius:10, padding:'6px 4px', textAlign:'center' }}>
+                                      <div style={{ fontSize:10, color:C.textMuted }}>{getExchangePreset(cat).short}</div>
+                                      <div style={{ fontSize:14, fontWeight:700, color:isAuto?C.primary:C.accent, marginTop:2 }}>{val>0?fmtRate(val):'0.00'}</div>
+                                      {isAuto&&<div style={{ fontSize:8, color:C.primary }}>自動</div>}
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            ))}
-                          </div>
+                            );
+                          })()}
                           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
                             {[['1R出玉',fmtRate(selectedMachine.payoutPerRound)],['平均獲得',`${Math.round(numberOrZero(selectedMachine.expectedBallsPerHit)).toLocaleString()}玉`],['トータル確率',selectedMachine.totalProbability?fmtRate(selectedMachine.totalProbability):'-']].map(([l,v])=>(
                               <div key={l} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'6px 4px', textAlign:'center' }}>
