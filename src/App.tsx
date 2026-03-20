@@ -190,7 +190,8 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
 
 function buildSectionRateHistoryPoints(session,settings) {
   const archived=session.rateHistoryPoints||[];
-  const exchangeRate=getExchangePreset(session.exchangeCategory||'25').yenPerBall||4;
+  // 持ち玉は常に1玉=4円固定で投資額換算
+  const BALL_UNIT_PRICE=4;
   let baseSpins=archived.length?numberOrZero(archived[archived.length-1].totalSpins):0;
   let baseCashInvestYen=archived.length?numberOrZero(archived[archived.length-1].cashInvestYen):0;
   let baseBallInvestYen=archived.length?numberOrZero(archived[archived.length-1].ballInvestYen):0;
@@ -200,7 +201,7 @@ function buildSectionRateHistoryPoints(session,settings) {
     const reading=numberOrZero(entry.reading);
     if(!(reading>0&&reading>=prevReading)) return [];
     const amount=numberOrZero(entry.amount), spins=reading-prevReading;
-    if(entry.kind==='balls') baseBallInvestYen+=amount*exchangeRate; else baseCashInvestYen+=amount;
+    if(entry.kind==='balls') baseBallInvestYen+=amount*BALL_UNIT_PRICE; else baseCashInvestYen+=amount;
     baseSpins+=spins; prevReading=reading;
     const totalInvestYen=baseCashInvestYen+baseBallInvestYen;
     const cumulativeRate=totalInvestYen>0?baseSpins/(totalInvestYen/1000):0;
@@ -1725,7 +1726,8 @@ export default function PachinkoCalculatorComplete() {
                     const hasReading=curR>0&&curR>=prevR;
                     const spins=hasReading?curR-prevR:0;
                     const amount=numberOrZero(entry.amount);
-                    const entryInvestYen=entry.kind==='balls'?amount*formMetrics.exchangeRate:amount;
+                    // 持ち玉は常に1玉=4円固定で回転率計算（収支用の換金率とは別）
+                    const entryInvestYen=entry.kind==='balls'?amount*4:amount;
                     const rate=entryInvestYen>0&&spins>0?spins/(entryInvestYen/1000):0;
                     const border=numberOrZero(formMetrics.machineBorder);
                     const diff=rate-border;
