@@ -279,7 +279,7 @@ function calcRateMetrics(session,machine,settings) {
   const spinPerThousand=totalInvestYen>0?totalSpins/(totalInvestYen/1000):0;
   const holdBallRatio=totalInvestYen>0?(ballInvestYen/totalInvestYen)*100:0;
   const estimatedEVYen=archived.estimatedEVYen+cEVYen;
-  const returnYen=returnedBalls*exchangeRate;
+  const returnYen=returnedBalls*4;  // 返却玉も4円固定
 
   // ── measurementLogs の累積 ──
   // jackpot_beforeはrateSectionsに既に含まれているため除外（二重カウント防止）
@@ -323,14 +323,14 @@ function calcRateMetrics(session,machine,settings) {
   // 大当たり後は現在枠＋アーカイブ済み投資玉を引く（measurementLogsも含む）
   const ballsDeducted=lastEndBalls>0?(logTotals.ballBalls+cBalls):allBallInvestBalls;
   const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
-  const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;
+  const currentBallsYen=currentBalls!==null?currentBalls*4:null;  // 持ち玉は4円固定
 
   // ── 収支：残り持ち玉の価値 − 今回の現金投資のみ + 引き継ぎ収支補正 ──
   const todayCashInvestYen = allCashInvestYen - inheritedCash;
   // 持ち玉引き継ぎ時：inheritedBal - inheritedBalls×換金率 を補正値として使う
   // （開始時点の balance = currentBallsYen - 0 + 補正値 = inheritedBal になる）
   const useInheritedBal = inheritedBallsBase > 0
-    ? inheritedBal - inheritedBallsBase * exchangeRate
+    ? inheritedBal - inheritedBallsBase * 4   // 引き継ぎ持ち玉も4円固定
     : inheritedBal;
   const autoBalanceYen=currentBalls!==null
     ? (currentBallsYen - todayCashInvestYen) + useInheritedBal   // 持ち玉あり
@@ -585,6 +585,9 @@ export default function PachinkoCalculatorComplete() {
   const [addMachineDialogOpen,setAddMachineDialogOpen]=useState(false);
   const [machineListDialogOpen,setMachineListDialogOpen]=useState(false);
   const [shopListDialogOpen,setShopListDialogOpen]=useState(false);
+  const [favoriteMachineIds,setFavoriteMachineIds]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_favorites')||'[]');}catch{return [];}});
+  const [machineListTab,setMachineListTab]=useState('all'); // 'all' | 'fav'
+  const toggleFavorite=(id)=>{setFavoriteMachineIds(prev=>{const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];try{localStorage.setItem('pachi_favorites',JSON.stringify(next));}catch{}return next;});};
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
@@ -747,10 +750,12 @@ export default function PachinkoCalculatorComplete() {
     });
     const ne=Boolean(form.rateEntries[idx+1]);
     if(!ne){
-      const nk=form.currentInputMode||'cash';
-      const na=nk==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
+      // 持ち玉残量に応じてモード自動切替
+      const curBalls=formMetrics.currentBalls;
+      const autoKind=curBalls!==null&&curBalls>0?'balls':(curBalls===0?'cash':form.currentInputMode||'cash');
+      const na=autoKind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
       applyFormUpdate(p=>{
-        const updated=checkAndArchiveIfNeeded({...p,rateEntries:[...p.rateEntries,emptyRateEntry(nk,na,'')]});
+        const updated=checkAndArchiveIfNeeded({...p,rateEntries:[...p.rateEntries,emptyRateEntry(autoKind,na,'')],currentInputMode:autoKind});
         if(!p.startTime) return {...updated, startTime:nowTimeStr()};
         return updated;
       });
@@ -1344,6 +1349,11 @@ export default function PachinkoCalculatorComplete() {
                             </div>
                           </div>
                         )}
+                        {/* 店舗メモ */}
+                        <div>
+                          <label style={labelStyle}>店舗メモ（任意）</label>
+                          <input value={form.shopMemo||''} onChange={e=>updateForm('shopMemo',e.target.value)} style={{ ...inputStyle, fontSize:13 }} placeholder="釘調整メモなど…"/>
+                        </div>
                       </div>
 
                       {/* 機種選択（検索型） */}
@@ -1389,32 +1399,67 @@ export default function PachinkoCalculatorComplete() {
                             <div style={{ marginTop:4, fontSize:12, color:C.textMuted, padding:'6px 12px' }}>一致する機種が見つからないぜ</div>
                           );
                         })()}
+                        {/* 直近5台 */}
+                        {!machineSearchQuery.trim()&&recentMachinePresets.slice(0,5).length>0&&(
+                          <div style={{ marginTop:6 }}>
+                            <div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>🕐 直近の機種（最大5件）</div>
+                            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                              {recentMachinePresets.slice(0,5).map(m=>(
+                                <button key={m.id} onClick={()=>selectMachine(m.id)}
+                                  style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', borderRadius:10, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left' }}>
+                                  <span style={{ fontSize:13, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
+                                  {favoriteMachineIds.includes(m.id)&&<span style={{ fontSize:14, flexShrink:0 }}>⭐</span>}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
-                        {/* 機種一覧ダイアログ（縦スクロール） */}
+                        {/* 機種一覧ダイアログ（お気に入りタブ付き） */}
                         {machineListDialogOpen&&(
                           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setMachineListDialogOpen(false)}>
                             <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'75vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
-                              <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <div>
+                              <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}` }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                                   <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🎰 機種を選ぶ</div>
-                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>全{machines.length}件 / 上下スワイプで閲覧</div>
+                                  <button onClick={()=>setMachineListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
                                 </div>
-                                <button onClick={()=>setMachineListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                                {/* タブ：全て ／ お気に入り */}
+                                <div style={{ display:'flex', gap:8 }}>
+                                  {[['all','全て'],['fav','⭐ お気に入り']].map(([tab,label])=>(
+                                    <button key={tab} onClick={()=>setMachineListTab(tab)}
+                                      style={{ padding:'6px 14px', borderRadius:10, border:`1.5px solid ${machineListTab===tab?C.primary:C.border}`, background:machineListTab===tab?C.primary:'transparent', color:machineListTab===tab?'white':C.textSecondary, fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                  <span style={{ fontSize:11, color:C.textMuted, alignSelf:'center', marginLeft:'auto' }}>
+                                    {machineListTab==='fav'?`${favoriteMachineIds.length}件`:`全${machines.length}件`}
+                                  </span>
+                                </div>
                               </div>
                               <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
-                                {machines.map(m=>(
-                                  <button key={m.id} onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');setMachineListDialogOpen(false);}}
-                                    style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 14px', borderRadius:12, border:'none', borderBottom:`1px solid ${C.border}`, background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', marginBottom:2 }}>
-                                    <div>
-                                      <div style={{ fontSize:14, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</div>
-                                      {m.border25>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>等価B: {m.border25} / 確率: {m.totalProbability||'-'}</div>}
-                                    </div>
-                                    <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
-                                      {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
-                                      {form.machineId===m.id&&<span style={{ fontSize:12, color:C.primary }}>✓</span>}
-                                    </div>
-                                  </button>
+                                {(machineListTab==='fav'?machines.filter(m=>favoriteMachineIds.includes(m.id)):machines).map(m=>(
+                                  <div key={m.id} style={{ display:'flex', alignItems:'center', borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
+                                    <button onClick={e=>{e.stopPropagation();toggleFavorite(m.id);}}
+                                      style={{ background:'none', border:'none', fontSize:20, padding:'0 8px 0 0', cursor:'pointer', flexShrink:0, opacity:favoriteMachineIds.includes(m.id)?1:0.3 }}>
+                                      ⭐
+                                    </button>
+                                    <button onClick={()=>{selectMachine(m.id);setMachineSearchQuery('');setMachineListDialogOpen(false);}}
+                                      style={{ flex:1, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 8px 13px 0', border:'none', background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
+                                      <div>
+                                        <div style={{ fontSize:14, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</div>
+                                        {m.border25>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>等価B: {m.border25} / 確率: {m.totalProbability||'-'}</div>}
+                                      </div>
+                                      <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+                                        {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
+                                        {form.machineId===m.id&&<span style={{ fontSize:12, color:C.primary }}>✓</span>}
+                                      </div>
+                                    </button>
+                                  </div>
                                 ))}
+                                {machineListTab==='fav'&&favoriteMachineIds.length===0&&(
+                                  <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>⭐ をタップしてお気に入り登録するぜ</div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -2331,7 +2376,7 @@ export default function PachinkoCalculatorComplete() {
                         <Button variant={showResultRateGraph?'default':'outline'} className="rounded-xl h-8 text-xs" onClick={()=>setShowResultRateGraph(p=>!p)}>回転率グラフ</Button>
                         <Button variant={showMoneySwitchGraph?'default':'outline'} className="rounded-xl h-8 text-xs" onClick={()=>setShowMoneySwitchGraph(p=>!p)}>持ち玉/現金グラフ</Button>
                       </div>
-                      {showResultRateGraph&&<div className="rounded-xl border p-2"><div className="h-36"><ResponsiveContainer width="100%" height="100%"><LineChart data={sessionTrendData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey="rate" strokeWidth={2} dot={false} stroke={C.accent} name="累積回転率"/></LineChart></ResponsiveContainer></div></div>}
+                      {showResultRateGraph&&<div className="rounded-xl border p-2"><div className="h-36"><ResponsiveContainer width="100%" height="100%"><LineChart data={sessionTrendData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:10}}/><YAxis domain={[10,25]} tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey="rate" strokeWidth={2} dot={false} stroke={C.accent} name="累積回転率"/></LineChart></ResponsiveContainer></div></div>}
                       {showMoneySwitchGraph&&<div className="rounded-xl border p-2"><div className="h-36"><ResponsiveContainer width="100%" height="100%"><LineChart data={moneySwitchData}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:10}}/><YAxis tick={{fontSize:10}}/><Tooltip/><Line type="monotone" dataKey="cashInvestYen" stroke={C.accent} strokeWidth={2} dot={false} name="現金投資"/><Line type="monotone" dataKey="ballInvestYen" stroke={C.positive} strokeWidth={2} dot={false} name="持ち玉換算"/></LineChart></ResponsiveContainer></div></div>}
                       {/* メモ */}
                       <div><Label className="text-xs">良かった点</Label><Textarea value={form.resultGoodMemo} onChange={e=>updateForm('resultGoodMemo',e.target.value)} className="mt-1 min-h-[56px] rounded-xl text-sm" placeholder="回った点、釘が良かった点など"/></div>
@@ -2840,7 +2885,7 @@ export default function PachinkoCalculatorComplete() {
                             </div>
                           </div>
                         </div>
-                        {td.length>0&&<div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={td}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis tick={{fontSize:11}}/><Tooltip/><Line type="monotone" dataKey="rate" stroke={C.accent} strokeWidth={2} dot={false} name="累積回転率"/></LineChart></ResponsiveContainer></div>}
+                        {td.length>0&&<div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={td}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis domain={[10,25]} tick={{fontSize:11}}/><Tooltip/><Line type="monotone" dataKey="rate" stroke={C.accent} strokeWidth={2} dot={false} name="累積回転率"/></LineChart></ResponsiveContainer></div>}
                         <Dialog>
                           <DialogTrigger asChild>
                             <button style={{ width:'100%', padding:'10px', borderRadius:12, border:`1.5px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
