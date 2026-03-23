@@ -169,7 +169,13 @@ function getShopProfileByName(profiles,name) {
   const t=String(name||'').trim().toLowerCase(); if(!t)return null;
   return (profiles||[]).find(p=>String(p.name||'').trim().toLowerCase()===t)||null;
 }
-function getWorkVolumeBalls(m) { return m.exchangeRate>0?m.estimatedEVYen/m.exchangeRate:0; }
+// 仕事量(円)を返す：総R数・1R平均出玉・換金率・現金投資が揃っている場合は新計算式
+// 揃っていない場合は旧式（estimatedEVYen）にフォールバック
+function getWorkVolumeYen(m) {
+  if(m.workVolumeYen!==null&&m.workVolumeYen!==undefined) return m.workVolumeYen;
+  return m.estimatedEVYen||0;
+}
+function getWorkVolumeBalls(m) { return m.exchangeRate>0?getWorkVolumeYen(m)/m.exchangeRate:0; }
 
 function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
   const rate=numberOrZero(metrics.spinPerThousand), exchangeRate=numberOrZero(metrics.exchangeRate);
@@ -338,6 +344,18 @@ function calcRateMetrics(session,machine,settings) {
   const balanceYen=Number.isFinite(actualBalanceYenRaw)&&session.actualBalanceYen!==''?actualBalanceYenRaw:autoBalanceYen;
   const yph=hours>0?allEstimatedEVYen/hours:0;
 
+  // ── 総R数・1R平均出玉（仕事量計算用） ──
+  const totalRounds=(session.firstHits||[]).reduce((a,h)=>a+numberOrZero(h.rounds),0);
+  const oneRoundPayout=numberOrZero(machine?.payoutPerRound);
+  const totalProbability=numberOrZero(machine?.totalProbability);
+  // 仕事量 = 実収支 − (実際R数 − 理論R数) × 1R平均出玉 × 換金率
+  // 理論R数 = 通常回転数 ÷ トータル確率分母
+  // 運（出玉の引き）を除いた台の回転率による純粋な稼ぎ
+  const theoreticalRounds=totalProbability>0?allTotalSpins/totalProbability:0;
+  const workVolumeYen=(oneRoundPayout>0&&totalProbability>0)
+    ? balanceYen - (totalRounds - theoreticalRounds)*oneRoundPayout*exchangeRate
+    : null;
+
   return {
     exchangeRate, exchangeCategory:session.exchangeCategory||'25',
     startRotation,
@@ -351,12 +369,12 @@ function calcRateMetrics(session,machine,settings) {
     spinPerThousand:allSpinPerThousand,    // 回転率は現金+持ち玉で計算
     avgSpinPerThousand: allSpinPerThousand,
     estimatedEVYen: allEstimatedEVYen,
+    totalRounds, oneRoundPayout, workVolumeYen,
     // ── 回転率計算専用（内部用） ──
     totalInvestYenForRate: allTotalInvestYen,
     // ── 現在枠のみ（詳細・行計算用） ──
     currentFrameSpins:    totalSpins,
     currentFrameInvestYen:totalInvestYen,
-    currentFrameRate:     spinPerThousand,
     currentFrameRate:     spinPerThousand,
     allTotalSpins, allTotalInvestYen, allCashInvestYen, allBallInvestBalls, allBallInvestYen,
     machineBorder, rateDiff:allSpinPerThousand-machineBorder,
@@ -586,8 +604,11 @@ export default function PachinkoCalculatorComplete() {
   const [machineListDialogOpen,setMachineListDialogOpen]=useState(false);
   const [shopListDialogOpen,setShopListDialogOpen]=useState(false);
   const [favoriteMachineIds,setFavoriteMachineIds]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_favorites')||'[]');}catch{return [];}});
+  const [favoriteShopNames,setFavoriteShopNames]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_fav_shops')||'[]');}catch{return [];}});
   const [machineListTab,setMachineListTab]=useState('all'); // 'all' | 'fav'
+  const [shopListTab,setShopListTab]=useState('all'); // 'all' | 'fav'
   const toggleFavorite=(id)=>{setFavoriteMachineIds(prev=>{const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];try{localStorage.setItem('pachi_favorites',JSON.stringify(next));}catch{}return next;});};
+  const toggleFavoriteShop=(name)=>{setFavoriteShopNames(prev=>{const next=prev.includes(name)?prev.filter(x=>x!==name):[...prev,name];try{localStorage.setItem('pachi_fav_shops',JSON.stringify(next));}catch{}return next;});};
   const [deleteConfirmOpen,setDeleteConfirmOpen]=useState(false);
   const [inheritConfirmSessionId,setInheritConfirmSessionId]=useState(null);
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
@@ -1318,33 +1339,53 @@ export default function PachinkoCalculatorComplete() {
                               ):null;
                             })()}
                           </div>
-                          {recentShopPresets.length>0&&(
-                            <button onClick={()=>setShopListDialogOpen(true)}
-                              style={{ padding:'13px 12px', borderRadius:14, border:`1.5px solid ${C.border}`, background:C.card, color:C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
-                              📋 一覧
-                            </button>
-                          )}
+                          <button onClick={()=>setShopListDialogOpen(true)}
+                            style={{ padding:'13px 12px', borderRadius:14, border:`1.5px solid ${C.border}`, background:C.card, color:C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                            📋 一覧
+                          </button>
                         </div>
 
                         {/* 店舗一覧ダイアログ */}
                         {shopListDialogOpen&&(
                           <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setShopListDialogOpen(false)}>
                             <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'70vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
-                              <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <div>
+                              <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}` }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
                                   <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🏪 店舗を選ぶ</div>
-                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>全{recentShopPresets.length}件 / 上下スワイプで閲覧</div>
+                                  <button onClick={()=>setShopListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
                                 </div>
-                                <button onClick={()=>setShopListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                                <div style={{ display:'flex', gap:8 }}>
+                                  {[['all','全て'],['fav','⭐ お気に入り']].map(([tab,label])=>(
+                                    <button key={tab} onClick={()=>setShopListTab(tab)}
+                                      style={{ padding:'6px 14px', borderRadius:10, border:`1.5px solid ${shopListTab===tab?C.primary:C.border}`, background:shopListTab===tab?C.primary:'transparent', color:shopListTab===tab?'white':C.textSecondary, fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                  <span style={{ fontSize:11, color:C.textMuted, alignSelf:'center', marginLeft:'auto' }}>
+                                    {shopListTab==='fav'?`${favoriteShopNames.length}件`:`全${recentShopPresets.length}件`}
+                                  </span>
+                                </div>
                               </div>
                               <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
-                                {recentShopPresets.map(n=>(
-                                  <button key={n} onClick={()=>{applyShopValue(n);setShopListDialogOpen(false);}}
-                                    style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 14px', borderRadius:12, border:'none', borderBottom:`1px solid ${C.border}`, background:form.shop===n?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', marginBottom:2 }}>
-                                    <span style={{ fontSize:14, fontWeight:form.shop===n?700:400, color:form.shop===n?C.primary:C.textPrimary }}>{n}</span>
-                                    {form.shop===n&&<span style={{ fontSize:12, color:C.primary }}>✓ 選択中</span>}
-                                  </button>
+                                {(shopListTab==='fav'?recentShopPresets.filter(n=>favoriteShopNames.includes(n)):recentShopPresets).map(n=>(
+                                  <div key={n} style={{ display:'flex', alignItems:'center', borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
+                                    <button onClick={e=>{e.stopPropagation();toggleFavoriteShop(n);}}
+                                      style={{ background:'none', border:'none', fontSize:20, padding:'0 8px 0 0', cursor:'pointer', flexShrink:0, opacity:favoriteShopNames.includes(n)?1:0.3 }}>
+                                      ⭐
+                                    </button>
+                                    <button onClick={()=>{applyShopValue(n);setShopListDialogOpen(false);}}
+                                      style={{ flex:1, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 8px 13px 0', border:'none', background:form.shop===n?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
+                                      <span style={{ fontSize:14, fontWeight:form.shop===n?700:400, color:form.shop===n?C.primary:C.textPrimary }}>{n}</span>
+                                      {form.shop===n&&<span style={{ fontSize:12, color:C.primary }}>✓ 選択中</span>}
+                                    </button>
+                                  </div>
                                 ))}
+                                {shopListTab==='fav'&&favoriteShopNames.length===0&&(
+                                  <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>⭐ をタップしてお気に入り登録するぜ</div>
+                                )}
+                                {shopListTab==='all'&&recentShopPresets.length===0&&(
+                                  <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>まだ店舗が登録されていないぜ</div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -2798,7 +2839,7 @@ export default function PachinkoCalculatorComplete() {
                 </div>
                 {/* 月間仕事量（常時表示） */}
                 {(()=>{
-                  const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
                   return (
                     <div style={{ background:monthWorkYen>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthWorkYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                       <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間仕事量</div>
@@ -2824,7 +2865,7 @@ export default function PachinkoCalculatorComplete() {
                 {selectedDateSessions.length>0&&(()=>{
                   const dayBalance=selectedDateSessions.reduce((a,s)=>a+s.metrics.balanceYen,0);
                   const dayEV=selectedDateSessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
-                  const dayWork=selectedDateSessions.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  const dayWork=selectedDateSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
                   return (
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginTop:10 }}>
                       {[['収支',fmtYen(Math.round(dayBalance)),dayBalance>=0],['仕事量',fmtYen(Math.round(dayWork)),dayWork>=0],['期待値',fmtYen(Math.round(dayEV)),dayEV>=0]].map(([l,v,pos])=>(
@@ -2841,7 +2882,7 @@ export default function PachinkoCalculatorComplete() {
                 {selectedDateSessions.length===0?<div style={{ fontSize:13, color:C.textMuted }}>この日はまだ未記録だぜ。</div>:selectedDateSessions.map(s=>{
                   const td=getSessionTrendData(s,settings);
                   const mn=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定';
-                  const wv=getWorkVolumeBalls(s.metrics);
+                  const wv=getWorkVolumeYen(s.metrics);
                   return (
                     <details key={s.id} style={{ border:`1px solid ${C.border}`, borderRadius:16, background:C.card, overflow:'hidden' }}>
                       <summary style={{ cursor:'pointer', listStyle:'none', padding:'14px 16px' }}>
@@ -2863,8 +2904,29 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ marginTop:6, fontSize:11, color:C.textMuted }}>タップで詳細を表示</div>
                       </summary>
                       <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                        {/* 店舗名・台番号 編集欄 */}
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv*s.metrics.exchangeRate)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0]].map(([l,v,pos])=>(
+                          <div>
+                            <label style={{ fontSize:11, color:C.textMuted, fontWeight:600, display:'block', marginBottom:4 }}>店舗名</label>
+                            <input
+                              value={s.shop||''}
+                              onChange={e=>{const v=e.target.value;upsertSession({...s,shop:v,updatedAt:Date.now()});}}
+                              style={{ width:'100%', boxSizing:'border-box', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 10px', fontSize:13, background:C.card, color:C.textPrimary }}
+                              placeholder="店舗名"
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize:11, color:C.textMuted, fontWeight:600, display:'block', marginBottom:4 }}>台番号</label>
+                            <input
+                              value={s.machineNumber||''}
+                              onChange={e=>{const v=e.target.value;upsertSession({...s,machineNumber:v,updatedAt:Date.now()});}}
+                              style={{ width:'100%', boxSizing:'border-box', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 10px', fontSize:13, background:C.card, color:C.textPrimary }}
+                              placeholder="台番号"
+                            />
+                          </div>
+                        </div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0]].map(([l,v,pos])=>(
                             <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                               <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
                               <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
@@ -2926,8 +2988,8 @@ export default function PachinkoCalculatorComplete() {
             const sk=s.shop||'店舗未入力';
             if(!allMMap[mk]) allMMap[mk]={name:mk,count:0,balance:0,work:0};
             if(!allSMap[sk]) allSMap[sk]={name:sk,count:0,balance:0,work:0};
-            allMMap[mk].count+=1; allMMap[mk].balance+=s.metrics.balanceYen; allMMap[mk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
-            allSMap[sk].count+=1; allSMap[sk].balance+=s.metrics.balanceYen; allSMap[sk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+            allMMap[mk].count+=1; allMMap[mk].balance+=s.metrics.balanceYen; allMMap[mk].work+=getWorkVolumeYen(s.metrics);
+            allSMap[sk].count+=1; allSMap[sk].balance+=s.metrics.balanceYen; allSMap[sk].work+=getWorkVolumeYen(s.metrics);
           });
           const allMRows=Object.values(allMMap), allSRows=Object.values(allSMap);
           // 月次ランキング用
@@ -2938,8 +3000,8 @@ export default function PachinkoCalculatorComplete() {
             const sk=s.shop||'店舗未入力';
             if(!mMap[mk]) mMap[mk]={name:mk,count:0,balance:0,work:0};
             if(!sMap[sk]) sMap[sk]={name:sk,count:0,balance:0,work:0};
-            mMap[mk].count+=1; mMap[mk].balance+=s.metrics.balanceYen; mMap[mk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
-            sMap[sk].count+=1; sMap[sk].balance+=s.metrics.balanceYen; sMap[sk].work+=getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate;
+            mMap[mk].count+=1; mMap[mk].balance+=s.metrics.balanceYen; mMap[mk].work+=getWorkVolumeYen(s.metrics);
+            sMap[sk].count+=1; sMap[sk].balance+=s.metrics.balanceYen; sMap[sk].work+=getWorkVolumeYen(s.metrics);
           });
           const mRows=Object.values(mMap), sRows=Object.values(sMap);
           const MEDALS=['🥇','🥈','🥉','4️⃣','5️⃣'];
@@ -3006,7 +3068,7 @@ export default function PachinkoCalculatorComplete() {
                   const yr=enrichedSessions.filter(s=>yearKey(s.date)===currentYear);
                   const yBal=yr.reduce((a,s)=>a+s.metrics.balanceYen,0);
                   const yEV=yr.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
-                  const yWork=yr.reduce((a,s)=>a+(getWorkVolumeBalls(s.metrics)*s.metrics.exchangeRate),0);
+                  const yWork=yr.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
                   const yHours=yr.reduce((a,s)=>a+numberOrZero(s.hours),0);
                   const ySpins=yr.reduce((a,s)=>a+s.metrics.totalSpins,0);
                   return (<>
