@@ -672,6 +672,32 @@ export default function PachinkoCalculatorComplete() {
 
   useEffect(()=>{ setJudgeForm(p=>({...p,observedRate:p.observedRate||(formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):''),border:p.border||(formMetrics.machineBorder?String(formMetrics.machineBorder||''):'')})); },[formMetrics.spinPerThousand,formMetrics.machineBorder]);
 
+  // ボーダー算出タブのdisplayBorderを回転率タブのボーダーに自動反映
+  // （持ち玉比率考慮ボーダーが算出されたとき、ユーザーが手動上書きしていない場合のみ）
+  const borderCalcDisplayBorder=useMemo(()=>{
+    const bc=borderCalc;
+    const oneR=numberOrZero(bc.oneRoundPayout);
+    const totalRateDenom=numberOrZero(bc.totalRatePer1R);
+    if(oneR<=0||totalRateDenom<=0) return 0;
+    const cat=bc.exchangeCategory||'25';
+    const coeff=numberOrZero(cat)*10||250;
+    const equivBorder=250/(oneR/totalRateDenom);
+    const cashBorder=coeff/(oneR/totalRateDenom);
+    const holdRatio=numberOrZero(bc.holdBallRatioInput)/100;
+    const mixedBorder=equivBorder>0&&cashBorder>0
+      ? equivBorder*holdRatio+cashBorder*(1-holdRatio) : cashBorder;
+    return cat==='25'?equivBorder:mixedBorder;
+  },[borderCalc]);
+
+  useEffect(()=>{
+    if(borderCalcDisplayBorder<=0) return;
+    // ユーザーが手動でsessionBorderOverrideを入力中でない場合のみ自動反映
+    applyFormUpdate(p=>({
+      ...p,
+      sessionBorderOverride: String(Number(borderCalcDisplayBorder.toFixed(2))),
+    }),{trackUndo:false,markDirty:false});
+  },[borderCalcDisplayBorder]);
+
   // ボーダー算出タブを開いた時 or 機種変更時 → 機種・持ち玉比率を自動同期
   useEffect(()=>{
     if(activeTab!=='judge') return;
