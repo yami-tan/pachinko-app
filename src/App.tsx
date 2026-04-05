@@ -596,7 +596,8 @@ export default function PachinkoCalculatorComplete() {
     selectedBorderMachineId:'', // ボーダー算出用に選んだ機種ID
     expandedIntRows: [],    // 展開中の整数行（Set的に使用）
   });
-  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:'' });
+  const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'' });
+  const firstHitDialogOpenTimeRef=useRef(0);
   const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
@@ -1025,7 +1026,7 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'1',remainingHolds:''}); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
@@ -1034,7 +1035,11 @@ export default function PachinkoCalculatorComplete() {
     const rh=numberOrZero(firstHitForm.remainingHolds);
     const rhStr=rh>0?(' / 残り保留'+rh+'個'):'';
     const ml='['+label+'] '+firstHitMetrics.rounds+'R / 獲得'+Math.round(firstHitMetrics.gainedBalls)+'玉 / 1R '+Number(firstHitMetrics.oneRound.toFixed(1))+' / '+crl+rhStr;
-    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml,hitSpins:numberOrZero(firstHitForm.hitSpins)};
+    // 連チャン時間（ダイアログを開いてから完了するまでの秒数）
+    const chainTimeSec=firstHitDialogOpenTimeRef.current>0
+      ? Math.round((Date.now()-firstHitDialogOpenTimeRef.current)/1000)
+      : 0;
+    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml,hitSpins:numberOrZero(firstHitForm.hitSpins),chainTimeSec};
 
     // 差玉投資行の自動生成
     const hitSpins=numberOrZero(firstHitForm.hitSpins);
@@ -1152,6 +1157,10 @@ export default function PachinkoCalculatorComplete() {
       };
     });
     setFirstHitDialogOpen(false);
+    // 1R出玉を機種へ自動反映（機種選択済みかつ1R出玉が算出されている場合）
+    if(selectedMachine&&firstHitMetrics.oneRound>0){
+      applyFirstHitOneRoundToMachine();
+    }
   }
   function removeFirstHit(hid) { applyFormUpdate(p=>{ const hit=(p.firstHits||[]).find(h=>h.id===hid); const newNotes=hit?.memoLine?p.notes.split('\n').filter(l=>l!==hit.memoLine).join('\n'):p.notes; return {...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid),notes:newNotes}; }); }
   function exportData() { const blob=new Blob([JSON.stringify({machines,sessions,settings},null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`pachinko-complete-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); }
@@ -1189,7 +1198,7 @@ export default function PachinkoCalculatorComplete() {
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary }}>
-      <div style={{ maxWidth:520, margin:'0 auto', padding:'10px 8px 150px' }}>
+      <div style={{ maxWidth:520, margin:'0 auto', padding:'10px 8px 130px' }}>
 
         {/* ─── ヘッダー ─── */}
         <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:16}}>
@@ -2394,7 +2403,9 @@ export default function PachinkoCalculatorComplete() {
                           ))}
                         </div>
                       </div>
-                      {selectedMachine&&firstHitMetrics.oneRound>0&&(()=>{applyFirstHitOneRoundToMachine();return null;})()}
+                      {selectedMachine&&firstHitMetrics.oneRound>0&&(
+                        <div style={{ fontSize:10, color:C.positive, textAlign:'center' }}>✅ 1R出玉 {fmtRate(firstHitMetrics.oneRound)} を機種へ自動反映します</div>
+                      )}
                       <div className="grid grid-cols-2 gap-2">
                         <Button variant="secondary" className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitDialogOpen(false)}>キャンセル</Button>
                         <Button className="rounded-xl h-9 text-sm" onClick={()=>completeFirstHit(true)}>終了して回転率を再スタート</Button>
@@ -2486,7 +2497,7 @@ export default function PachinkoCalculatorComplete() {
                         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                           <thead>
                             <tr style={{ background:isDark?'rgba(255,255,255,0.03)':'#f8fafc' }}>
-                              {['回目','R数','獲得玉','1R','連チャン'].map(h=>(
+                              {['回目','R数','獲得玉','1R','連チャン','時間'].map(h=>(
                                 <th key={h} style={{ padding:'6px 8px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, whiteSpace:'nowrap' }}>{h}</th>
                               ))}
                             </tr>
@@ -2499,6 +2510,13 @@ export default function PachinkoCalculatorComplete() {
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.positive }}>{Math.round(hit.gainedBalls).toLocaleString()}</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.accent }}>{hit.oneRound>0?hit.oneRound.toFixed(1):'-'}</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.textSecondary, whiteSpace:'nowrap' }}>{hit.chainResultLabel||'単発'}</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.textMuted, whiteSpace:'nowrap' }}>
+                                  {hit.chainTimeSec>0
+                                    ? hit.chainTimeSec>=60
+                                      ? `${Math.floor(hit.chainTimeSec/60)}分${hit.chainTimeSec%60}秒`
+                                      : `${hit.chainTimeSec}秒`
+                                    : '-'}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -3817,36 +3835,6 @@ export default function PachinkoCalculatorComplete() {
             ))}
           </div>
         )}
-      </div>
-      {/* ⑥ 固定ボトムナビゲーション */}
-      <div style={{
-        position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)',
-        width:'100%', maxWidth:520, zIndex:100,
-        background:isDark?'rgba(15,23,42,0.97)':'rgba(255,255,255,0.97)',
-        borderTop:`1px solid ${C.border}`,
-        backdropFilter:'blur(16px)',
-        display:'flex', justifyContent:'space-around', alignItems:'center',
-        padding:'6px 0 max(6px, env(safe-area-inset-bottom))',
-      }}>
-        {[
-          {id:'rate',    icon:'📊', label:'回転率'},
-          {id:'judge',   icon:'🎯', label:'ボーダー'},
-          {id:'calendar',icon:'📅', label:'日別'},
-          {id:'history', icon:'📝', label:'履歴'},
-          {id:'settings',icon:'⚙️', label:'設定'},
-        ].map(t=>(
-          <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{
-            display:'flex', flexDirection:'column', alignItems:'center', gap:1,
-            background:'none', border:'none', cursor:'pointer',
-            padding:'4px 12px', borderRadius:12,
-            color:activeTab===t.id?C.primary:C.textMuted,
-            transition:'all 0.15s',
-          }}>
-            <span style={{ fontSize:20, lineHeight:1.2 }}>{t.icon}</span>
-            <span style={{ fontSize:10, fontWeight:activeTab===t.id?700:400 }}>{t.label}</span>
-            {activeTab===t.id&&<div style={{ width:4, height:4, borderRadius:'50%', background:C.primary, marginTop:1 }}/>}
-          </button>
-        ))}
       </div>
     </div>
   );
