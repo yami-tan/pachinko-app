@@ -316,7 +316,7 @@ function calcRateMetrics(session,machine,settings) {
 
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
-  const allTotalInvestYen= logTotals.investYen + totalInvestYen + inheritedCash;  // 回転率計算用（現金+持ち玉+引き継ぎ現金）
+  const allTotalInvestYen= logTotals.investYen + totalInvestYen;             // 回転率計算用（今セッションのみ・引き継ぎ現金は含めない）
   const allCashInvestYen = logTotals.cashInvest+ cashInvestYen + inheritedCash;   // 表示・収支用（現金のみ＋引き継ぎ現金）
   const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
   const allBallInvestYen = logTotals.ballYen   + ballInvestYen;
@@ -569,6 +569,8 @@ export default function PachinkoCalculatorComplete() {
   const [advancedInvestOpen,setAdvancedInvestOpen]=useState(false);
   const [metricsPanelOpen,setMetricsPanelOpen]=useState(false);
   const [firstHitDialogOpen,setFirstHitDialogOpen]=useState(false);
+  const [editingHitId,setEditingHitId]=useState(null); // 編集中の初当たりID
+  const [hitEditForm,setHitEditForm]=useState({restartRotation:'0',restartReason:'single',restartReasonNote:'',rounds:'0',hitSpins:'',remainingHolds:'',chainCount:'0',notes:''});
   const [restartDialogOpen,setRestartDialogOpen]=useState(false);
   const [restartRotationInput,setRestartRotationInput]=useState('');
   const [flashReadingId,setFlashReadingId]=useState('');
@@ -580,7 +582,9 @@ export default function PachinkoCalculatorComplete() {
   const [resultDialogOpen,setResultDialogOpen]=useState(false);
   const [showResultRateGraph,setShowResultRateGraph]=useState(false);
   const [showMoneySwitchGraph,setShowMoneySwitchGraph]=useState(false);
-  const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25'});
+  const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',notes:''});
+  const [editingShopName,setEditingShopName]=useState(null); // 編集中の店舗名
+  const [shopEditDraft,setShopEditDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',notes:''});
   const [shopProfileOpen,setShopProfileOpen]=useState(false);
   const [shopProfilePage,setShopProfilePage]=useState(0);
   const SHOP_PAGE_SIZE=20;
@@ -601,6 +605,7 @@ export default function PachinkoCalculatorComplete() {
   });
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'' });
   const firstHitDialogOpenTimeRef=useRef(0);
+  const [firstHitStep,setFirstHitStep]=useState(1); // 1:R数 2:持ち玉 3:ゲーム数・確認
   const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
@@ -806,7 +811,8 @@ export default function PachinkoCalculatorComplete() {
 
   function updateForm(k,v) { applyFormUpdate(p=>({...p,[k]:v})); }
   function applyShopValue(v) { applyFormUpdate(p=>{ const mp=getShopProfileByName(settings.shopProfiles||[],v); return {...p,shop:v,exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:mp?'':p.sessionBorderOverride}; }); }
-  function addShopProfile() { const name=String(shopProfileDraft.name||'').trim(); if(!name)return; const np={name,exchangeCategory:shopProfileDraft.exchangeCategory||'25'}; setSettings(p=>{const f=(p.shopProfiles||[]).filter(pr=>String(pr.name||'').trim().toLowerCase()!==name.toLowerCase()); return {...p,shopProfiles:[...f,np]};}); setShopProfileDraft({name:'',exchangeCategory:'25'}); }
+  function addShopProfile() { const name=String(shopProfileDraft.name||'').trim(); if(!name)return; const np={name,exchangeCategory:shopProfileDraft.exchangeCategory||'25',specialDays:shopProfileDraft.specialDays||'',notes:shopProfileDraft.notes||''}; setSettings(p=>{const f=(p.shopProfiles||[]).filter(pr=>String(pr.name||'').trim().toLowerCase()!==name.toLowerCase()); return {...p,shopProfiles:[...f,np]};}); setShopProfileDraft({name:'',exchangeCategory:'25',specialDays:'',notes:''}); }
+  function saveShopEdit() { const name=String(shopEditDraft.name||'').trim(); if(!name)return; setSettings(p=>{const updated=(p.shopProfiles||[]).map(pr=>pr.name===editingShopName?{...pr,...shopEditDraft,name}:pr); return {...p,shopProfiles:updated};}); setEditingShopName(null); }
   function removeShopProfile(name) { setSettings(p=>({...p,shopProfiles:(p.shopProfiles||[]).filter(pr=>pr.name!==name)})); }
   function openCompleteDialog() {
     const endTime=nowTimeStr();
@@ -1030,7 +1036,16 @@ export default function PachinkoCalculatorComplete() {
     const p=buildPersistedSession(form,'completed');
     upsertSession(p);
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
-    const newForm={...emptySession(settings), date:form.date, shop:form.shop, exchangeCategory:form.exchangeCategory};
+    const inheritBalls=formMetrics.currentBalls||0;
+    const newForm={
+      ...emptySession(settings),
+      date:form.date,
+      shop:form.shop,
+      exchangeCategory:form.exchangeCategory,
+      currentInputMode: inheritBalls>0?'balls':'cash',
+      inheritedBalls: inheritBalls,
+      inheritedBalanceYen: inheritBalls>0 ? inheritBalls*formMetrics.exchangeRate : 0,
+    };
     setForm(newForm);
     setTableMoveConfirmOpen(false);
     setActiveTab('rate');
@@ -1086,7 +1101,7 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
@@ -1223,6 +1238,41 @@ export default function PachinkoCalculatorComplete() {
     }
   }
   function removeFirstHit(hid) { applyFormUpdate(p=>{ const hit=(p.firstHits||[]).find(h=>h.id===hid); const newNotes=hit?.memoLine?p.notes.split('\n').filter(l=>l!==hit.memoLine).join('\n'):p.notes; return {...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid),notes:newNotes}; }); }
+
+  function openHitEdit(hit) {
+    setHitEditForm({
+      restartRotation: String(hit.restartRotation||'0'),
+      restartReason:   hit.restartReason||'single',
+      restartReasonNote: hit.restartReasonNote||'',
+      rounds:          String(hit.rounds||'0'),
+      hitSpins:        String(hit.hitSpins||''),
+      remainingHolds:  String(hit.remainingHolds||''),
+      chainCount:      String(hit.chainCount||'0'),
+      notes:           hit.notes||'',
+    });
+    setEditingHitId(hit.id);
+  }
+
+  function saveHitEdit() {
+    applyFormUpdate(p=>({
+      ...p,
+      firstHits:(p.firstHits||[]).map(h=>{
+        if(h.id!==editingHitId) return h;
+        return {
+          ...h,
+          restartRotation: numberOrZero(hitEditForm.restartRotation),
+          restartReason:   hitEditForm.restartReason,
+          restartReasonNote: hitEditForm.restartReasonNote,
+          rounds:          numberOrZero(hitEditForm.rounds),
+          hitSpins:        numberOrZero(hitEditForm.hitSpins),
+          remainingHolds:  numberOrZero(hitEditForm.remainingHolds),
+          chainCount:      numberOrZero(hitEditForm.chainCount),
+          notes:           hitEditForm.notes,
+        };
+      }),
+    }));
+    setEditingHitId(null);
+  }
   function exportData() { const blob=new Blob([JSON.stringify({machines,sessions,settings},null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`pachinko-complete-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); }
   function importData(file) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(String(r.result||'{}')); if(Array.isArray(d.machines))setMachines(d.machines); if(Array.isArray(d.sessions))setSessions(d.sessions); if(d.settings)setSettings({...defaultSettings,...d.settings}); } catch { alert('JSONの読み込みに失敗したぜ'); } }; r.readAsText(file); }
   function moveMonth(delta) { const d=new Date(`${currentMonth}-01T00:00:00`); d.setMonth(d.getMonth()+delta); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
@@ -1317,11 +1367,24 @@ export default function PachinkoCalculatorComplete() {
         })()}
 
         {/* ─── タブ ─── */}
-        <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', marginBottom:16, scrollbarWidth:'none' }}>
-          <div style={{ display:'inline-flex', gap:6, background:C.card, borderRadius:18, padding:6, border:`1px solid ${C.border}`, boxShadow:'0 1px 4px rgba(0,0,0,0.06)', minWidth:'max-content' }}>
-            {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setActiveTab(t.id)} style={{ padding:'7px 16px', borderRadius:12, border:'none', background:activeTab===t.id?C.primary:'transparent', color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:500, fontSize:13, cursor:'pointer', transition:'all 0.15s', whiteSpace:'nowrap' }}>
-                {t.label}
+        <div style={{ marginBottom:16 }}>
+          {/* 上段：よく使う4タブ */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5, marginBottom:5 }}>
+            {TABS.slice(0,4).map(t=>(
+              <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                style={{ padding:'10px 4px', borderRadius:14, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:C.card, color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:500, fontSize:12, cursor:'pointer', transition:'all 0.15s', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                <span style={{ fontSize:16 }}>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
+                <span style={{ fontSize:11 }}>{t.label.replace(/^\p{Emoji}\s*/u,'')}</span>
+              </button>
+            ))}
+          </div>
+          {/* 下段：残り3タブ */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:5 }}>
+            {TABS.slice(4).map(t=>(
+              <button key={t.id} onClick={()=>setActiveTab(t.id)}
+                style={{ padding:'8px 4px', borderRadius:12, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:isDark?'rgba(255,255,255,0.03)':'#f8fafc', color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:400, fontSize:11, cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                <span>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
+                <span>{t.label.replace(/^\p{Emoji}\s*/u,'')}</span>
               </button>
             ))}
           </div>
@@ -1536,19 +1599,26 @@ export default function PachinkoCalculatorComplete() {
                                 </div>
                               </div>
                               <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
-                                {(shopListTab==='fav'?recentShopPresets.filter(n=>favoriteShopNames.includes(n)):recentShopPresets).map(n=>(
+                                {(shopListTab==='fav'?recentShopPresets.filter(n=>favoriteShopNames.includes(n)):recentShopPresets).map(n=>{
+                                  const profile=(settings.shopProfiles||[]).find(p=>p.name===n);
+                                  return (
                                   <div key={n} style={{ display:'flex', alignItems:'center', borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
                                     <button onClick={e=>{e.stopPropagation();toggleFavoriteShop(n);}}
                                       style={{ background:'none', border:'none', fontSize:20, padding:'0 8px 0 0', cursor:'pointer', flexShrink:0, opacity:favoriteShopNames.includes(n)?1:0.3 }}>
                                       ⭐
                                     </button>
                                     <button onClick={()=>{applyShopValue(n);setShopListDialogOpen(false);}}
-                                      style={{ flex:1, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 8px 13px 0', border:'none', background:form.shop===n?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
-                                      <span style={{ fontSize:14, fontWeight:form.shop===n?700:400, color:form.shop===n?C.primary:C.textPrimary }}>{n}</span>
-                                      {form.shop===n&&<span style={{ fontSize:12, color:C.primary }}>✓ 選択中</span>}
+                                      style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', padding:'11px 8px 11px 0', border:'none', background:form.shop===n?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
+                                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                        <span style={{ fontSize:14, fontWeight:form.shop===n?700:400, color:form.shop===n?C.primary:C.textPrimary }}>{n}</span>
+                                        {form.shop===n&&<span style={{ fontSize:12, color:C.primary }}>✓ 選択中</span>}
+                                      </div>
+                                      {profile?.specialDays&&<div style={{ fontSize:11, color:C.primary, marginTop:3 }}>📅 {profile.specialDays}</div>}
+                                      {profile?.notes&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2, lineHeight:1.4 }}>📝 {profile.notes}</div>}
                                     </button>
                                   </div>
-                                ))}
+                                  );
+                                })}
                                 {shopListTab==='fav'&&favoriteShopNames.length===0&&(
                                   <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>⭐ をタップしてお気に入り登録するぜ</div>
                                 )}
@@ -2304,8 +2374,27 @@ export default function PachinkoCalculatorComplete() {
                 {/* 初当たりDialog */}
                 <Dialog open={firstHitDialogOpen} onOpenChange={setFirstHitDialogOpen}>
                   <DialogContent className="max-w-sm rounded-3xl" onOpenAutoFocus={e=>e.preventDefault()}>
-                    <DialogHeader><DialogTitle className="flex items-center gap-2 text-base"><Star className="h-4 w-4 text-amber-400"/>{firstHitForm.label}</DialogTitle></DialogHeader>
-                    <div className="space-y-2 max-h-[80vh] overflow-y-auto pr-1">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2 text-base">
+                        <Star className="h-4 w-4 text-amber-400"/>{firstHitForm.label}
+                      </DialogTitle>
+                      {/* ステップインジケーター */}
+                      <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:8 }}>
+                        {[['1','R数'],['2','持ち玉'],['3','確認']].map(([n,label],i)=>(
+                          <React.Fragment key={n}>
+                            <button onClick={()=>setFirstHitStep(Number(n))}
+                              style={{ display:'flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20, border:'none', cursor:'pointer',
+                                background:firstHitStep===Number(n)?C.primary:isDark?'rgba(255,255,255,0.08)':'#f1f5f9',
+                                color:firstHitStep===Number(n)?'white':C.textMuted, fontWeight:firstHitStep===Number(n)?700:400, fontSize:11 }}>
+                              <span style={{ width:16, height:16, borderRadius:'50%', background:firstHitStep===Number(n)?'rgba(255,255,255,0.3)':'transparent', border:`1.5px solid ${firstHitStep===Number(n)?'white':C.border}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700 }}>{n}</span>
+                              {label}
+                            </button>
+                            {i<2&&<div style={{ height:1, flex:1, background:C.border }}/>}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </DialogHeader>
+                    <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
                       {/* R数入力（1〜10ボタン累積＋直接入力） */}
                       <div style={{ border:`2px solid ${C.primaryMid}`, borderRadius:16, overflow:'hidden' }}>
                         <div style={{ background:isDark?'rgba(99,102,241,0.15)':'#eef2ff', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -2546,7 +2635,7 @@ export default function PachinkoCalculatorComplete() {
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <Button variant="secondary" className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitDialogOpen(false)}>キャンセル</Button>
-                        <Button className="rounded-xl h-9 text-sm" onClick={()=>completeFirstHit(true)}>終了して回転率を再スタート</Button>
+                        <Button className="rounded-xl text-sm" style={{ height:'auto', padding:'10px 12px', lineHeight:1.3, whiteSpace:'normal', wordBreak:'keep-all' }} onClick={()=>completeFirstHit(true)}>終了して<br/>回転率を再スタート</Button>
                       </div>
                     </div>
                   </DialogContent>
@@ -2598,16 +2687,107 @@ export default function PachinkoCalculatorComplete() {
                             {hit.hitSpins>0&&<div style={{ fontSize:12, fontWeight:700, color:C.amber, background:isDark?'rgba(245,158,11,0.15)':C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:8, padding:'2px 8px' }}>🎯 初当たり{hit.hitSpins}回転</div>}
                           </div>
                           <div style={{ fontSize:12, color:C.textSecondary, marginTop:3 }}>{hit.rounds}R / 獲得{Math.round(hit.gainedBalls)}玉 / 1R {hit.oneRound.toFixed(1)} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
+                          {hit.restartRotation>0&&<div style={{ fontSize:12, color:C.primary, marginTop:3, fontWeight:600 }}>🔄 再スタート: {hit.restartRotation}回転</div>}
                           {hit.hitSpins>0&&hit.remainingHolds>0&&(
                             <div style={{ fontSize:12, color:C.amber, marginTop:3, fontWeight:600 }}>
                               {hit.hitSpins}回転 + 残{hit.remainingHolds}保留 = <b>{hit.hitSpins+hit.remainingHolds}回転</b>
                             </div>
                           )}
                           {(!hit.hitSpins||hit.hitSpins<=0)&&hit.remainingHolds>0&&<div style={{ fontSize:12, color:'#0369a1', marginTop:2, fontWeight:600 }}>残り保留: {hit.remainingHolds}個</div>}
+                          {!hit.restartRotation&&<div style={{ fontSize:11, color:C.textMuted, marginTop:3 }}>⚠️ 再スタート回転未入力</div>}
                         </div>
-                        <button onClick={()=>removeFirstHit(hit.id)} style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:8 }}><Trash2 size={15} color={C.textMuted}/></button>
+                        <div style={{ display:'flex', gap:6, flexShrink:0, marginLeft:8 }}>
+                          <button onClick={()=>openHitEdit(hit)}
+                            style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.primaryMid}`,background:C.primaryLight,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.primary,fontSize:13,fontWeight:700 }}>✏️</button>
+                          <button onClick={()=>removeFirstHit(hit.id)}
+                            style={{ width:34,height:34,borderRadius:10,border:`1px solid ${C.border}`,background:C.card,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><Trash2 size={15} color={C.textMuted}/></button>
+                        </div>
                       </div>
                     ))}
+
+                    {/* 初当たり記録 編集ダイアログ */}
+                    {editingHitId&&(()=>{
+                      const targetHit=(form.firstHits||[]).find(h=>h.id===editingHitId);
+                      if(!targetHit) return null;
+                      return (
+                        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setEditingHitId(null)}>
+                          <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'85vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                            <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <div>
+                                <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>✏️ {targetHit.label} を修正</div>
+                                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>記録を後から修正できるぜ</div>
+                              </div>
+                              <button onClick={()=>setEditingHitId(null)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                            </div>
+                            <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'16px 18px', flex:1, display:'flex', flexDirection:'column', gap:14 }}>
+                              {/* 再スタート回転（救済の主目的） */}
+                              <div style={{ background:isDark?'rgba(99,102,241,0.1)':C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:14, padding:'14px 16px' }}>
+                                <div style={{ fontWeight:700, fontSize:13, color:C.primary, marginBottom:10 }}>🔄 再スタート回転（よく忘れるやつ）</div>
+                                <div>
+                                  <label style={labelStyle}>再スタート回転数</label>
+                                  <input value={hitEditForm.restartRotation}
+                                    onChange={e=>{
+                                      const v=e.target.value;
+                                      setHitEditForm(p=>({...p,restartRotation:v,
+                                        ...(numberOrZero(p.chainCount)<=1&&numberOrZero(v)>0?{restartReason:'jitan'}:{}),
+                                        ...(numberOrZero(p.chainCount)<=1&&numberOrZero(v)<=0?{restartReason:'single'}:{}),
+                                      }));
+                                    }}
+                                    style={{ ...inputStyle, fontSize:20, textAlign:'center', fontWeight:700, color:C.primary, padding:'12px' }}
+                                    inputMode="numeric" placeholder="例: 153"/>
+                                </div>
+                                <div style={{ marginTop:10 }}>
+                                  <label style={labelStyle}>再スタート理由</label>
+                                  <Select value={hitEditForm.restartReason} onValueChange={v=>setHitEditForm(p=>({...p,restartReason:v}))}>
+                                    <SelectTrigger className="rounded-2xl h-11"><span>{getRestartReasonLabel(hitEditForm.restartReason,hitEditForm.restartReasonNote)}</span></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="single">単発後</SelectItem>
+                                      <SelectItem value="st">確変/ST後</SelectItem>
+                                      <SelectItem value="jitan">時短抜け後</SelectItem>
+                                      <SelectItem value="other">その他</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {hitEditForm.restartReason==='other'&&<input value={hitEditForm.restartReasonNote} onChange={e=>setHitEditForm(p=>({...p,restartReasonNote:e.target.value}))} style={{ ...inputStyle, marginTop:6 }} placeholder="理由メモ"/>}
+                                </div>
+                              </div>
+                              {/* その他の項目 */}
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <div>
+                                  <label style={labelStyle}>合計R数</label>
+                                  <input value={hitEditForm.rounds} onChange={e=>setHitEditForm(p=>({...p,rounds:e.target.value}))} style={{ ...inputStyle, textAlign:'center', fontWeight:700 }} inputMode="numeric"/>
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>連チャン数</label>
+                                  <input value={hitEditForm.chainCount} onChange={e=>setHitEditForm(p=>({...p,chainCount:e.target.value}))} style={{ ...inputStyle, textAlign:'center', fontWeight:700 }} inputMode="numeric"/>
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>初当たりゲーム数</label>
+                                  <input value={hitEditForm.hitSpins} onChange={e=>setHitEditForm(p=>({...p,hitSpins:e.target.value}))} style={{ ...inputStyle, textAlign:'center' }} inputMode="numeric" placeholder="任意"/>
+                                </div>
+                                <div>
+                                  <label style={labelStyle}>残り保留数</label>
+                                  <input value={hitEditForm.remainingHolds} onChange={e=>setHitEditForm(p=>({...p,remainingHolds:e.target.value}))} style={{ ...inputStyle, textAlign:'center' }} inputMode="numeric" placeholder="任意"/>
+                                </div>
+                              </div>
+                              <div>
+                                <label style={labelStyle}>メモ</label>
+                                <input value={hitEditForm.notes} onChange={e=>setHitEditForm(p=>({...p,notes:e.target.value}))} style={inputStyle} placeholder="備考など…"/>
+                              </div>
+                            </div>
+                            <div style={{ padding:'12px 18px 24px', borderTop:`1px solid ${C.border}`, display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                              <button onClick={()=>setEditingHitId(null)}
+                                style={{ padding:'13px', borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                                キャンセル
+                              </button>
+                              <button onClick={saveHitEdit}
+                                style={{ padding:'13px', borderRadius:14, border:'none', background:C.primary, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                                💾 保存する
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
@@ -2751,29 +2931,36 @@ export default function PachinkoCalculatorComplete() {
 
                 {/* 下部アクションバー */}
                 <div style={{ position:'sticky', bottom:4, zIndex:20, display:'flex', flexDirection:'column', gap:6 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(15,23,42,0.96)':'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:16, padding:'8px 14px', backdropFilter:'blur(12px)' }}>
+                  {/* 保存状態 + 戻るボタン */}
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(15,23,42,0.96)':'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:14, padding:'7px 12px', backdropFilter:'blur(12px)' }}>
                     <span style={{ fontSize:12, fontWeight:600, color:saveStatusMeta.color }}>{saveStatusMeta.label}</span>
                     <button onClick={undoLastChange} disabled={!undoStack.length}
-                      style={{ ...btnOutline, padding:'6px 14px', fontSize:12, opacity:undoStack.length?1:0.35, display:'flex', alignItems:'center', gap:5 }}>
-                      <span>↩ 一つ前に戻す</span>
+                      style={{ ...btnOutline, padding:'5px 12px', fontSize:11, opacity:undoStack.length?1:0.35, display:'flex', alignItems:'center', gap:4 }}>
+                      <span>↩ 戻す</span>
                       {undoStack.length>0&&(
-                        <span style={{ background:C.primary, color:'white', borderRadius:10, fontSize:10, fontWeight:700, padding:'1px 6px', minWidth:18, textAlign:'center' }}>
+                        <span style={{ background:C.primary, color:'white', borderRadius:8, fontSize:10, fontWeight:700, padding:'1px 5px' }}>
                           {undoStack.length}
                         </span>
                       )}
                     </button>
                   </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr', gap:6, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:18, padding:8, backdropFilter:'blur(12px)' }}>
-                    <button onClick={openFirstHitDialog} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Star size={14}/><span>初当たり</span></button>
-                    <label style={{ cursor:'pointer' }}>
-                      <div style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Camera size={14}/><span>写真</span></div>
-                      <input type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e=>e.target.files&&addPhotos(e.target.files)}/>
-                    </label>
-                    <button onClick={()=>setTableMoveConfirmOpen(true)} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}>
-                      <span style={{ fontSize:14 }}>🚶</span><span>台移動</span>
+                  {/* メインボタン2つ（大） */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    <button onClick={openFirstHitDialog}
+                      style={{ ...btnSecondary, padding:'14px', fontSize:14, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, borderRadius:16 }}>
+                      <Star size={18}/> 初当たり
                     </button>
-                    <button onClick={saveDraftNow} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Save size={14}/><span>保存</span></button>
-                    <button onClick={openCompleteDialog} style={{ ...btnPrimary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><CheckCircle2 size={14}/><span>終了</span></button>
+                    <button onClick={openCompleteDialog}
+                      style={{ ...btnPrimary, padding:'14px', fontSize:14, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, borderRadius:16 }}>
+                      <CheckCircle2 size={18}/> 終了
+                    </button>
+                  </div>
+                  {/* サブボタン：台移動のみ */}
+                  <div style={{ display:'flex', justifyContent:'center' }}>
+                    <button onClick={()=>setTableMoveConfirmOpen(true)}
+                      style={{ ...btnSecondary, padding:'10px 32px', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:6, borderRadius:14 }}>
+                      <span style={{ fontSize:16 }}>🚶</span><span>台移動</span>
+                    </button>
                   </div>
 
                   {/* 台移動確認ダイアログ */}
@@ -4226,32 +4413,37 @@ export default function PachinkoCalculatorComplete() {
                 </div>
               )},
               { title:'店舗ごとの換金率自動設定', icon:<Store size={16} color={C.primary}/>, content:(
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {/* 追加フォーム（アコーディオン） */}
-                  <div style={{ border:`1.5px solid ${shopProfileOpen?C.primaryMid:C.border}`, borderRadius:14, overflow:'hidden' }}>
-                    <button onClick={()=>setShopProfileOpen(p=>!p)} style={{ width:'100%', background:shopProfileOpen?C.primaryLight:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:'none', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer' }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <span style={{ fontSize:14 }}>🏪</span>
-                        <div style={{ textAlign:'left' }}>
-                          <div style={{ fontWeight:700, fontSize:13, color:C.primary }}>新しい店舗を登録</div>
-                          <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>登録数: {(settings.shopProfiles||[]).length}件</div>
-                        </div>
-                      </div>
-                      <ChevronDown size={15} color={C.primary} style={{ transform:shopProfileOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                  {/* 追加フォーム（常時展開） */}
+                  <div style={{ border:`1.5px solid ${C.primaryMid}`, borderRadius:16, padding:'16px 16px', display:'flex', flexDirection:'column', gap:12, background:isDark?'rgba(99,102,241,0.05)':C.primaryLight }}>
+                    <div style={{ fontWeight:700, fontSize:14, color:C.primary }}>🏪 新しい店舗を登録</div>
+                    <div>
+                      <label style={labelStyle}>店舗名</label>
+                      <input value={shopProfileDraft.name} onChange={e=>setShopProfileDraft(p=>({...p,name:e.target.value}))}
+                        style={{ ...inputStyle, fontSize:16, padding:'12px 14px', fontWeight:600 }} placeholder="例：○○パチンコ"/>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>換金率</label>
+                      <Select value={shopProfileDraft.exchangeCategory} onValueChange={v=>setShopProfileDraft(p=>({...p,exchangeCategory:v}))}>
+                        <SelectTrigger className="rounded-2xl h-12 text-base"><SelectValue/></SelectTrigger>
+                        <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>特日・イベント日（任意）</label>
+                      <input value={shopProfileDraft.specialDays} onChange={e=>setShopProfileDraft(p=>({...p,specialDays:e.target.value}))}
+                        style={{ ...inputStyle, fontSize:14, padding:'11px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>注意点・メモ（任意）</label>
+                      <textarea value={shopProfileDraft.notes} onChange={e=>setShopProfileDraft(p=>({...p,notes:e.target.value}))}
+                        style={{ ...inputStyle, fontSize:14, padding:'11px 14px', minHeight:72, resize:'vertical', fontFamily:'inherit' }}
+                        placeholder="例：釘が渋い、出玉が良いなど…"/>
+                    </div>
+                    <button onClick={()=>{addShopProfile(); setShopProfilePage(Math.floor(((settings.shopProfiles||[]).length)/SHOP_PAGE_SIZE));}}
+                      style={{ ...btnPrimary, padding:'13px', fontSize:15, fontWeight:700 }}>
+                      ＋ 登録する
                     </button>
-                    {shopProfileOpen&&(
-                      <div style={{ padding:'12px 14px', borderTop:`1px solid ${C.border}`, display:'flex', flexDirection:'column', gap:8 }}>
-                        <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:8 }}>
-                          <input value={shopProfileDraft.name} onChange={e=>setShopProfileDraft(p=>({...p,name:e.target.value}))} style={inputStyle} placeholder="店舗名"/>
-                          <Select value={shopProfileDraft.exchangeCategory} onValueChange={v=>setShopProfileDraft(p=>({...p,exchangeCategory:v}))}>
-                            <SelectTrigger className="rounded-2xl w-28"><SelectValue/></SelectTrigger>
-                            <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
-                          </Select>
-                          <button onClick={()=>{addShopProfile(); setShopProfilePage(Math.floor(((settings.shopProfiles||[]).length)/SHOP_PAGE_SIZE));}} style={{ ...btnPrimary, padding:'9px 16px', whiteSpace:'nowrap' }}>追加</button>
-                        </div>
-                        <div style={{ fontSize:11, color:C.textMuted }}>店舗名と交換率を登録しておくと、入力時に自動で換金率が反映されるぜ。</div>
-                      </div>
-                    )}
                   </div>
 
                   {/* 登録一覧＋ページネーション */}
@@ -4266,12 +4458,20 @@ export default function PachinkoCalculatorComplete() {
                         <>
                           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                             {pageProfiles.map(p=>(
-                              <div key={p.name} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px' }}>
-                                <div>
-                                  <div style={{ fontWeight:600, color:C.textPrimary }}>{p.name}</div>
-                                  <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{getExchangePreset(p.exchangeCategory||'25').label}</div>
+                              <div key={p.name} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px', background:C.card }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+                                  <div style={{ flex:1 }}>
+                                    <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>{p.name}</div>
+                                    <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{getExchangePreset(p.exchangeCategory||'25').label}</div>
+                                    {p.specialDays&&<div style={{ fontSize:12, color:C.primary, marginTop:4, background:C.primaryLight, borderRadius:8, padding:'3px 8px', display:'inline-block' }}>📅 {p.specialDays}</div>}
+                                    {p.notes&&<div style={{ fontSize:12, color:C.textSecondary, marginTop:4, lineHeight:1.5 }}>📝 {p.notes}</div>}
+                                  </div>
+                                  <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                                    <button onClick={()=>{setShopEditDraft({name:p.name,exchangeCategory:p.exchangeCategory||'25',specialDays:p.specialDays||'',notes:p.notes||''});setEditingShopName(p.name);}}
+                                      style={{ background:C.primaryLight, color:C.primary, border:`1px solid ${C.primaryMid}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>編集</button>
+                                    <button onClick={()=>removeShopProfile(p.name)} style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
+                                  </div>
                                 </div>
-                                <button onClick={()=>removeShopProfile(p.name)} style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
                               </div>
                             ))}
                           </div>
@@ -4311,6 +4511,53 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ padding:'16px' }}>{content}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* 店舗編集ダイアログ */}
+        {editingShopName&&(
+          <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setEditingShopName(null)}>
+            <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'85vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+              <div style={{ padding:'16px 18px 12px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>✏️ 店舗を編集</div>
+                <button onClick={()=>setEditingShopName(null)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+              </div>
+              <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'16px 18px', flex:1, display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <label style={labelStyle}>店舗名</label>
+                  <input value={shopEditDraft.name} onChange={e=>setShopEditDraft(p=>({...p,name:e.target.value}))}
+                    style={{ ...inputStyle, fontSize:16, padding:'12px 14px', fontWeight:600 }} placeholder="例：○○パチンコ"/>
+                </div>
+                <div>
+                  <label style={labelStyle}>換金率</label>
+                  <Select value={shopEditDraft.exchangeCategory} onValueChange={v=>setShopEditDraft(p=>({...p,exchangeCategory:v}))}>
+                    <SelectTrigger className="rounded-2xl h-12 text-base"><SelectValue/></SelectTrigger>
+                    <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label style={labelStyle}>特日・イベント日（任意）</label>
+                  <input value={shopEditDraft.specialDays} onChange={e=>setShopEditDraft(p=>({...p,specialDays:e.target.value}))}
+                    style={{ ...inputStyle, fontSize:14, padding:'11px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
+                </div>
+                <div>
+                  <label style={labelStyle}>注意点・メモ（任意）</label>
+                  <textarea value={shopEditDraft.notes} onChange={e=>setShopEditDraft(p=>({...p,notes:e.target.value}))}
+                    style={{ ...inputStyle, fontSize:14, padding:'11px 14px', minHeight:80, resize:'vertical', fontFamily:'inherit' }}
+                    placeholder="例：釘が渋い、出玉が良いなど…"/>
+                </div>
+              </div>
+              <div style={{ padding:'12px 18px 24px', borderTop:`1px solid ${C.border}`, display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                <button onClick={()=>setEditingShopName(null)}
+                  style={{ padding:'13px', borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                  キャンセル
+                </button>
+                <button onClick={saveShopEdit}
+                  style={{ padding:'13px', borderRadius:14, border:'none', background:C.primary, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                  💾 保存する
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
