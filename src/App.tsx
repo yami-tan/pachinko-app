@@ -55,8 +55,11 @@ const defaultSettings = {
   expectedHours: 4,
   spinsPerHour: 200,
   shopProfiles: [],
-  colorTheme: 'indigo',   // indigo / sky / emerald / rose / amber / violet
-  themeMode: 'light',     // light / dark / system
+  colorTheme: 'indigo',
+  themeMode: 'light',
+  stopLossYen: 30000,         // 損切りライン（円）
+  stopLossEnabled: false,     // 損切りアラート有効
+  belowBorderAlertSpins: 500, // 連続ボーダー以下回転数でアラート
 };
 
 function uid() { return crypto.randomUUID(); }
@@ -615,6 +618,41 @@ export default function PachinkoCalculatorComplete() {
   const [inheritDialogOpen,setInheritDialogOpen]=useState(false);
   const [inheritOptions,setInheritOptions]=useState({cashInvest:true,balance:true,balls:true,shop:true});
   const [resetConfirmOpen,setResetConfirmOpen]=useState(false);
+  const [tableMoveConfirmOpen,setTableMoveConfirmOpen]=useState(false);
+  const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
+  const [showHomeWidget,setShowHomeWidget]=useState(false);
+  const [swipeStates,setSwipeStates]=useState({}); // {entryId: offsetX}
+  const swipeTouchStart=useRef({});
+
+  // 振り分けカウンター
+  const DEFAULT_COUNTERS = [
+    {id:'stage',  label:'ステージ入賞', color:'#ec4899', bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.4)', count:0},
+    {id:'fusha',  label:'風車振り分け',  color:'#10b981', bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.4)', count:0},
+    {id:'koboshi',label:'こぼし',         color:'#f59e0b', bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.4)', count:0},
+    {id:'warp',   label:'ワープ抜け',    color:'#3b82f6', bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.4)', count:0},
+    {id:'other1', label:'カスタム1',     color:'#8b5cf6', bg:'rgba(139,92,246,0.12)', border:'rgba(139,92,246,0.4)', count:0},
+    {id:'other2', label:'カスタム2',     color:'#6b7280', bg:'rgba(107,114,128,0.12)', border:'rgba(107,114,128,0.4)', count:0},
+  ];
+  const [counters,setCounters]=useState(()=>{try{const s=localStorage.getItem('pachi_counters');return s?JSON.parse(s):DEFAULT_COUNTERS;}catch{return DEFAULT_COUNTERS;}});
+  const [counterLabels,setCounterLabels]=useState(()=>{try{const s=localStorage.getItem('pachi_counter_labels');return s?JSON.parse(s):DEFAULT_COUNTERS.map(c=>c.label);}catch{return DEFAULT_COUNTERS.map(c=>c.label);}});
+  // カウンター履歴（セッションごとに保存）
+  const [counterHistory,setCounterHistory]=useState(()=>{try{const s=localStorage.getItem('pachi_counter_history');return s?JSON.parse(s):[];}catch{return [];}});
+
+  // カウンターの変更をlocalStorageに自動保存
+  useEffect(()=>{try{localStorage.setItem('pachi_counters',JSON.stringify(counters));}catch{}},[counters]);
+  useEffect(()=>{try{localStorage.setItem('pachi_counter_labels',JSON.stringify(counterLabels));}catch{}},[counterLabels]);
+
+  // カウンターをセッションと共に履歴保存する関数
+  function saveCounterSnapshot() {
+    if(counters.every(c=>c.count===0)) return;
+    const snap={
+      id:uid(), date:todayStr(), sessionId:form.id,
+      totalSpins:Math.round(formMetrics.allTotalSpins),
+      shop:form.shop, machine:form.machine?.name||form.machineFreeName||'',
+      counts:counters.map((c,i)=>({id:c.id,label:counterLabels[i],count:c.count,color:c.color})),
+    };
+    setCounterHistory(prev=>{const next=[snap,...prev].slice(0,50);try{localStorage.setItem('pachi_counter_history',JSON.stringify(next));}catch{}return next;});
+  }
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
@@ -672,6 +710,16 @@ export default function PachinkoCalculatorComplete() {
   const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings),[formMetrics,selectedMachine,form.hours,settings]);
 
   useEffect(()=>{ setJudgeForm(p=>({...p,observedRate:p.observedRate||(formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):''),border:p.border||(formMetrics.machineBorder?String(formMetrics.machineBorder||''):'')})); },[formMetrics.spinPerThousand,formMetrics.machineBorder]);
+
+  // 損切りアラート検知
+  useEffect(()=>{
+    if(!settings.stopLossEnabled) return;
+    const loss=-formMetrics.balanceYen;
+    const limit=numberOrZero(settings.stopLossYen);
+    if(loss>=limit&&limit>0&&!stopLossAlertOpen&&formMetrics.totalSpins>0){
+      setStopLossAlertOpen(true);
+    }
+  },[formMetrics.balanceYen, settings.stopLossEnabled, settings.stopLossYen]);
 
   // ボーダー算出タブのdisplayBorderを回転率タブのボーダーに自動反映
   // （持ち玉比率考慮ボーダーが算出されたとき、ユーザーが手動上書きしていない場合のみ）
@@ -975,6 +1023,18 @@ export default function PachinkoCalculatorComplete() {
     setActiveTab('rate');
   }
   function saveDraftNow() { setSaveStatus('saving'); const p=buildPersistedSession(form,'draft'); upsertSession(p); skipAutosaveRef.current=true; setForm(p); setSaveStatus('saved'); }
+
+  // 台移動：現在の記録を完了保存して同日同店舗で新規セッション開始
+  function executeTableMove() {
+    setSaveStatus('saving');
+    const p=buildPersistedSession(form,'completed');
+    upsertSession(p);
+    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
+    const newForm={...emptySession(settings), date:form.date, shop:form.shop, exchangeCategory:form.exchangeCategory};
+    setForm(newForm);
+    setTableMoveConfirmOpen(false);
+    setActiveTab('rate');
+  }
   function continueSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s}); setActiveTab('rate'); }
 
   function continueSessionWithInherit(s, inherit) {
@@ -1190,6 +1250,7 @@ export default function PachinkoCalculatorComplete() {
   const TABS = [
     {id:'rate',label:'📊 回転率'},
     {id:'judge',label:'🎯 ボーダー'},
+    {id:'counter',label:'🎯 振り分け'},
     {id:'calendar',label:'📅 日別'},
     {id:'analysis',label:'📈 まとめ'},
     {id:'history',label:'📝 履歴'},
@@ -1215,6 +1276,45 @@ export default function PachinkoCalculatorComplete() {
             </div>
           </div>
         </motion.div>
+
+        {/* ─── ホームサマリーウィジェット ─── */}
+        {(()=>{
+          const today=todayStr();
+          const todaySessions=enrichedSessions.filter(s=>s.date===today&&s.status==='completed');
+          const todayBalance=todaySessions.reduce((a,s)=>a+s.metrics.balanceYen,0);
+          const todayEV=todaySessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
+          const lastSession=[...enrichedSessions].filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+          const daysSinceLast=lastSession?Math.floor((Date.now()-new Date(lastSession.date+'T00:00:00').getTime())/(1000*60*60*24)):null;
+          const monthSessions=enrichedSessions.filter(s=>monthKey(s.date)===monthKey(today));
+          const monthEV=monthSessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
+          if(todaySessions.length===0&&!lastSession) return null;
+          return (
+            <details open={showHomeWidget} onToggle={e=>setShowHomeWidget(e.currentTarget.open)}
+              style={{ marginBottom:12, background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
+              <summary style={{ cursor:'pointer', listStyle:'none', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>🏠 今日のサマリー</div>
+                <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                  {todaySessions.length>0&&<span style={{ fontSize:13, fontWeight:700, color:todayBalance>=0?C.positive:C.negative }}>{fmtYen(todayBalance)}</span>}
+                  <ChevronDown size={14} color={C.textMuted} style={{ transform:showHomeWidget?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                </div>
+              </summary>
+              <div style={{ padding:'10px 14px', borderTop:`1px solid ${C.border}`, display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                <div style={{ textAlign:'center', background:todayBalance>=0?C.positiveBg:C.negativeBg, borderRadius:12, padding:'8px 6px' }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>今日の収支</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:todayBalance>=0?C.positive:C.negative, marginTop:2 }}>{todaySessions.length>0?fmtYen(todayBalance):'未記録'}</div>
+                </div>
+                <div style={{ textAlign:'center', background:C.accentLight, borderRadius:12, padding:'8px 6px' }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>今月期待値</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:monthEV>=0?C.positive:C.negative, marginTop:2 }}>{fmtYen(Math.round(monthEV))}</div>
+                </div>
+                <div style={{ textAlign:'center', background:C.primaryLight, borderRadius:12, padding:'8px 6px' }}>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>前回から</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:C.primary, marginTop:2 }}>{daysSinceLast!==null?`${daysSinceLast}日前`:'初回'}</div>
+                </div>
+              </div>
+            </details>
+          );
+        })()}
 
         {/* ─── タブ ─── */}
         <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', marginBottom:16, scrollbarWidth:'none' }}>
@@ -1901,17 +2001,40 @@ export default function PachinkoCalculatorComplete() {
                     const ev=border>0&&rate>0?calcEvYenFromRate(rate,border,entryInvestYen,settings):0;
                     const isFocused=flashReadingId===entry.id;
                     const isRestart=entry.kind==='restart';
+                    const swipeX=swipeStates[entry.id]||0;
+                    const showDelete=swipeX<-60;
                     return (
-                      <div
-                        key={entry.id}
-                        style={{
-                          border:`2px solid ${isRestart?'#fde68a':isFocused?'#10b981':hasReading?tone.border:C.border}`,
-                          borderRadius:16,
-                          background:isRestart?(isDark?'rgba(251,191,36,0.12)':'#fffbeb'):isFocused?(isDark?'rgba(16,185,129,0.12)':'#ecfdf5'):hasReading?tone.bg:C.card,
-                          overflow:'hidden',
-                          transition:'all 0.15s',
-                        }}
-                      >
+                      <div key={entry.id} style={{ position:'relative', overflow:'hidden', borderRadius:16 }}>
+                        {/* スワイプ削除背景 */}
+                        {showDelete&&(
+                          <div style={{ position:'absolute', right:0, top:0, bottom:0, width:80, background:C.negative, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'0 16px 16px 0', zIndex:1 }}>
+                            <button onClick={()=>{removeRateEntry(entry.id);setSwipeStates(p=>({...p,[entry.id]:0}));}}
+                              style={{ background:'none', border:'none', color:'white', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2, fontSize:11, fontWeight:700 }}>
+                              <Trash2 size={18} color="white"/>削除
+                            </button>
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            border:`2px solid ${isRestart?'#fde68a':isFocused?'#10b981':hasReading?tone.border:C.border}`,
+                            borderRadius:16,
+                            background:isRestart?(isDark?'rgba(251,191,36,0.12)':'#fffbeb'):isFocused?(isDark?'rgba(16,185,129,0.12)':'#ecfdf5'):hasReading?tone.bg:C.card,
+                            overflow:'hidden',
+                            transition:swipeX===0?'transform 0.2s':'none',
+                            transform:`translateX(${Math.min(0,swipeX)}px)`,
+                            position:'relative', zIndex:2,
+                          }}
+                          onTouchStart={e=>{swipeTouchStart.current[entry.id]=e.touches[0].clientX;}}
+                          onTouchMove={e=>{
+                            const dx=e.touches[0].clientX-(swipeTouchStart.current[entry.id]||0);
+                            if(dx<0) setSwipeStates(p=>({...p,[entry.id]:Math.max(-80,dx)}));
+                          }}
+                          onTouchEnd={()=>{
+                            const x=swipeStates[entry.id]||0;
+                            if(x>-40) setSwipeStates(p=>({...p,[entry.id]:0}));
+                            else setSwipeStates(p=>({...p,[entry.id]:-80}));
+                          }}
+                        >
                         {/* 上段：ゲーム数入力 ＋ 投資種別・金額 ＋ 削除 */}
                         <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px' }}>
                           {/* ゲーム数（大きく） */}
@@ -1975,20 +2098,35 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                         {/* 下段：計算結果（入力済みのみ表示） */}
                         {hasReading&&(
-                          <div style={{ borderTop:`1px solid ${hasReading?tone.border:C.border}`, background:hasReading?tone.bg:(isDark?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.8)'), padding:'8px 14px', display:'flex', gap:0 }}>
-                            {[
-                              ['回転数', spins+'回', C.accent],
-                              ['回転率', fmtRate(rate), tone.text],
-                              ['ボーダー差', border>0?(diff>=0?'+':'')+fmtRate(diff):'—', diff>=0?C.positive:C.negative],
-                              ['期待値', border>0?`¥${Math.round(ev)}`:'—', ev>=0?C.positive:C.negative],
-                            ].map(([l,v,c],i,arr)=>(
-                              <div key={l} style={{ flex:1, textAlign:'center', borderRight:i<arr.length-1?`1px solid ${C.border}`:'none', padding:'0 4px' }}>
-                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>{l}</div>
-                                <div style={{ marginTop:2, fontSize:13, fontWeight:800, color:c }}>{v}</div>
+                          <div style={{ borderTop:`1px solid ${hasReading?tone.border:C.border}`, background:hasReading?tone.bg:(isDark?'rgba(255,255,255,0.03)':'rgba(255,255,255,0.8)') }}>
+                            {/* 数値行 */}
+                            <div style={{ padding:'8px 14px', display:'flex', gap:0 }}>
+                              {[
+                                ['回転数', spins+'回', C.accent],
+                                ['回転率', fmtRate(rate), tone.text],
+                                ['ボーダー差', border>0?(diff>=0?'+':'')+fmtRate(diff):'—', diff>=0?C.positive:C.negative],
+                                ['期待値', border>0?`¥${Math.round(ev)}`:'—', ev>=0?C.positive:C.negative],
+                              ].map(([l,v,c],i,arr)=>(
+                                <div key={l} style={{ flex:1, textAlign:'center', borderRight:i<arr.length-1?`1px solid ${C.border}`:'none', padding:'0 4px' }}>
+                                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>{l}</div>
+                                  <div style={{ marginTop:2, fontSize:13, fontWeight:800, color:c }}>{v}</div>
+                                </div>
+                              ))}
+                            </div>
+                            {/* ミニ累積回転率グラフ（2行以上ある場合のみ） */}
+                            {sessionTrendData.length>1&&(
+                              <div style={{ padding:'0 8px 6px', height:36 }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <LineChart data={sessionTrendData} margin={{top:2,bottom:2,left:0,right:0}}>
+                                    {border>0&&<ReferenceLine y={border} stroke="#ef4444" strokeDasharray="3 3" strokeWidth={1}/>}
+                                    <Line type="monotone" dataKey="rate" stroke={tone.text||C.accent} strokeWidth={1.5} dot={false} isAnimationActive={false}/>
+                                  </LineChart>
+                                </ResponsiveContainer>
                               </div>
-                            ))}
+                            )}
                           </div>
                         )}
+                        </div>
                       </div>
                     );
                   })}
@@ -2625,15 +2763,70 @@ export default function PachinkoCalculatorComplete() {
                       )}
                     </button>
                   </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:18, padding:8, backdropFilter:'blur(12px)' }}>
-                    <button onClick={openFirstHitDialog} style={{ ...btnSecondary, padding:'10px 6px', fontSize:12, flexDirection:'column', gap:3 }}><Star size={15}/><span>初当たり</span></button>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr', gap:6, background:'rgba(255,255,255,0.96)', border:`1px solid ${C.border}`, borderRadius:18, padding:8, backdropFilter:'blur(12px)' }}>
+                    <button onClick={openFirstHitDialog} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Star size={14}/><span>初当たり</span></button>
                     <label style={{ cursor:'pointer' }}>
-                      <div style={{ ...btnSecondary, padding:'10px 6px', fontSize:12, flexDirection:'column', gap:3 }}><Camera size={15}/><span>写真</span></div>
+                      <div style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Camera size={14}/><span>写真</span></div>
                       <input type="file" accept="image/*" multiple style={{ display:'none' }} onChange={e=>e.target.files&&addPhotos(e.target.files)}/>
                     </label>
-                    <button onClick={saveDraftNow} style={{ ...btnSecondary, padding:'10px 6px', fontSize:12, flexDirection:'column', gap:3 }}><Save size={15}/><span>保存</span></button>
-                    <button onClick={openCompleteDialog} style={{ ...btnPrimary, padding:'10px 6px', fontSize:12, flexDirection:'column', gap:3 }}><CheckCircle2 size={15}/><span>終了</span></button>
+                    <button onClick={()=>setTableMoveConfirmOpen(true)} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}>
+                      <span style={{ fontSize:14 }}>🚶</span><span>台移動</span>
+                    </button>
+                    <button onClick={saveDraftNow} style={{ ...btnSecondary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><Save size={14}/><span>保存</span></button>
+                    <button onClick={openCompleteDialog} style={{ ...btnPrimary, padding:'10px 4px', fontSize:11, flexDirection:'column', gap:3 }}><CheckCircle2 size={14}/><span>終了</span></button>
                   </div>
+
+                  {/* 台移動確認ダイアログ */}
+                  {tableMoveConfirmOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                      <div style={{ background:C.card, borderRadius:24, padding:'24px 20px', width:'100%', maxWidth:360 }}>
+                        <div style={{ textAlign:'center', marginBottom:16 }}>
+                          <div style={{ fontSize:36, marginBottom:8 }}>🚶</div>
+                          <div style={{ fontWeight:800, fontSize:17, color:C.textPrimary, marginBottom:6 }}>台移動</div>
+                          <div style={{ fontSize:13, color:C.textMuted, lineHeight:1.6 }}>
+                            現在の記録を<b>完了</b>として保存し<br/>
+                            同日・同店舗で新しい台の記録を始めます。
+                          </div>
+                        </div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                          <button onClick={()=>setTableMoveConfirmOpen(false)}
+                            style={{ padding:13, borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:14, cursor:'pointer' }}>
+                            キャンセル
+                          </button>
+                          <button onClick={executeTableMove}
+                            style={{ padding:13, borderRadius:14, border:'none', background:C.primary, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                            🚶 移動する
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 損切りアラートダイアログ */}
+                  {stopLossAlertOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1001, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                      <div style={{ background:C.card, borderRadius:24, padding:'24px 20px', width:'100%', maxWidth:360, border:`2px solid ${C.negativeBorder}` }}>
+                        <div style={{ textAlign:'center', marginBottom:16 }}>
+                          <div style={{ fontSize:40, marginBottom:8 }}>⚠️</div>
+                          <div style={{ fontWeight:800, fontSize:18, color:C.negative, marginBottom:8 }}>損切りライン到達</div>
+                          <div style={{ fontSize:28, fontWeight:900, color:C.negative, marginBottom:8 }}>{fmtYen(formMetrics.balanceYen)}</div>
+                          <div style={{ fontSize:13, color:C.textMuted, lineHeight:1.6 }}>
+                            設定した損切りライン<b>{fmtYen(numberOrZero(settings.stopLossYen))}</b>に達しました。
+                          </div>
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                          <button onClick={()=>{setStopLossAlertOpen(false); openCompleteDialog();}}
+                            style={{ padding:13, borderRadius:14, border:'none', background:C.negative, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                            やめる（終了する）
+                          </button>
+                          <button onClick={()=>setStopLossAlertOpen(false)}
+                            style={{ padding:12, borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                            続行する
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 結果ダイアログ */}
@@ -3118,6 +3311,116 @@ export default function PachinkoCalculatorComplete() {
           );
         })()}
 
+        {/* ══════════════════ 振り分けカウンタータブ ══════════════════ */}
+        {activeTab==='counter'&&(()=>{
+          const totalSpins=Math.round(formMetrics.allTotalSpins)||0;
+          const totalCount=counters.reduce((a,c)=>a+c.count,0);
+          const hasAnyCount=totalCount>0;
+          return (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {/* ヘッダー */}
+              <div style={{ background:`linear-gradient(135deg,#1e1b4b,#4c1d95)`, borderRadius:20, padding:'16px 18px', color:'white' }}>
+                <div style={{ fontSize:11, letterSpacing:'0.2em', color:'rgba(255,255,255,0.6)', fontWeight:700, marginBottom:4 }}>振り分けカウンター</div>
+                <div style={{ display:'flex', gap:16, alignItems:'flex-end' }}>
+                  <div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>総回転（回転率タブ連携）</div>
+                    <div style={{ fontSize:28, fontWeight:900 }}>{totalSpins.toLocaleString()}<span style={{ fontSize:13, marginLeft:4 }}>回転</span></div>
+                  </div>
+                  {hasAnyCount&&<div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>合計カウント</div>
+                    <div style={{ fontSize:20, fontWeight:800 }}>{totalCount}</div>
+                  </div>}
+                </div>
+                {!hasAnyCount&&<div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginTop:6 }}>ボタンを押して振り分けを記録しよう</div>}
+              </div>
+
+              {/* カウンターグリッド */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                {counters.map((c,idx)=>{
+                  const rate=totalSpins>0?((c.count/totalSpins)*100).toFixed(1):null;
+                  return (
+                    <div key={c.id} style={{ background:C.card, border:`2px solid ${c.count>0?c.border:C.border}`, borderRadius:20, overflow:'hidden', transition:'all 0.15s' }}>
+                      {/* ラベル編集 */}
+                      <div style={{ padding:'10px 12px 4px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <input
+                          value={counterLabels[idx]}
+                          onChange={e=>{const v=e.target.value; setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
+                          onBlur={e=>{const v=e.target.value.trim()||DEFAULT_COUNTERS[idx].label; setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
+                          style={{ fontSize:11, fontWeight:700, color:c.count>0?c.color:C.textMuted, background:'none', border:'none', outline:'none', width:'100%', padding:0 }}
+                        />
+                        {c.count>0&&(
+                          <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,count:Math.max(0,x.count-1)}:x))}
+                            style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:14, padding:'0 2px', flexShrink:0 }}>−</button>
+                        )}
+                      </div>
+                      {/* 大ボタン */}
+                      <button
+                        onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,count:x.count+1}:x))}
+                        style={{ width:'100%', minHeight:90, background:c.count>0?c.bg:'transparent', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, transition:'all 0.1s', activeOpacity:0.8 }}
+                      >
+                        <div style={{ fontSize:36, fontWeight:900, color:c.count>0?c.color:C.textMuted, lineHeight:1 }}>{c.count}</div>
+                        {rate!==null&&c.count>0?(
+                          <div style={{ fontSize:13, fontWeight:700, color:c.color }}>{rate}%</div>
+                        ):(
+                          <div style={{ fontSize:11, color:C.textMuted }}>タップで+1</div>
+                        )}
+                      </button>
+                      {/* 進捗バー */}
+                      {totalSpins>0&&c.count>0&&(
+                        <div style={{ height:4, background:C.border }}>
+                          <div style={{ height:'100%', width:`${Math.min(100,(c.count/totalSpins)*100)}%`, background:c.color, transition:'width 0.3s', maxWidth:'100%' }}/>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 合計サマリー表 */}
+              {hasAnyCount&&(
+                <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary, padding:'10px 14px', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderBottom:`1px solid ${C.border}` }}>
+                    📊 振り分け結果サマリー
+                    {totalSpins>0&&<span style={{ fontSize:11, color:C.textMuted, fontWeight:400, marginLeft:8 }}>（総回転{totalSpins.toLocaleString()}回転ベース）</span>}
+                  </div>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                    <thead>
+                      <tr style={{ background:isDark?'rgba(255,255,255,0.03)':'#fafafa' }}>
+                        {['項目','回数','決定率'].map(h=><th key={h} style={{ padding:'8px 12px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:11 }}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {counters.filter(c=>c.count>0).map((c,i,arr)=>{
+                        const rate=totalSpins>0?((c.count/totalSpins)*100).toFixed(2):'-';
+                        return (
+                          <tr key={c.id} style={{ borderBottom:i<arr.length-1?`1px solid ${C.border}`:'none' }}>
+                            <td style={{ padding:'9px 12px', display:'flex', alignItems:'center', gap:8 }}>
+                              <div style={{ width:10, height:10, borderRadius:'50%', background:c.color, flexShrink:0 }}/>
+                              <span style={{ fontWeight:600, color:C.textPrimary }}>{counterLabels[counters.indexOf(c)]}</span>
+                            </td>
+                            <td style={{ padding:'9px 12px', textAlign:'center', fontWeight:700, color:c.color }}>{c.count}</td>
+                            <td style={{ padding:'9px 12px', textAlign:'center', fontWeight:700, color:totalSpins>0?c.color:C.textMuted }}>
+                              {totalSpins>0?`${rate}%`:'記録なし'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* リセットボタン */}
+              {hasAnyCount&&(
+                <button onClick={()=>{saveCounterSnapshot();setCounters(DEFAULT_COUNTERS);}}
+                  style={{ padding:'12px', borderRadius:14, border:`1.5px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                  🔄 カウンターをリセット（履歴に保存）
+                </button>
+              )}
+            </div>
+          );
+        })()}
+
         {/* ══════════════════ 日別タブ ══════════════════ */}
         {activeTab==='calendar'&&(
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -3447,7 +3750,10 @@ export default function PachinkoCalculatorComplete() {
             </div>
 
             <div style={cardStyle}>
-              <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}><div style={{ fontWeight:700, color:C.textPrimary }}>推移グラフ</div></div>
+              <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
+                <div style={{ fontWeight:700, color:C.textPrimary }}>📈 推移グラフ（収支 vs 期待値）</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>収支と期待値の差が運の影響を示すぜ</div>
+              </div>
               <div style={{ padding:'14px 16px' }}>
                 <div style={{ height:200 }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -3455,14 +3761,81 @@ export default function PachinkoCalculatorComplete() {
                       <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
                       <XAxis dataKey="label" tick={{fontSize:11,fill:C.textMuted}}/>
                       <YAxis tick={{fontSize:11,fill:C.textMuted}}/>
-                      <Tooltip/>
-                      <Line type="monotone" dataKey="balance" stroke={C.positive} strokeWidth={2} dot={false} name="実収支"/>
-                      <Line type="monotone" dataKey="ev" stroke={C.accent} strokeWidth={2} dot={false} name="期待値"/>
+                      <Tooltip formatter={(v,n)=>[fmtYen(v),n]}/>
+                      <ReferenceLine y={0} stroke={C.border} strokeWidth={1.5}/>
+                      <Line type="monotone" dataKey="balance" stroke={C.positive} strokeWidth={2.5} dot={false} name="実収支"/>
+                      <Line type="monotone" dataKey="ev" stroke={C.accent} strokeWidth={2} dot={false} strokeDasharray="5 3" name="期待値"/>
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
+                <div style={{ display:'flex', gap:16, justifyContent:'center', marginTop:8, fontSize:11 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:20, height:3, background:C.positive, borderRadius:2 }}/><span style={{ color:C.textMuted }}>実収支</span></div>
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:20, height:2, background:C.accent, borderRadius:2, opacity:0.7 }}/><span style={{ color:C.textMuted }}>期待値（点線）</span></div>
+                </div>
               </div>
             </div>
+
+            {/* ⑥ 週次比較グラフ */}
+            {(()=>{
+              const today=new Date();
+              const dow=today.getDay();
+              const thisWeekStart=new Date(today); thisWeekStart.setDate(today.getDate()-dow); thisWeekStart.setHours(0,0,0,0);
+              const lastWeekStart=new Date(thisWeekStart); lastWeekStart.setDate(thisWeekStart.getDate()-7);
+              const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+              const thisWeekDates=Array.from({length:7},(_,i)=>{const d=new Date(thisWeekStart);d.setDate(d.getDate()+i);return fmt(d);});
+              const lastWeekDates=Array.from({length:7},(_,i)=>{const d=new Date(lastWeekStart);d.setDate(d.getDate()+i);return fmt(d);});
+              const dayLabels=['日','月','火','水','木','金','土'];
+              const thisWeekData=thisWeekDates.map((date,i)=>{
+                const ss=enrichedSessions.filter(s=>s.date===date);
+                return {label:dayLabels[i],balance:ss.reduce((a,s)=>a+s.metrics.balanceYen,0),ev:ss.reduce((a,s)=>a+s.metrics.estimatedEVYen,0),date};
+              });
+              const lastWeekData=lastWeekDates.map((date,i)=>{
+                const ss=enrichedSessions.filter(s=>s.date===date);
+                return {label:dayLabels[i],balance:ss.reduce((a,s)=>a+s.metrics.balanceYen,0)};
+              });
+              const combined=thisWeekDates.map((date,i)=>({
+                label:dayLabels[i],
+                今週:thisWeekData[i].balance||null,
+                先週:lastWeekData[i].balance||null,
+              }));
+              const thisTotal=thisWeekData.reduce((a,d)=>a+d.balance,0);
+              const lastTotal=lastWeekData.reduce((a,d)=>a+d.balance,0);
+              return (
+                <div style={cardStyle}>
+                  <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div>
+                        <div style={{ fontWeight:700, color:C.textPrimary }}>📅 週次比較</div>
+                        <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>今週 vs 先週の収支比較</div>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <div style={{ fontSize:11, color:C.textMuted }}>今週合計</div>
+                        <div style={{ fontWeight:800, fontSize:16, color:thisTotal>=0?C.positive:C.negative }}>{fmtYen(thisTotal)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ padding:'14px 16px' }}>
+                    <div style={{ height:160 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={combined} barCategoryGap="30%">
+                          <CartesianGrid strokeDasharray="3 3" stroke={C.border}/>
+                          <XAxis dataKey="label" tick={{fontSize:11,fill:C.textMuted}}/>
+                          <YAxis tick={{fontSize:11,fill:C.textMuted}}/>
+                          <Tooltip formatter={(v,n)=>[fmtYen(v),n]}/>
+                          <ReferenceLine y={0} stroke={C.border}/>
+                          <Bar dataKey="先週" fill={isDark?'#475569':'#cbd5e1'} radius={[4,4,0,0]}/>
+                          <Bar dataKey="今週" fill={C.primary} radius={[4,4,0,0]}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, fontSize:12 }}>
+                      <span style={{ color:C.textMuted }}>先週合計: <b style={{ color:lastTotal>=0?C.positive:C.negative }}>{fmtYen(lastTotal)}</b></span>
+                      <span style={{ color:C.textMuted }}>差: <b style={{ color:thisTotal-lastTotal>=0?C.positive:C.negative }}>{fmtYen(thisTotal-lastTotal)}</b></span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <FoldSummary title="生涯収支" total={lifetimeSummary.balance} count={lifetimeSummary.count}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, fontSize:13 }}>
@@ -3470,6 +3843,93 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ color:C.textSecondary }}>総回転 <span style={{ fontWeight:700, color:C.textPrimary }}>{Math.round(lifetimeSummary.spins).toLocaleString()}回</span></div>
               </div>
             </FoldSummary>
+
+            {/* ⑭ 振り分けカウンター統計 */}
+            {(()=>{
+              // 現在のカウンターが記録されている場合のみ表示
+              const activeCounts=counters.filter(c=>c.count>0);
+              const totalSpins=Math.round(formMetrics.allTotalSpins)||0;
+              // 履歴がある場合は平均も計算
+              const historyWithCounts=counterHistory.filter(h=>h.counts&&h.counts.some(c=>c.count>0));
+              if(activeCounts.length===0&&historyWithCounts.length===0) return null;
+              return (
+                <details style={{ border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
+                  <summary style={{ cursor:'pointer', listStyle:'none', padding:'14px 16px', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14, color:C.textPrimary }}>🎯 振り分けカウンター統計</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                        {activeCounts.length>0?`現セッション記録あり`:'履歴のみ'}
+                        {historyWithCounts.length>0&&` / 過去${historyWithCounts.length}セッション`}
+                      </div>
+                    </div>
+                    <ChevronDown size={16} color={C.textMuted}/>
+                  </summary>
+                  <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                    {/* 現セッションの振り分け */}
+                    {activeCounts.length>0&&totalSpins>0&&(
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary, marginBottom:8 }}>📊 現セッション（総回転{totalSpins.toLocaleString()}回転）</div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                          {activeCounts.map((c,_,arr)=>{
+                            const pct=totalSpins>0?(c.count/totalSpins*100):0;
+                            const label=counterLabels[counters.indexOf(c)];
+                            return (
+                              <div key={c.id}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                                  <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                    <div style={{ width:8, height:8, borderRadius:'50%', background:c.color }}/>
+                                    <span style={{ fontSize:12, fontWeight:600, color:C.textPrimary }}>{label}</span>
+                                  </div>
+                                  <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                                    <span style={{ fontSize:11, color:C.textMuted }}>{c.count}回</span>
+                                    <span style={{ fontSize:13, fontWeight:800, color:c.color }}>{pct.toFixed(2)}%</span>
+                                  </div>
+                                </div>
+                                <div style={{ height:6, background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9', borderRadius:3 }}>
+                                  <div style={{ height:'100%', width:`${Math.min(100,pct*3)}%`, background:c.color, borderRadius:3, transition:'width 0.4s', maxWidth:'100%' }}/>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {activeCounts.length>0&&totalSpins===0&&(
+                      <div style={{ fontSize:12, color:C.textMuted }}>回転率タブにデータを入力すると決定率が計算されるぜ</div>
+                    )}
+                    {/* 過去セッション履歴 */}
+                    {historyWithCounts.length>0&&(
+                      <div>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary, marginBottom:8 }}>📋 過去の振り分け履歴（最新{Math.min(5,historyWithCounts.length)}件）</div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                          {historyWithCounts.slice(0,5).map(h=>(
+                            <div key={h.id} style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden' }}>
+                              <div style={{ background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div style={{ fontSize:12, fontWeight:600, color:C.textPrimary }}>{h.date}{h.shop?` / ${h.shop}`:''}{h.machine?` / ${h.machine}`:''}</div>
+                                <div style={{ fontSize:11, color:C.textMuted }}>{h.totalSpins>0?`${h.totalSpins.toLocaleString()}回転`:''}</div>
+                              </div>
+                              <div style={{ padding:'8px 12px', display:'flex', flexWrap:'wrap', gap:8 }}>
+                                {h.counts.filter(c=>c.count>0).map(c=>{
+                                  const pct=h.totalSpins>0?(c.count/h.totalSpins*100).toFixed(2):'-';
+                                  return (
+                                    <div key={c.id} style={{ display:'flex', alignItems:'center', gap:5, background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', borderRadius:8, padding:'4px 8px', border:`1px solid ${C.border}` }}>
+                                      <div style={{ width:7, height:7, borderRadius:'50%', background:c.color }}/>
+                                      <span style={{ fontSize:11, color:C.textSecondary }}>{c.label}</span>
+                                      <span style={{ fontSize:12, fontWeight:700, color:c.color }}>{pct}%</span>
+                                      <span style={{ fontSize:10, color:C.textMuted }}>({c.count})</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </details>
+              );
+            })()}
             <FoldSummary title="年別収支" total={yearSummaryRows.reduce((a,r)=>a+r.balance,0)} count={yearSummaryRows.length}>
               <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                 {yearSummaryRows.length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだデータがないぜ。</div>:yearSummaryRows.map(row=>(
@@ -3731,6 +4191,24 @@ export default function PachinkoCalculatorComplete() {
               )},
               { title:'期待値計算の詳細設定', icon:<Settings size={16} color={C.primary}/>, content:(
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {/* 損切りライン設定 */}
+                  <div style={{ background:isDark?'rgba(239,68,68,0.08)':'#fff1f2', border:`1px solid ${C.negativeBorder}`, borderRadius:14, padding:'12px 14px' }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:C.negative, marginBottom:10 }}>⚠️ 損切りライン</div>
+                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+                      <label style={{ fontSize:13, color:C.textPrimary, flex:1 }}>損切りアラート</label>
+                      <button onClick={()=>setSettings(p=>({...p,stopLossEnabled:!p.stopLossEnabled}))}
+                        style={{ width:44, height:24, borderRadius:12, background:settings.stopLossEnabled?C.negative:'#cbd5e1', border:'none', cursor:'pointer', position:'relative', transition:'0.2s' }}>
+                        <div style={{ width:18, height:18, borderRadius:'50%', background:'white', position:'absolute', top:3, left:settings.stopLossEnabled?23:3, transition:'0.2s', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
+                      </button>
+                    </div>
+                    {settings.stopLossEnabled&&(
+                      <div>
+                        <label style={labelStyle}>損切りライン（円）</label>
+                        <input value={settings.stopLossYen} onChange={e=>setSettings(p=>({...p,stopLossYen:e.target.value}))} style={inputStyle} inputMode="numeric" placeholder="30000"/>
+                        <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>この金額を超えた損失が出るとアラートが表示されるぜ</div>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                     <div><label style={labelStyle}>持ち玉標準(玉)</label><input value={settings.defaultBallUnit} onChange={e=>setSettings(p=>({...p,defaultBallUnit:e.target.value}))} style={inputStyle} inputMode="numeric"/></div>
                     <div><label style={labelStyle}>通常時回転/h</label><input value={settings.spinsPerHour} onChange={e=>setSettings(p=>({...p,spinsPerHour:e.target.value}))} style={inputStyle} inputMode="numeric"/></div>
