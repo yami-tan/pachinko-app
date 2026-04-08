@@ -551,6 +551,27 @@ export default function PachinkoCalculatorComplete() {
 
   // ── ダークモード判定 ──
   const [sysDark,setSysDark]=useState(()=>typeof window!=='undefined'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [bgImage,setBgImage]=useState(()=>{try{return localStorage.getItem('pachi_bg_image')||null;}catch{return null;}});
+  const [bgOpacity,setBgOpacity]=useState(()=>{try{return Number(localStorage.getItem('pachi_bg_opacity'))||0.15;}catch{return 0.15;}});
+
+  function handleBgImageUpload(file) {
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const dataUrl=e.target.result;
+      setBgImage(dataUrl);
+      try{localStorage.setItem('pachi_bg_image',dataUrl);}catch{alert('画像が大きすぎて保存できないぜ。もう少し小さい画像を使ってくれ。');}
+    };
+    reader.readAsDataURL(file);
+  }
+  function removeBgImage() {
+    setBgImage(null);
+    try{localStorage.removeItem('pachi_bg_image');}catch{}
+  }
+  function updateBgOpacity(v) {
+    setBgOpacity(v);
+    try{localStorage.setItem('pachi_bg_opacity',String(v));}catch{}
+  }
   useEffect(()=>{
     const mq=window.matchMedia('(prefers-color-scheme: dark)');
     const handler=e=>setSysDark(e.matches);
@@ -582,9 +603,9 @@ export default function PachinkoCalculatorComplete() {
   const [resultDialogOpen,setResultDialogOpen]=useState(false);
   const [showResultRateGraph,setShowResultRateGraph]=useState(false);
   const [showMoneySwitchGraph,setShowMoneySwitchGraph]=useState(false);
-  const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',notes:''});
+  const [shopProfileDraft,setShopProfileDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',specialDayList:[],notes:''});
   const [editingShopName,setEditingShopName]=useState(null); // 編集中の店舗名
-  const [shopEditDraft,setShopEditDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',notes:''});
+  const [shopEditDraft,setShopEditDraft]=useState({name:'',exchangeCategory:'25',specialDays:'',specialDayList:[],notes:''});
   const [shopProfileOpen,setShopProfileOpen]=useState(false);
   const [shopProfilePage,setShopProfilePage]=useState(0);
   const SHOP_PAGE_SIZE=20;
@@ -625,6 +646,7 @@ export default function PachinkoCalculatorComplete() {
   const [resetConfirmOpen,setResetConfirmOpen]=useState(false);
   const [tableMoveConfirmOpen,setTableMoveConfirmOpen]=useState(false);
   const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
+  const [belowBorderAlertOpen,setBelowBorderAlertOpen]=useState(false);
   const [showHomeWidget,setShowHomeWidget]=useState(false);
   const [swipeStates,setSwipeStates]=useState({}); // {entryId: offsetX}
   const swipeTouchStart=useRef({});
@@ -726,6 +748,16 @@ export default function PachinkoCalculatorComplete() {
     }
   },[formMetrics.balanceYen, settings.stopLossEnabled, settings.stopLossYen]);
 
+  // 連続ボーダー以下アラート検知
+  useEffect(()=>{
+    const threshold=numberOrZero(settings.belowBorderAlertSpins)||500;
+    const border=formMetrics.machineBorder;
+    if(!border||border<=0||formMetrics.totalSpins<threshold) return;
+    if(formMetrics.rateDiff<0&&formMetrics.totalSpins>=threshold&&!belowBorderAlertOpen){
+      setBelowBorderAlertOpen(true);
+    }
+  },[formMetrics.totalSpins, formMetrics.rateDiff]);
+
   // ボーダー算出タブのdisplayBorderを回転率タブのボーダーに自動反映
   // （持ち玉比率考慮ボーダーが算出されたとき、ユーザーが手動上書きしていない場合のみ）
   const borderCalcDisplayBorder=useMemo(()=>{
@@ -811,7 +843,7 @@ export default function PachinkoCalculatorComplete() {
 
   function updateForm(k,v) { applyFormUpdate(p=>({...p,[k]:v})); }
   function applyShopValue(v) { applyFormUpdate(p=>{ const mp=getShopProfileByName(settings.shopProfiles||[],v); return {...p,shop:v,exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:mp?'':p.sessionBorderOverride}; }); }
-  function addShopProfile() { const name=String(shopProfileDraft.name||'').trim(); if(!name)return; const np={name,exchangeCategory:shopProfileDraft.exchangeCategory||'25',specialDays:shopProfileDraft.specialDays||'',notes:shopProfileDraft.notes||''}; setSettings(p=>{const f=(p.shopProfiles||[]).filter(pr=>String(pr.name||'').trim().toLowerCase()!==name.toLowerCase()); return {...p,shopProfiles:[...f,np]};}); setShopProfileDraft({name:'',exchangeCategory:'25',specialDays:'',notes:''}); }
+  function addShopProfile() { const name=String(shopProfileDraft.name||'').trim(); if(!name)return; const np={name,exchangeCategory:shopProfileDraft.exchangeCategory||'25',specialDays:shopProfileDraft.specialDays||'',specialDayList:(shopProfileDraft.specialDayList||[]).filter(d=>d.day),notes:shopProfileDraft.notes||''}; setSettings(p=>{const f=(p.shopProfiles||[]).filter(pr=>String(pr.name||'').trim().toLowerCase()!==name.toLowerCase()); return {...p,shopProfiles:[...f,np]};}); setShopProfileDraft({name:'',exchangeCategory:'25',specialDays:'',specialDayList:[],notes:''}); }
   function saveShopEdit() { const name=String(shopEditDraft.name||'').trim(); if(!name)return; setSettings(p=>{const updated=(p.shopProfiles||[]).map(pr=>pr.name===editingShopName?{...pr,...shopEditDraft,name}:pr); return {...p,shopProfiles:updated};}); setEditingShopName(null); }
   function removeShopProfile(name) { setSettings(p=>({...p,shopProfiles:(p.shopProfiles||[]).filter(pr=>pr.name!==name)})); }
   function openCompleteDialog() {
@@ -1049,6 +1081,8 @@ export default function PachinkoCalculatorComplete() {
     setForm(newForm);
     setTableMoveConfirmOpen(false);
     setActiveTab('rate');
+    // 台移動時に振り分けカウンターをリセット
+    setCounters(DEFAULT_COUNTERS);
   }
   function continueSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s}); setActiveTab('rate'); }
 
@@ -1308,8 +1342,17 @@ export default function PachinkoCalculatorComplete() {
   ];
 
   return (
-    <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary }}>
-      <div style={{ maxWidth:520, margin:'0 auto', padding:'10px 8px 130px' }}>
+    <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary, position:'relative' }}>
+      {/* 背景画像オーバーレイ */}
+      {bgImage&&(
+        <div style={{
+          position:'fixed', inset:0, zIndex:0, pointerEvents:'none',
+          backgroundImage:`url(${bgImage})`,
+          backgroundSize:'cover', backgroundPosition:'center', backgroundRepeat:'no-repeat',
+          opacity:bgOpacity,
+        }}/>
+      )}
+      <div style={{ maxWidth:520, margin:'0 auto', padding:'10px 8px 130px', position:'relative', zIndex:1 }}>
 
         {/* ─── ヘッダー ─── */}
         <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} style={{marginBottom:16}}>
@@ -1326,6 +1369,53 @@ export default function PachinkoCalculatorComplete() {
             </div>
           </div>
         </motion.div>
+
+        {/* ─── 特日お知らせバナー ─── */}
+        {(()=>{
+          const today=todayStr();
+          const todayDate=new Date(today+'T00:00:00');
+          const todayDay=todayDate.getDate(); // 今日の日付（1〜31）
+          // 全店舗の特日テキストを解析して今日が該当するか判定
+          const matched=(settings.shopProfiles||[]).filter(p=>{
+            const todayDay=todayDate.getDate();
+            // specialDayList（カレンダー形式）から判定
+            if((p.specialDayList||[]).some(d=>Number(d.day)===todayDay)) return true;
+            if(!p.specialDays) return false;
+            const text=p.specialDays;
+            const nums=[];
+            const matchSuffix=text.match(/(\d+)のつく日/g);
+            if(matchSuffix) matchSuffix.forEach(m=>{const n=Number(m.match(/\d+/)[0]); if(n>=0&&n<=9&&todayDay%10===n) nums.push(n);});
+            const matchDay=text.match(/(\d+)日/g);
+            if(matchDay) matchDay.forEach(m=>{const n=Number(m.match(/\d+/)[0]); if(n===todayDay) nums.push(n);});
+            const matchNum=text.match(/\b(\d{1,2})\b/g);
+            if(matchNum) matchNum.forEach(m=>{
+              const n=Number(m);
+              if(n>=1&&n<=31&&(n===todayDay||(n<=9&&todayDay%10===n&&todayDay!==n))) nums.push(n);
+            });
+            return nums.length>0;
+          });
+          if(matched.length===0) return null;
+          return (
+            <div style={{ marginBottom:12, display:'flex', flexDirection:'column', gap:8 }}>
+              {matched.map(p=>(
+                <div key={p.name} style={{ background:'linear-gradient(135deg,#fef3c7,#fde68a)', border:`1.5px solid #f59e0b`, borderRadius:16, padding:'12px 16px', display:'flex', alignItems:'flex-start', gap:12 }}>
+                  <div style={{ fontSize:24, flexShrink:0 }}>📅</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:800, fontSize:14, color:'#92400e' }}>本日は特日・イベント日かもしれないぜ！</div>
+                    <div style={{ fontWeight:700, fontSize:15, color:'#78350f', marginTop:2 }}>{p.name}</div>
+                    {(p.specialDayList||[]).filter(d=>Number(d.day)===todayDate.getDate()).map((d,i)=>(
+                      <div key={i} style={{ fontSize:13, color:'#92400e', marginTop:3, fontWeight:700 }}>
+                        📅 {d.day}日{d.label?` — ${d.label}`:''}
+                      </div>
+                    ))}
+                    {p.specialDays&&<div style={{ fontSize:12, color:'#92400e', marginTop:2 }}>📅 {p.specialDays}</div>}
+                    {p.notes&&<div style={{ fontSize:12, color:'#a16207', marginTop:3 }}>📝 {p.notes}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* ─── ホームサマリーウィジェット ─── */}
         {(()=>{
@@ -3014,6 +3104,38 @@ export default function PachinkoCalculatorComplete() {
                       </div>
                     </div>
                   )}
+
+                  {/* 連続ボーダー以下アラートダイアログ */}
+                  {belowBorderAlertOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1001, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+                      <div style={{ background:C.card, borderRadius:24, padding:'24px 20px', width:'100%', maxWidth:360, border:`2px solid ${C.amberBorder}` }}>
+                        <div style={{ textAlign:'center', marginBottom:16 }}>
+                          <div style={{ fontSize:40, marginBottom:8 }}>🤔</div>
+                          <div style={{ fontWeight:800, fontSize:18, color:C.amber, marginBottom:8 }}>やめ候補</div>
+                          <div style={{ fontSize:26, fontWeight:900, color:C.negative, marginBottom:8 }}>{fmtRate(formMetrics.avgSpinPerThousand)}<span style={{ fontSize:14 }}>回/千円</span></div>
+                          <div style={{ fontSize:13, color:C.textMuted, lineHeight:1.7 }}>
+                            <b>{Math.round(formMetrics.totalSpins).toLocaleString()}回転</b>でボーダー<b>{fmtRate(formMetrics.machineBorder)}</b>を<br/>
+                            下回り続けています。<br/>
+                            台移動や撤退を検討してみてはどうだぜ？
+                          </div>
+                        </div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                          <button onClick={()=>{setBelowBorderAlertOpen(false); setTableMoveConfirmOpen(true);}}
+                            style={{ padding:13, borderRadius:14, border:'none', background:C.amber, color:'white', fontWeight:800, fontSize:14, cursor:'pointer' }}>
+                            🚶 台移動する
+                          </button>
+                          <button onClick={()=>{setBelowBorderAlertOpen(false); openCompleteDialog();}}
+                            style={{ padding:12, borderRadius:14, border:`1px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                            終了する
+                          </button>
+                          <button onClick={()=>setBelowBorderAlertOpen(false)}
+                            style={{ padding:12, borderRadius:14, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                            続行する
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 結果ダイアログ */}
@@ -4350,6 +4472,56 @@ export default function PachinkoCalculatorComplete() {
                     </div>
                     {settings.themeMode==='system'&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>現在: {sysDark?'ダーク':'ライト'}モード適用中</div>}
                   </div>
+
+                  {/* 背景画像 */}
+                  <div>
+                    <label style={labelStyle}>背景画像</label>
+                    {bgImage?(
+                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                        {/* プレビュー */}
+                        <div style={{ position:'relative', borderRadius:16, overflow:'hidden', border:`1px solid ${C.border}`, height:120 }}>
+                          <img src={bgImage} alt="背景プレビュー" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                          <div style={{ position:'absolute', inset:0, background:`rgba(0,0,0,${0.5-bgOpacity})`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <span style={{ color:'white', fontSize:12, fontWeight:700, textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>プレビュー（透明度 {Math.round(bgOpacity*100)}%）</span>
+                          </div>
+                        </div>
+                        {/* 透明度スライダー */}
+                        <div>
+                          <label style={labelStyle}>透明度（低いほど薄い）</label>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>薄</span>
+                            <input type="range" min="0.03" max="0.5" step="0.01" value={bgOpacity}
+                              onChange={e=>updateBgOpacity(Number(e.target.value))}
+                              style={{ flex:1, accentColor:C.primary }}/>
+                            <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>濃</span>
+                          </div>
+                        </div>
+                        {/* 変更・削除ボタン */}
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                          <label style={{ cursor:'pointer' }}>
+                            <div style={{ ...btnSecondary, padding:'11px', fontWeight:700, fontSize:13, justifyContent:'center' }}>🖼 画像を変更</div>
+                            <input type="file" accept="image/*" style={{ display:'none' }} onChange={e=>e.target.files?.[0]&&handleBgImageUpload(e.target.files[0])}/>
+                          </label>
+                          <button onClick={removeBgImage}
+                            style={{ padding:'11px', borderRadius:14, border:`1.5px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                            🗑 背景を削除
+                          </button>
+                        </div>
+                      </div>
+                    ):(
+                      <div>
+                        <label style={{ cursor:'pointer', display:'block' }}>
+                          <div style={{ border:`2px dashed ${C.border}`, borderRadius:16, padding:'28px 20px', textAlign:'center', background:isDark?'rgba(255,255,255,0.02)':'#f8fafc' }}>
+                            <div style={{ fontSize:36, marginBottom:8 }}>🖼</div>
+                            <div style={{ fontWeight:700, fontSize:14, color:C.textPrimary, marginBottom:4 }}>タップして画像を選択</div>
+                            <div style={{ fontSize:12, color:C.textMuted }}>好きな画像を背景に設定できるぜ<br/>（JPG・PNG・GIF対応）</div>
+                          </div>
+                          <input type="file" accept="image/*" style={{ display:'none' }} onChange={e=>e.target.files?.[0]&&handleBgImageUpload(e.target.files[0])}/>
+                        </label>
+                        <div style={{ fontSize:11, color:C.textMuted, marginTop:6 }}>※ 画像はこの端末にのみ保存されるぜ。大きすぎる画像は保存できない場合があるぜ。</div>
+                      </div>
+                    )}
+                  </div>
                   {/* カラーテーマ選択 */}
                   <div>
                     <label style={labelStyle}>アクセントカラー</label>
@@ -4430,9 +4602,45 @@ export default function PachinkoCalculatorComplete() {
                       </Select>
                     </div>
                     <div>
-                      <label style={labelStyle}>特日・イベント日（任意）</label>
+                      <label style={labelStyle}>特日・イベント日（カレンダー登録・最大5つ）</label>
+                      {/* カレンダー形式の特日登録 */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:8 }}>
+                        {(shopProfileDraft.specialDayList||[]).map((sd,i)=>(
+                          <div key={i} style={{ display:'flex', gap:8, alignItems:'center', background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 10px' }}>
+                            {/* 日付選択（1〜31） */}
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                              <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>日</div>
+                              <select value={sd.day||''} onChange={e=>{
+                                const v=e.target.value;
+                                setShopProfileDraft(p=>{const l=[...(p.specialDayList||[])];l[i]={...l[i],day:v};return {...p,specialDayList:l};});
+                              }} style={{ width:52, border:`1px solid ${C.border}`, borderRadius:8, padding:'6px 4px', background:C.card, color:C.textPrimary, fontSize:14, fontWeight:700, textAlign:'center', cursor:'pointer' }}>
+                                <option value="">--</option>
+                                {Array.from({length:31},(_,j)=>j+1).map(d=><option key={d} value={d}>{d}日</option>)}
+                              </select>
+                            </div>
+                            {/* ラベル */}
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:9, color:C.textMuted, fontWeight:600, marginBottom:2 }}>種別（任意）</div>
+                              <input value={sd.label||''} onChange={e=>{
+                                const v=e.target.value;
+                                setShopProfileDraft(p=>{const l=[...(p.specialDayList||[])];l[i]={...l[i],label:v};return {...p,specialDayList:l};});
+                              }} style={{ width:'100%', border:`1px solid ${C.border}`, borderRadius:8, padding:'6px 8px', background:C.card, color:C.textPrimary, fontSize:13, boxSizing:'border-box' }} placeholder="例：特日・強イベなど"/>
+                            </div>
+                            <button onClick={()=>setShopProfileDraft(p=>({...p,specialDayList:(p.specialDayList||[]).filter((_,j)=>j!==i)}))}
+                              style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:18, padding:'0 2px', flexShrink:0 }}>✕</button>
+                          </div>
+                        ))}
+                        {(shopProfileDraft.specialDayList||[]).length<5&&(
+                          <button onClick={()=>setShopProfileDraft(p=>({...p,specialDayList:[...(p.specialDayList||[]),{day:'',label:''}]}))}
+                            style={{ padding:'9px', borderRadius:12, border:`1.5px dashed ${C.primaryMid}`, background:'transparent', color:C.primary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                            ＋ 特日を追加（残り{5-(shopProfileDraft.specialDayList||[]).length}枠）
+                          </button>
+                        )}
+                      </div>
+                      {/* テキスト入力（そのまま残す） */}
+                      <div style={{ fontSize:11, color:C.textMuted, marginBottom:4 }}>またはテキストで自由入力</div>
                       <input value={shopProfileDraft.specialDays} onChange={e=>setShopProfileDraft(p=>({...p,specialDays:e.target.value}))}
-                        style={{ ...inputStyle, fontSize:14, padding:'11px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
+                        style={{ ...inputStyle, fontSize:13, padding:'10px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
                     </div>
                     <div>
                       <label style={labelStyle}>注意点・メモ（任意）</label>
@@ -4464,10 +4672,19 @@ export default function PachinkoCalculatorComplete() {
                                     <div style={{ fontWeight:700, fontSize:15, color:C.textPrimary }}>{p.name}</div>
                                     <div style={{ fontSize:12, color:C.textMuted, marginTop:2 }}>{getExchangePreset(p.exchangeCategory||'25').label}</div>
                                     {p.specialDays&&<div style={{ fontSize:12, color:C.primary, marginTop:4, background:C.primaryLight, borderRadius:8, padding:'3px 8px', display:'inline-block' }}>📅 {p.specialDays}</div>}
+                                    {(p.specialDayList||[]).filter(d=>d.day).length>0&&(
+                                      <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginTop:4 }}>
+                                        {(p.specialDayList||[]).filter(d=>d.day).map((d,i)=>(
+                                          <span key={i} style={{ background:C.primaryLight, color:C.primary, border:`1px solid ${C.primaryMid}`, borderRadius:8, padding:'2px 8px', fontSize:12, fontWeight:600 }}>
+                                            📅 {d.day}日{d.label?` (${d.label})`:''}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                     {p.notes&&<div style={{ fontSize:12, color:C.textSecondary, marginTop:4, lineHeight:1.5 }}>📝 {p.notes}</div>}
                                   </div>
                                   <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                                    <button onClick={()=>{setShopEditDraft({name:p.name,exchangeCategory:p.exchangeCategory||'25',specialDays:p.specialDays||'',notes:p.notes||''});setEditingShopName(p.name);}}
+                                    <button onClick={()=>{setShopEditDraft({name:p.name,exchangeCategory:p.exchangeCategory||'25',specialDays:p.specialDays||'',specialDayList:p.specialDayList||[],notes:p.notes||''});setEditingShopName(p.name);}}
                                       style={{ background:C.primaryLight, color:C.primary, border:`1px solid ${C.primaryMid}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>編集</button>
                                     <button onClick={()=>removeShopProfile(p.name)} style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
                                   </div>
@@ -4536,9 +4753,41 @@ export default function PachinkoCalculatorComplete() {
                   </Select>
                 </div>
                 <div>
-                  <label style={labelStyle}>特日・イベント日（任意）</label>
+                  <label style={labelStyle}>特日・イベント日（カレンダー登録・最大5つ）</label>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:8 }}>
+                    {(shopEditDraft.specialDayList||[]).map((sd,i)=>(
+                      <div key={i} style={{ display:'flex', gap:8, alignItems:'center', background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 10px' }}>
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                          <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>日</div>
+                          <select value={sd.day||''} onChange={e=>{
+                            const v=e.target.value;
+                            setShopEditDraft(p=>{const l=[...(p.specialDayList||[])];l[i]={...l[i],day:v};return {...p,specialDayList:l};});
+                          }} style={{ width:52, border:`1px solid ${C.border}`, borderRadius:8, padding:'6px 4px', background:C.card, color:C.textPrimary, fontSize:14, fontWeight:700, textAlign:'center', cursor:'pointer' }}>
+                            <option value="">--</option>
+                            {Array.from({length:31},(_,j)=>j+1).map(d=><option key={d} value={d}>{d}日</option>)}
+                          </select>
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:9, color:C.textMuted, fontWeight:600, marginBottom:2 }}>種別（任意）</div>
+                          <input value={sd.label||''} onChange={e=>{
+                            const v=e.target.value;
+                            setShopEditDraft(p=>{const l=[...(p.specialDayList||[])];l[i]={...l[i],label:v};return {...p,specialDayList:l};});
+                          }} style={{ width:'100%', border:`1px solid ${C.border}`, borderRadius:8, padding:'6px 8px', background:C.card, color:C.textPrimary, fontSize:13, boxSizing:'border-box' }} placeholder="例：特日・強イベなど"/>
+                        </div>
+                        <button onClick={()=>setShopEditDraft(p=>({...p,specialDayList:(p.specialDayList||[]).filter((_,j)=>j!==i)}))}
+                          style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:18, padding:'0 2px', flexShrink:0 }}>✕</button>
+                      </div>
+                    ))}
+                    {(shopEditDraft.specialDayList||[]).length<5&&(
+                      <button onClick={()=>setShopEditDraft(p=>({...p,specialDayList:[...(p.specialDayList||[]),{day:'',label:''}]}))}
+                        style={{ padding:'9px', borderRadius:12, border:`1.5px dashed ${C.primaryMid}`, background:'transparent', color:C.primary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                        ＋ 特日を追加（残り{5-(shopEditDraft.specialDayList||[]).length}枠）
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, marginBottom:4 }}>またはテキストで自由入力</div>
                   <input value={shopEditDraft.specialDays} onChange={e=>setShopEditDraft(p=>({...p,specialDays:e.target.value}))}
-                    style={{ ...inputStyle, fontSize:14, padding:'11px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
+                    style={{ ...inputStyle, fontSize:13, padding:'10px 14px' }} placeholder="例：毎週火・木、1/7のつく日"/>
                 </div>
                 <div>
                   <label style={labelStyle}>注意点・メモ（任意）</label>
