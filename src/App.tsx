@@ -176,7 +176,7 @@ function getShopProfileByName(profiles,name) {
 // 揃っていない場合は旧式（estimatedEVYen）にフォールバック
 function getWorkVolumeYen(m) {
   if(m.workVolumeYen!==null&&m.workVolumeYen!==undefined) return m.workVolumeYen;
-  return m.estimatedEVYen||0;
+  return null; // 計算不能（機種データ未入力）
 }
 function getWorkVolumeBalls(m) { return m.exchangeRate>0?getWorkVolumeYen(m)/m.exchangeRate:0; }
 
@@ -647,9 +647,20 @@ export default function PachinkoCalculatorComplete() {
   const [tableMoveConfirmOpen,setTableMoveConfirmOpen]=useState(false);
   const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
   const [belowBorderAlertOpen,setBelowBorderAlertOpen]=useState(false);
+  const belowBorderAlertSpinsRef=useRef(0); // 最後にアラートを出した回転数
   const [showHomeWidget,setShowHomeWidget]=useState(false);
-  const [swipeStates,setSwipeStates]=useState({}); // {entryId: offsetX}
+  const [swipeStates,setSwipeStates]=useState({});
   const swipeTouchStart=useRef({});
+  const [nailGrades,setNailGrades]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_nail_grades')||'{}');}catch{return {};}});
+  const [hesoDirections,setHesoDirections]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_heso_dirs')||'[]');}catch{return [];}});
+  const [nailMemo,setNailMemo]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_nail_memo')||'{"tables":[],"machineName":""}');}catch{return {tables:[],machineName:''};}}); 
+  const [nailTableInput,setNailTableInput]=useState('');
+  function setNailGrade(id,grade){setNailGrades(p=>{const n={...p,[id]:p[id]===grade?'':grade};try{localStorage.setItem('pachi_nail_grades',JSON.stringify(n));}catch{}return n;});}
+  function toggleHesoDir(dir){setHesoDirections(p=>{let n;if(p.includes(dir)){n=p.filter(d=>d!==dir);}else if(p.length<2){n=[...p,dir];}else{n=[p[1],dir];}try{localStorage.setItem('pachi_heso_dirs',JSON.stringify(n));}catch{}return n;});}
+  function updateNailMemo(key,val){setNailMemo(p=>{const n={...p,[key]:val};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
+  function addNailTableNum(){const num=nailTableInput.trim();if(!num||isNaN(Number(num)))return;setNailMemo(p=>{if(p.tables&&p.tables.some(t=>t.num===Number(num)))return p;const tables=[...(p.tables||[]),{num:Number(num),machine:''}].slice(0,10);const n={...p,tables};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});setNailTableInput('');}
+  function removeNailTable(num){setNailMemo(p=>{const n={...p,tables:(p.tables||[]).filter(t=>t.num!==num)};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
+  function updateTableMachine(num,machine){setNailMemo(p=>{const n={...p,tables:(p.tables||[]).map(t=>t.num===num?{...t,machine}:t)};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
 
   // 振り分けカウンター
   const DEFAULT_COUNTERS = [
@@ -733,7 +744,7 @@ export default function PachinkoCalculatorComplete() {
   const resultReturnedBalls=numberOrZero(form.endingBalls)+numberOrZero(form.endingUpperBalls);
   const resultPreviewMetrics=useMemo(()=>calcRateMetrics({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls},selectedMachine,settings),[form,resultReturnedBalls,selectedMachine,settings]);
   const recentShopPresets=useMemo(()=>{ const u=[]; (settings.shopProfiles||[]).forEach(p=>{if(p.name&&!u.includes(p.name))u.push(p.name);}); enrichedSessions.forEach(s=>{if(s.shop&&!u.includes(s.shop))u.push(s.shop);}); return u; },[settings.shopProfiles,enrichedSessions]);
-  const recentMachinePresets=useMemo(()=>{ const c={}; enrichedSessions.forEach(s=>{ const k=s.machineId&&s.machineId!=='__none__'?s.machineId:''; if(k)c[k]=(c[k]||0)+1; }); const sorted=Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([id])=>id); return [...sorted,...machines.map(m=>m.id).filter(id=>!sorted.includes(id))].slice(0,7).map(id=>machines.find(m=>m.id===id)).filter(Boolean); },[enrichedSessions,machines]);
+  const recentMachinePresets=useMemo(()=>{ const seen=new Set(); const sorted=[...enrichedSessions].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)); const recentIds=[]; sorted.forEach(s=>{const k=s.machineId&&s.machineId!=='__none__'?s.machineId:'';if(k&&!seen.has(k)){seen.add(k);recentIds.push(k);}}); return recentIds.slice(0,7).map(id=>machines.find(m=>m.id===id)).filter(Boolean); },[enrichedSessions,machines]);
   const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings),[formMetrics,selectedMachine,form.hours,settings]);
 
   useEffect(()=>{ setJudgeForm(p=>({...p,observedRate:p.observedRate||(formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):''),border:p.border||(formMetrics.machineBorder?String(formMetrics.machineBorder||''):'')})); },[formMetrics.spinPerThousand,formMetrics.machineBorder]);
@@ -748,15 +759,21 @@ export default function PachinkoCalculatorComplete() {
     }
   },[formMetrics.balanceYen, settings.stopLossEnabled, settings.stopLossYen]);
 
-  // 連続ボーダー以下アラート検知
+  // 連続ボーダー以下アラート検知（マイルストーンごとに再通知）
   useEffect(()=>{
     const threshold=numberOrZero(settings.belowBorderAlertSpins)||500;
     const border=formMetrics.machineBorder;
-    if(!border||border<=0||formMetrics.totalSpins<threshold) return;
-    if(formMetrics.rateDiff<0&&formMetrics.totalSpins>=threshold&&!belowBorderAlertOpen){
+    if(!border||border<=0) return;
+    const spins=formMetrics.totalSpins;
+    if(spins<threshold) return;
+    if(formMetrics.rateDiff>=0) { belowBorderAlertSpinsRef.current=0; return; }
+    // 次のマイルストーン（500回転ごと）に達したらアラート
+    const milestone=Math.floor(spins/threshold)*threshold;
+    if(milestone>belowBorderAlertSpinsRef.current){
+      belowBorderAlertSpinsRef.current=milestone;
       setBelowBorderAlertOpen(true);
     }
-  },[formMetrics.totalSpins, formMetrics.rateDiff]);
+  },[formMetrics.totalSpins, formMetrics.rateDiff, formMetrics.machineBorder]);
 
   // ボーダー算出タブのdisplayBorderを回転率タブのボーダーに自動反映
   // （持ち玉比率考慮ボーダーが算出されたとき、ユーザーが手動上書きしていない場合のみ）
@@ -780,14 +797,27 @@ export default function PachinkoCalculatorComplete() {
     return mixedBorder;
   },[borderCalc]);
 
+  const [borderCalcAutoApplied,setBorderCalcAutoApplied]=useState(false); // 自動反映済みフラグ
+
   useEffect(()=>{
     if(borderCalcDisplayBorder<=0) return;
-    // ユーザーが手動でsessionBorderOverrideを入力中でない場合のみ自動反映
-    applyFormUpdate(p=>({
-      ...p,
-      sessionBorderOverride: String(Number(borderCalcDisplayBorder.toFixed(2))),
-    }),{trackUndo:false,markDirty:false});
+    // ユーザーが手動でボーダーを変更している場合は上書きしない
+    // borderCalcAutoApplied がfalse（まだ自動反映していない）か、
+    // または値が変わった場合のみ反映
+    setBorderCalcAutoApplied(prev=>{
+      const newVal=String(Number(borderCalcDisplayBorder.toFixed(2)));
+      if(!prev){
+        applyFormUpdate(p=>({...p,sessionBorderOverride:newVal}),{trackUndo:false,markDirty:false});
+        return true;
+      }
+      return prev;
+    });
   },[borderCalcDisplayBorder]);
+
+  // ボーダー算出タブの値が変わったら自動反映フラグをリセット
+  useEffect(()=>{
+    setBorderCalcAutoApplied(false);
+  },[borderCalc.oneRoundPayout, borderCalc.totalRatePer1R, borderCalc.exchangeCategory, borderCalc.holdBallRatioInput]);
 
   // ボーダー算出タブを開いた時 or 機種変更時 → 機種・持ち玉比率を自動同期
   useEffect(()=>{
@@ -865,8 +895,11 @@ export default function PachinkoCalculatorComplete() {
     const goodPart=form.resultGoodMemo?`【良かった点】${form.resultGoodMemo}`:'';
     const badPart=form.resultBadMemo?`【悪かった点】${form.resultBadMemo}`:'';
     const combined=[inheritPart,autoNotes,freePart,goodPart,badPart].filter(Boolean).join('\n');
-    const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:combined},'completed');
+    const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:combined,nailGrades:{...nailGrades},hesoDirections:[...hesoDirections]},'completed');
     upsertSession(p); setSelectedDate(p.date); setCurrentMonth(monthKey(p.date)); setCurrentYear(yearKey(p.date));
+    // 釘チェックをリセット
+    setNailGrades({}); setHesoDirections([]);
+    try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
     skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history');
   }
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
@@ -1007,7 +1040,11 @@ export default function PachinkoCalculatorComplete() {
   }
   function removeRateEntry(id) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.length<=1?p.rateEntries:p.rateEntries.filter(e=>e.id!==id)})); }
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
-  function createNewSession() { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate'); }
+  function createNewSession() {
+    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate');
+    setNailGrades({}); setHesoDirections([]);
+    try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
+  }
 
   // 引き継ぎダイアログを開く（完了済みセッション全件対象）
   const completedSessions=useMemo(()=>enrichedSessions.filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)),[enrichedSessions]);
@@ -1081,8 +1118,10 @@ export default function PachinkoCalculatorComplete() {
     setForm(newForm);
     setTableMoveConfirmOpen(false);
     setActiveTab('rate');
-    // 台移動時に振り分けカウンターをリセット
+    // 台移動時に振り分けカウンターと連続ボーダーアラートをリセット
     setCounters(DEFAULT_COUNTERS);
+    setBelowBorderAlertOpen(false);
+    belowBorderAlertSpinsRef.current=0;
   }
   function continueSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s}); setActiveTab('rate'); }
 
@@ -1332,12 +1371,13 @@ export default function PachinkoCalculatorComplete() {
   }
 
   const TABS = [
-    {id:'rate',label:'📊 回転率'},
-    {id:'judge',label:'🎯 ボーダー'},
-    {id:'counter',label:'🎯 振り分け'},
+    {id:'rate',    label:'📊 回転率'},
+    {id:'judge',   label:'🎯 ボーダー'},
+    {id:'nail',    label:'🔨 釘メモ'},
     {id:'calendar',label:'📅 日別'},
     {id:'analysis',label:'📈 まとめ'},
-    {id:'history',label:'📝 履歴'},
+    {id:'history', label:'📝 履歴'},
+    {id:'counter', label:'🎯 振り分け'},
     {id:'settings',label:'⚙️ 設定'},
   ];
 
@@ -1468,8 +1508,8 @@ export default function PachinkoCalculatorComplete() {
               </button>
             ))}
           </div>
-          {/* 下段：残り3タブ */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:5 }}>
+          {/* 下段：残り4タブ */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5 }}>
             {TABS.slice(4).map(t=>(
               <button key={t.id} onClick={()=>setActiveTab(t.id)}
                 style={{ padding:'8px 4px', borderRadius:12, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:isDark?'rgba(255,255,255,0.03)':'#f8fafc', color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:400, fontSize:11, cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
@@ -2028,6 +2068,7 @@ export default function PachinkoCalculatorComplete() {
                   {/* 展開時：全指標グリッド */}
                   {metricsPanelOpen&&(
                     <div style={{ padding:'12px 12px 14px', display:'flex', flexDirection:'column', gap:8, borderTop:`1px solid ${C.border}` }}>
+
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                         <MetricBox label="累計回転数" value={Math.round(formMetrics.allTotalSpins)} sub={`現在枠 ${Math.round(formMetrics.currentFrameSpins)}回`}/>
                         <MetricBox label="平均回転率" value={fmtRate(formMetrics.avgSpinPerThousand)} sub={`現在枠 ${fmtRate(formMetrics.currentFrameRate)}`} color={C.accent}/>
@@ -2340,6 +2381,70 @@ export default function PachinkoCalculatorComplete() {
                     </div>
                   </DialogContent>
                 </Dialog>
+
+                {/* 非等価アドバイスバナー（スティッキーサマリー直上） */}
+                {(()=>{
+                  if(form.exchangeCategory==='25') return null;
+                  const tm=theoreticalMetrics;
+                  if(tm.cashUnitPriceYen===null||tm.holdUnitPriceYen===null) return null;
+                  if(formMetrics.totalSpins<50) return null; // 回転数少ない時は非表示
+                  const cashOk=tm.cashUnitPriceYen>=0;
+                  const holdOk=tm.holdUnitPriceYen>=0;
+                  if(cashOk&&holdOk) return null; // 両方プラスは表示不要
+                  if(!cashOk&&holdOk){
+                    // 現金NG・持ち玉OK
+                    return (
+                      <div style={{ background:isDark?'rgba(22,163,74,0.12)':'linear-gradient(135deg,#f0fdf4,#dcfce7)', border:`1.5px solid #86efac`, borderRadius:16, padding:'12px 14px', display:'flex', gap:10, alignItems:'flex-start', marginBottom:6 }}>
+                        <div style={{ fontSize:20, flexShrink:0 }}>💡</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:800, fontSize:13, color:isDark?'#4ade80':'#166534', marginBottom:3 }}>持ち玉なら期待値あり！</div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, fontSize:12, marginBottom:4 }}>
+                            <div style={{ background:isDark?'rgba(220,38,38,0.15)':'rgba(220,38,38,0.08)', borderRadius:8, padding:'5px 8px', textAlign:'center' }}>
+                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>現金</div>
+                              <div style={{ fontWeight:800, color:'#dc2626' }}>{fmtRate(tm.cashUnitPriceYen)}円/回転</div>
+                              <div style={{ fontSize:10, color:'#dc2626' }}>ボーダー以下❌</div>
+                            </div>
+                            <div style={{ background:isDark?'rgba(22,163,74,0.15)':'rgba(22,163,74,0.08)', borderRadius:8, padding:'5px 8px', textAlign:'center' }}>
+                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>持ち玉</div>
+                              <div style={{ fontWeight:800, color:'#16a34a' }}>+{fmtRate(tm.holdUnitPriceYen)}円/回転</div>
+                              <div style={{ fontSize:10, color:'#16a34a' }}>期待値あり✅</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize:11, color:isDark?'#86efac':'#166534' }}>
+                            現金追加は避けて持ち玉で打ち続けよう！
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  if(!cashOk&&!holdOk){
+                    // 両方NG
+                    return (
+                      <div style={{ background:isDark?'rgba(239,68,68,0.12)':'linear-gradient(135deg,#fff1f2,#ffe4e6)', border:`1.5px solid ${C.negativeBorder}`, borderRadius:16, padding:'12px 14px', display:'flex', gap:10, alignItems:'flex-start', marginBottom:6 }}>
+                        <div style={{ fontSize:20, flexShrink:0 }}>⚠️</div>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontWeight:800, fontSize:13, color:isDark?'#f87171':'#991b1b', marginBottom:3 }}>現金・持ち玉ともにボーダー以下</div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, fontSize:12, marginBottom:4 }}>
+                            <div style={{ background:isDark?'rgba(220,38,38,0.15)':'rgba(220,38,38,0.08)', borderRadius:8, padding:'5px 8px', textAlign:'center' }}>
+                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>現金</div>
+                              <div style={{ fontWeight:800, color:'#dc2626' }}>{fmtRate(tm.cashUnitPriceYen)}円/回転</div>
+                              <div style={{ fontSize:10, color:'#dc2626' }}>ボーダー以下❌</div>
+                            </div>
+                            <div style={{ background:isDark?'rgba(220,38,38,0.15)':'rgba(220,38,38,0.08)', borderRadius:8, padding:'5px 8px', textAlign:'center' }}>
+                              <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>持ち玉</div>
+                              <div style={{ fontWeight:800, color:'#dc2626' }}>{fmtRate(tm.holdUnitPriceYen)}円/回転</div>
+                              <div style={{ fontSize:10, color:'#dc2626' }}>ボーダー以下❌</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize:11, color:isDark?'#fca5a5':'#991b1b' }}>
+                            台移動か撤退を検討しよう！
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* スティッキーサマリー */}
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:isDark?'rgba(15,23,42,0.97)':'rgba(255,255,255,0.97)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 20px rgba(0,0,0,0.12)' }}>
@@ -3620,6 +3725,173 @@ export default function PachinkoCalculatorComplete() {
           );
         })()}
 
+        {/* ══════════════════ 釘メモ/簡易メモタブ ══════════════════ */}
+        {activeTab==='nail'&&(()=>{
+          const NAIL_ITEMS=[
+            {id:'heso', label:'ヘソ釘', icon:'🎯'},
+            {id:'jump', label:'ジャンプ釘', icon:'↗️'},
+            {id:'michi',label:'道釘', icon:'➡️'},
+            {id:'fusha',label:'風車上', icon:'🌀'},
+            {id:'kob',  label:'こぼし', icon:'💧'},
+            {id:'warp', label:'ワープ', icon:'🕳️'},
+            {id:'stage',label:'ステージ', icon:'🎪'},
+          ];
+          const NAIL_GRADES=['◎','○','△','✕'];
+          const GRADE_STYLE={
+            '◎':{bg:isDark?'rgba(22,163,74,0.25)':'#dcfce7',border:'#86efac',text:'#16a34a',active:'#16a34a'},
+            '○':{bg:isDark?'rgba(59,130,246,0.25)':'#dbeafe',border:'#93c5fd',text:'#2563eb',active:'#2563eb'},
+            '△':{bg:isDark?'rgba(245,158,11,0.25)':'#fef3c7',border:'#fcd34d',text:'#d97706',active:'#d97706'},
+            '✕':{bg:isDark?'rgba(239,68,68,0.25)':'#fee2e2',border:'#fca5a5',text:'#dc2626',active:'#dc2626'},
+          };
+          return (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {/* 釘メモセクション */}
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, overflow:'hidden' }}>
+                <div style={{ background:`linear-gradient(135deg,#1e1b4b,#312e81)`, padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <div>
+                    <div style={{ fontWeight:800, fontSize:15, color:'white' }}>🔨 釘チェック</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>各釘の状態を評価しよう</div>
+                  </div>
+                  <button onClick={()=>{setNailGrades({});setHesoDirections([]);try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}}}
+                    style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:10, padding:'6px 12px', color:'white', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                    リセット
+                  </button>
+                </div>
+                <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:10 }}>
+                  {NAIL_ITEMS.map(item=>{
+                    const selected=nailGrades[item.id]||'';
+                    return (
+                      <div key={item.id}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          {/* 項目名 */}
+                          <div style={{ width:74, flexShrink:0 }}>
+                            <div style={{ fontSize:13, fontWeight:700, color:C.textPrimary }}>{item.label}</div>
+                            {selected&&<div style={{ fontSize:10, fontWeight:700, color:GRADE_STYLE[selected].active, marginTop:1 }}>{selected}</div>}
+                          </div>
+                          {/* 4ボタン */}
+                          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5, flex:1 }}>
+                            {NAIL_GRADES.map(g=>{
+                              const isSel=selected===g;
+                              const s=GRADE_STYLE[g];
+                              return (
+                                <button key={g} onClick={()=>setNailGrade(item.id,g)}
+                                  style={{ padding:'10px 0', borderRadius:12, border:`2px solid ${isSel?s.active:C.border}`, background:isSel?s.bg:C.card, color:isSel?s.active:C.textMuted, fontWeight:isSel?800:500, fontSize:16, cursor:'pointer', transition:'all 0.12s' }}>
+                                  {g}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        {/* ヘソ釘のみ方向ボタン追加（最大2選択） */}
+                        {item.id==='heso'&&(
+                          <div style={{ marginTop:6, marginLeft:84 }}>
+                            <div style={{ fontSize:10, color:C.textMuted, marginBottom:4 }}>方向（最大2つ選択可）</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5 }}>
+                              {[
+                                {dir:'上',    bg:isDark?'rgba(22,163,74,0.25)':'#dcfce7', border:'#86efac', text:'#16a34a'},
+                                {dir:'下',    bg:isDark?'rgba(239,68,68,0.25)':'#fee2e2', border:'#fca5a5', text:'#dc2626'},
+                                {dir:'右あけ',bg:isDark?'rgba(245,158,11,0.25)':'#fef3c7', border:'#fcd34d', text:'#d97706'},
+                                {dir:'左あけ',bg:isDark?'rgba(59,130,246,0.25)':'#dbeafe', border:'#93c5fd', text:'#2563eb'},
+                              ].map(({dir,bg,border,text})=>{
+                                const isSel=(hesoDirections||[]).includes(dir);
+                                return (
+                                  <button key={dir} onClick={()=>toggleHesoDir(dir)}
+                                    style={{ padding:'9px 0', borderRadius:10, border:`2px solid ${isSel?text:C.border}`, background:isSel?bg:C.card, color:isSel?text:C.textMuted, fontWeight:isSel?800:400, fontSize:12, cursor:'pointer', transition:'all 0.12s' }}>
+                                    {dir}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {hesoDirections&&hesoDirections.length>0&&(
+                              <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
+                                選択中: {hesoDirections.join(' ＋ ')}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 簡易メモセクション */}
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, overflow:'hidden' }}>
+                <div style={{ background:`linear-gradient(135deg,#0c4a6e,#0369a1)`, padding:'14px 18px' }}>
+                  <div style={{ fontWeight:800, fontSize:15, color:'white' }}>📋 簡易メモ</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>気になる台番・機種名をメモしよう</div>
+                </div>
+                <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                  {/* 台番入力 */}
+                  <div>
+                    <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>気になる台番を追加</label>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <input
+                        value={nailTableInput}
+                        onChange={e=>setNailTableInput(e.target.value.replace(/[^0-9]/g,''))}
+                        onKeyDown={e=>e.key==='Enter'&&addNailTableNum()}
+                        style={{ ...inputStyle, flex:1, fontSize:18, fontWeight:700, textAlign:'center', padding:'12px' }}
+                        inputMode="numeric" placeholder="台番号"
+                      />
+                      <button onClick={addNailTableNum}
+                        style={{ padding:'12px 18px', borderRadius:14, border:'none', background:C.primary, color:'white', fontWeight:800, fontSize:14, cursor:'pointer', flexShrink:0 }}>
+                        追加
+                      </button>
+                    </div>
+                  </div>
+                  {/* 登録済み台番カード一覧（各台に機種名入力欄） */}
+                  {nailMemo.tables&&nailMemo.tables.length>0?(
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary }}>登録済み台（{nailMemo.tables.length}件）</div>
+                      {nailMemo.tables.map(t=>(
+                        <div key={t.num} style={{ background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', border:`1.5px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <div style={{ background:C.primary, color:'white', borderRadius:8, padding:'4px 10px', fontWeight:800, fontSize:16 }}>
+                                {t.num}番
+                              </div>
+                              {t.machine&&<div style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>{t.machine}</div>}
+                            </div>
+                            <button onClick={()=>removeNailTable(t.num)}
+                              style={{ background:C.negativeBg, border:`1px solid ${C.negativeBorder}`, borderRadius:8, padding:'4px 10px', color:C.negative, fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                              削除
+                            </button>
+                          </div>
+                          <input
+                            value={t.machine||''}
+                            onChange={e=>updateTableMachine(t.num,e.target.value)}
+                            style={{ ...inputStyle, fontSize:13, padding:'8px 12px' }}
+                            placeholder="機種名を入力（任意）"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ):(
+                    <div style={{ fontSize:12, color:C.textMuted }}>台番を追加してみよう（最大10件）</div>
+                  )}
+                  {/* グローバル機種メモ */}
+                  <div>
+                    <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>その他メモ</label>
+                    <input
+                      value={nailMemo.machineName||''}
+                      onChange={e=>updateNailMemo('machineName',e.target.value)}
+                      style={{ ...inputStyle, fontSize:14, padding:'11px 14px' }}
+                      placeholder="気になること・新台情報など"
+                    />
+                  </div>
+                  {/* クリアボタン */}
+                  {((nailMemo.tables&&nailMemo.tables.length>0)||nailMemo.machineName)&&(
+                    <button onClick={()=>{updateNailMemo('tables',[]);updateNailMemo('machineName','');}}
+                      style={{ padding:'10px', borderRadius:12, border:`1px solid ${C.border}`, background:C.card, color:C.textMuted, fontSize:12, cursor:'pointer' }}>
+                      メモをクリア
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ══════════════════ 振り分けカウンタータブ ══════════════════ */}
         {activeTab==='counter'&&(()=>{
           const totalSpins=Math.round(formMetrics.allTotalSpins)||0;
@@ -3740,25 +4012,20 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ fontSize:12, color:'rgba(255,255,255,0.8)' }}>稼働 {monthlyReport.totals.count}件</div>
               </div>
               <div style={{ padding:'12px 14px' }}>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
-                  <div style={{ background:monthlyReport.totals.balance>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthlyReport.totals.balance>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'12px', textAlign:'center' }}>
-                    <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間収支</div>
-                    <div style={{ fontSize:22, fontWeight:800, color:monthlyReport.totals.balance>=0?C.positive:C.negative, marginTop:4 }}>{fmtYen(monthlyReport.totals.balance)}</div>
-                    <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>稼働{monthlyReport.totals.count}件</div>
-                  </div>
-                  <div style={{ background:monthlyReport.totals.ev>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthlyReport.totals.ev>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'12px', textAlign:'center' }}>
-                    <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間期待値</div>
-                    <div style={{ fontSize:22, fontWeight:800, color:monthlyReport.totals.ev>=0?C.positive:C.negative, marginTop:4 }}>{fmtYen(monthlyReport.totals.ev)}</div>
-                    <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>{monthlyReport.totals.hours>0?`時給 ${fmtYen(monthlyReport.totals.ev/monthlyReport.totals.hours)}`:'-'}</div>
-                  </div>
-                </div>
-                {/* 月間仕事量（常時表示） */}
                 {(()=>{
-                  const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
+                  const monthWorkYen=monthlyReport.monthSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)??0),0);
                   return (
-                    <div style={{ background:monthWorkYen>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthWorkYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間仕事量</div>
-                      <div style={{ fontSize:20, fontWeight:800, color:monthWorkYen>=0?C.positive:C.negative }}>{fmtYen(Math.round(monthWorkYen))}</div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+                      <div style={{ background:monthlyReport.totals.balance>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthlyReport.totals.balance>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'12px', textAlign:'center' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間収支</div>
+                        <div style={{ fontSize:22, fontWeight:800, color:monthlyReport.totals.balance>=0?C.positive:C.negative, marginTop:4 }}>{fmtYen(monthlyReport.totals.balance)}</div>
+                        <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>稼働{monthlyReport.totals.count}件</div>
+                      </div>
+                      <div style={{ background:monthWorkYen>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${monthWorkYen>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'12px', textAlign:'center' }}>
+                        <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>月間仕事量</div>
+                        <div style={{ fontSize:22, fontWeight:800, color:monthWorkYen>=0?C.positive:C.negative, marginTop:4 }}>{fmtYen(Math.round(monthWorkYen))}</div>
+                        <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>-</div>
+                      </div>
                     </div>
                   );
                 })()}
@@ -3779,11 +4046,10 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ fontWeight:700, fontSize:16, color:C.textPrimary }}>{selectedDate} の記録</div>
                 {selectedDateSessions.length>0&&(()=>{
                   const dayBalance=selectedDateSessions.reduce((a,s)=>a+s.metrics.balanceYen,0);
-                  const dayEV=selectedDateSessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
-                  const dayWork=selectedDateSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
+                  const dayWork=selectedDateSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)??0),0);
                   return (
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginTop:10 }}>
-                      {[['収支',fmtYen(Math.round(dayBalance)),dayBalance>=0],['仕事量',fmtYen(Math.round(dayWork)),dayWork>=0],['期待値',fmtYen(Math.round(dayEV)),dayEV>=0]].map(([l,v,pos])=>(
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginTop:10 }}>
+                      {[['収支',fmtYen(Math.round(dayBalance)),dayBalance>=0],['仕事量',fmtYen(Math.round(dayWork)),dayWork>=0]].map(([l,v,pos])=>(
                         <div key={l} style={{ background:pos?C.positiveBg:C.negativeBg, border:`1px solid ${pos?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px', textAlign:'center' }}>
                           <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
                           <div style={{ fontSize:13, fontWeight:800, color:pos?C.positive:C.negative, marginTop:2 }}>{v}</div>
@@ -3841,17 +4107,78 @@ export default function PachinkoCalculatorComplete() {
                           </div>
                         </div>
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                          {[['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],['仕事量',fmtYen(Math.round(wv)),wv>=0],['期待値',fmtYen(s.metrics.estimatedEVYen),s.metrics.estimatedEVYen>=0]].map(([l,v,pos])=>(
-                            <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
-                              <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
-                              <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
-                            </div>
-                          ))}
+                          {(()=>{
+                            const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
+                            const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings);
+                            const unitPrice=tm.mixedUnitPriceYen;
+                            return [
+                              ['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],
+                              ['仕事量',wv!==null?fmtYen(Math.round(wv)):'-',wv!==null?wv>=0:null],
+                              ['回転単価',unitPrice!==null?`${unitPrice>=0?'+':''}${fmtRate(unitPrice)}円`:'-',unitPrice!==null?unitPrice>=0:null],
+                            ].map(([l,v,pos])=>(
+                              <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                                <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
+                                <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
+                              </div>
+                            ));
+                          })()}
                           <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                             <div style={{ fontSize:11, color:C.textMuted }}>総回転数</div>
                             <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.textPrimary }}>{Math.round(s.metrics.totalSpins).toLocaleString()}回</div>
                             <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>回転率 {fmtRate(s.metrics.avgSpinPerThousand)}</div>
                           </div>
+                          {/* 合計R・1R出玉 */}
+                          {(()=>{
+                            const totalR=(s.firstHits||[]).reduce((a,h)=>a+numberOrZero(h.rounds),0);
+                            const avgOneR=(()=>{const hits=(s.firstHits||[]).filter(h=>h.oneRound>0);return hits.length>0?(hits.reduce((a,h)=>a+h.oneRound,0)/hits.length):0;})();
+                            const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
+                            const machineOneR=machine?.payoutPerRound||0;
+                            const oneRDisplay=avgOneR>0?avgOneR:machineOneR;
+                            return (
+                              <>
+                                <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                                  <div style={{ fontSize:11, color:C.textMuted }}>合計R数</div>
+                                  <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.primary }}>{totalR>0?totalR+'R':'未記録'}</div>
+                                  {totalR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{(s.firstHits||[]).length}回の初当たり</div>}
+                                </div>
+                                <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                                  <div style={{ fontSize:11, color:C.textMuted }}>1R出玉</div>
+                                  <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.accent }}>{oneRDisplay>0?fmtRate(oneRDisplay):'未記録'}</div>
+                                  {avgOneR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>実測平均値</div>}
+                                  {avgOneR===0&&machineOneR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>機種登録値</div>}
+                                </div>
+                              </>
+                            );
+                          })()}
+                          {/* 通常回転時速 */}
+                          {(()=>{
+                            const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
+                            const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings);
+                            const sph=tm.normalSpinsPerHour;
+                            if(!sph||sph<=0) return null;
+                            const AVERAGE=200;
+                            const diff=sph-AVERAGE;
+                            const pct=Math.round((sph/AVERAGE)*100);
+                            // 速い(>220)→緑・やや速い(>180)→水色・平均付近→グレー・やや遅い(>150)→黄・遅い(<=150)→赤
+                            const color=sph>220?'#16a34a':sph>180?'#0284c7':sph>150?C.textMuted:'#d97706';
+                            const bg=sph>220?(isDark?'rgba(22,163,74,0.12)':'#f0fdf4'):sph>180?(isDark?'rgba(2,132,199,0.12)':'#e0f2fe'):sph>150?(isDark?'rgba(255,255,255,0.03)':'#f8fafc'):(isDark?'rgba(245,158,11,0.12)':'#fef3c7');
+                            const border=sph>220?'#86efac':sph>180?'#7dd3fc':sph>150?C.border:'#fcd34d';
+                            const label=sph>220?'速い ✅':sph>180?'やや速い':sph>150?'平均的':sph>120?'やや遅い':'遅い ⚠️';
+                            return (
+                              <div style={{ gridColumn:'1/-1', background:bg, border:`1.5px solid ${border}`, borderRadius:12, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:2 }}>⏱ 通常回転時速</div>
+                                  <div style={{ fontSize:11, color:C.textMuted }}>平均200回転/h比較</div>
+                                </div>
+                                <div style={{ textAlign:'right' }}>
+                                  <div style={{ fontSize:22, fontWeight:900, color }}>{Math.round(sph)}<span style={{ fontSize:12, fontWeight:600, marginLeft:3 }}>回/h</span></div>
+                                  <div style={{ fontSize:11, fontWeight:700, color, marginTop:1 }}>
+                                    {diff>=0?'+':''}{Math.round(diff)}回 （{pct}%） {label}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {/* 投資内訳 */}
                           <div style={{ gridColumn:'1/-1', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                             <div style={{ fontSize:11, color:C.textMuted, marginBottom:6, fontWeight:600 }}>💴 投資内訳</div>
@@ -3862,6 +4189,37 @@ export default function PachinkoCalculatorComplete() {
                             </div>
                           </div>
                         </div>
+
+                        {/* 釘チェック記録 */}
+                        {s.nailGrades&&Object.keys(s.nailGrades).some(k=>s.nailGrades[k])&&(()=>{
+                          const NAIL_LABELS={heso:'ヘソ釘',jump:'ジャンプ釘',michi:'道釘',fusha:'風車上',kob:'こぼし',warp:'ワープ',stage:'ステージ'};
+                          const GRADE_C={'◎':'#16a34a','○':'#2563eb','△':'#d97706','✕':'#dc2626'};
+                          const GRADE_BG={'◎':isDark?'rgba(22,163,74,0.15)':'#dcfce7','○':isDark?'rgba(59,130,246,0.15)':'#dbeafe','△':isDark?'rgba(245,158,11,0.15)':'#fef3c7','✕':isDark?'rgba(239,68,68,0.15)':'#fee2e2'};
+                          const DIR_C={上:'#16a34a',下:'#dc2626',右あけ:'#d97706',左あけ:'#2563eb'};
+                          return (
+                            <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden' }}>
+                              <div style={{ background:isDark?'rgba(49,30,129,0.2)':'#f5f3ff', padding:'8px 12px', borderBottom:`1px solid ${C.border}` }}>
+                                <div style={{ fontWeight:700, fontSize:12, color:'#6d28d9' }}>🔨 釘チェック記録</div>
+                              </div>
+                              <div style={{ padding:'10px 12px' }}>
+                                <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                  {Object.entries(s.nailGrades).filter(([,g])=>g).map(([id,grade])=>(
+                                    <div key={id} style={{ display:'flex', alignItems:'center', gap:4, background:GRADE_BG[grade], border:`1px solid ${GRADE_C[grade]}40`, borderRadius:8, padding:'4px 8px' }}>
+                                      <span style={{ fontSize:11, color:C.textSecondary }}>{NAIL_LABELS[id]||id}</span>
+                                      <span style={{ fontSize:14, fontWeight:800, color:GRADE_C[grade] }}>{grade}</span>
+                                    </div>
+                                  ))}
+                                  {s.hesoDirections&&s.hesoDirections.length>0&&s.hesoDirections.map(dir=>(
+                                    <div key={dir} style={{ display:'flex', alignItems:'center', gap:4, background:isDark?'rgba(99,102,241,0.15)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:8, padding:'4px 8px' }}>
+                                      <span style={{ fontSize:11, color:C.textSecondary }}>ヘソ方向</span>
+                                      <span style={{ fontSize:12, fontWeight:700, color:DIR_C[dir]||C.primary }}>{dir}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         {td.length>0&&<div style={{ height:180 }}><ResponsiveContainer width="100%" height="100%"><LineChart data={td}><CartesianGrid strokeDasharray="3 3" stroke={C.border}/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis domain={[10,25]} tick={{fontSize:11}}/><Tooltip/>{s.metrics.machineBorder>0&&<ReferenceLine y={s.metrics.machineBorder} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} label={{value:"B",position:"right",fontSize:10,fill:"#ef4444"}}/>}<Line type="monotone" dataKey="rate" stroke={C.accent} strokeWidth={2} dot={false} name="累積回転率"/></LineChart></ResponsiveContainer></div>}
                         <Dialog>
                           <DialogTrigger asChild>
@@ -3906,8 +4264,8 @@ export default function PachinkoCalculatorComplete() {
             const sdKey=`${sk}__${s.date}`;
             if(!allMMap[mk]) allMMap[mk]={name:mk,count:0,balance:0,work:0};
             if(!allSDayMap[sdKey]) allSDayMap[sdKey]={name:sk,date:s.date,balance:0,work:0};
-            allMMap[mk].count+=1; allMMap[mk].balance+=s.metrics.balanceYen; allMMap[mk].work+=getWorkVolumeYen(s.metrics);
-            allSDayMap[sdKey].balance+=s.metrics.balanceYen; allSDayMap[sdKey].work+=getWorkVolumeYen(s.metrics);
+            allMMap[mk].count+=1; allMMap[mk].balance+=s.metrics.balanceYen; allMMap[mk].work+=(getWorkVolumeYen(s.metrics)??0);
+            allSDayMap[sdKey].balance+=s.metrics.balanceYen; allSDayMap[sdKey].work+=(getWorkVolumeYen(s.metrics)??0);
           });
           // 店舗ごとに日別エントリを集約
           Object.values(allSDayMap).forEach(d=>{
@@ -3926,8 +4284,8 @@ export default function PachinkoCalculatorComplete() {
             const sdKey=`${sk}__${s.date}`;
             if(!mMap[mk]) mMap[mk]={name:mk,count:0,balance:0,work:0};
             if(!mSDayMap[sdKey]) mSDayMap[sdKey]={name:sk,date:s.date,balance:0,work:0};
-            mMap[mk].count+=1; mMap[mk].balance+=s.metrics.balanceYen; mMap[mk].work+=getWorkVolumeYen(s.metrics);
-            mSDayMap[sdKey].balance+=s.metrics.balanceYen; mSDayMap[sdKey].work+=getWorkVolumeYen(s.metrics);
+            mMap[mk].count+=1; mMap[mk].balance+=s.metrics.balanceYen; mMap[mk].work+=(getWorkVolumeYen(s.metrics)??0);
+            mSDayMap[sdKey].balance+=s.metrics.balanceYen; mSDayMap[sdKey].work+=(getWorkVolumeYen(s.metrics)??0);
           });
           Object.values(mSDayMap).forEach(d=>{
             const sk=d.name;
@@ -3999,7 +4357,7 @@ export default function PachinkoCalculatorComplete() {
                   const yr=enrichedSessions.filter(s=>yearKey(s.date)===currentYear);
                   const yBal=yr.reduce((a,s)=>a+s.metrics.balanceYen,0);
                   const yEV=yr.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
-                  const yWork=yr.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)),0);
+                  const yWork=yr.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)??0),0);
                   const yHours=yr.reduce((a,s)=>a+numberOrZero(s.hours),0);
                   const ySpins=yr.reduce((a,s)=>a+s.metrics.totalSpins,0);
                   return (<>
