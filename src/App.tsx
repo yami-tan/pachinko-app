@@ -853,7 +853,7 @@ export default function PachinkoCalculatorComplete() {
   const targetSessions=useMemo(()=>enrichedSessions.filter(s=>periodMode==='year'?yearKey(s.date)===currentYear:monthKey(s.date)===currentMonth),[enrichedSessions,periodMode,currentMonth,currentYear]);
   const selectedDateSessions=enrichedSessions.filter(s=>s.date===selectedDate);
 
-  const trendChartData=useMemo(()=>{ if(periodMode==='year'){const map={}; for(let i=1;i<=12;i++) map[`${currentYear}-${String(i).padStart(2,'0')}`]={label:`${i}月`,balance:0,ev:0}; targetSessions.forEach(s=>{const k=monthKey(s.date); if(map[k]){map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen;}}); return Object.values(map); } const sorted=[...targetSessions].sort((a,b)=>a.date>b.date?1:-1); let bc=0,ec=0; return sorted.map(s=>{bc+=s.metrics.balanceYen; ec+=s.metrics.estimatedEVYen; return {label:dateLabel(s.date),balance:bc,ev:ec};}); },[targetSessions,periodMode,currentYear]);
+  const trendChartData=useMemo(()=>{ if(periodMode==='year'){const map={}; for(let i=1;i<=12;i++) map[`${currentYear}-${String(i).padStart(2,'0')}`]={label:`${i}月`,balance:0,work:0}; targetSessions.forEach(s=>{const k=monthKey(s.date); if(map[k]){map[k].balance+=s.metrics.balanceYen; map[k].work+=(getWorkVolumeYen(s.metrics)??0);}}); return Object.values(map); } const sorted=[...targetSessions].sort((a,b)=>a.date>b.date?1:-1); let bc=0,wc=0; return sorted.map(s=>{bc+=s.metrics.balanceYen; wc+=(getWorkVolumeYen(s.metrics)??0); return {label:dateLabel(s.date),balance:bc,work:wc};}); },[targetSessions,periodMode,currentYear]);
   const machineAggregate=useMemo(()=>{ const map={}; targetSessions.forEach(s=>{const k=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'未設定'; if(!map[k])map[k]={name:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.ev-a.ev); },[targetSessions]);
   const shopAggregate=useMemo(()=>{ const map={}; targetSessions.forEach(s=>{const k=s.shop||'未入力'; if(!map[k])map[k]={name:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.ev-a.ev); },[targetSessions]);
   const lifetimeSummary=useMemo(()=>enrichedSessions.reduce((acc,s)=>({balance:acc.balance+s.metrics.balanceYen,ev:acc.ev+s.metrics.estimatedEVYen,count:acc.count+1,spins:acc.spins+s.metrics.totalSpins}),{balance:0,ev:0,count:0,spins:0}),[enrichedSessions]);
@@ -4363,11 +4363,7 @@ export default function PachinkoCalculatorComplete() {
                   return (<>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                       <SummaryMetric title="年間収支" value={fmtYen(yBal)} positive={yBal>=0} sub={`稼働 ${yr.length}件`}/>
-                      <SummaryMetric title="年間期待値" value={fmtYen(yEV)} positive={yEV>=0} sub={yHours>0?`時給 ${fmtYen(yEV/yHours)}`:'-'}/>
-                    </div>
-                    <div style={{ background:yWork>=0?C.positiveBg:C.negativeBg, border:`1.5px solid ${yWork>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:14, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>年間仕事量</div>
-                      <div style={{ fontSize:20, fontWeight:800, color:yWork>=0?C.positive:C.negative }}>{fmtYen(Math.round(yWork))}</div>
+                      <SummaryMetric title="年間仕事量" value={fmtYen(Math.round(yWork))} positive={yWork>=0} sub="-"/>
                     </div>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                       {[['総回転',`${Math.round(ySpins).toLocaleString()}回`],['総時間',`${yHours.toFixed(1)}h`]].map(([l,v])=>(
@@ -4418,8 +4414,8 @@ export default function PachinkoCalculatorComplete() {
 
             <div style={cardStyle}>
               <div style={{ padding:'14px 18px', borderBottom:`1px solid ${C.border}` }}>
-                <div style={{ fontWeight:700, color:C.textPrimary }}>📈 推移グラフ（収支 vs 期待値）</div>
-                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>収支と期待値の差が運の影響を示すぜ</div>
+                <div style={{ fontWeight:700, color:C.textPrimary }}>📈 推移グラフ（収支 vs 仕事量）</div>
+                <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>収支と仕事量の差が運の影響を示すぜ</div>
               </div>
               <div style={{ padding:'14px 16px' }}>
                 <div style={{ height:200 }}>
@@ -4431,13 +4427,13 @@ export default function PachinkoCalculatorComplete() {
                       <Tooltip formatter={(v,n)=>[fmtYen(v),n]}/>
                       <ReferenceLine y={0} stroke={C.border} strokeWidth={1.5}/>
                       <Line type="monotone" dataKey="balance" stroke={C.positive} strokeWidth={2.5} dot={false} name="実収支"/>
-                      <Line type="monotone" dataKey="ev" stroke={C.accent} strokeWidth={2} dot={false} strokeDasharray="5 3" name="期待値"/>
+                      <Line type="monotone" dataKey="work" stroke={C.accent} strokeWidth={2} dot={false} strokeDasharray="5 3" name="仕事量"/>
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
                 <div style={{ display:'flex', gap:16, justifyContent:'center', marginTop:8, fontSize:11 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:20, height:3, background:C.positive, borderRadius:2 }}/><span style={{ color:C.textMuted }}>実収支</span></div>
-                  <div style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:20, height:2, background:C.accent, borderRadius:2, opacity:0.7 }}/><span style={{ color:C.textMuted }}>期待値（点線）</span></div>
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:20, height:2, background:C.accent, borderRadius:2, opacity:0.7 }}/><span style={{ color:C.textMuted }}>仕事量（点線）</span></div>
                 </div>
               </div>
             </div>
