@@ -655,6 +655,13 @@ export default function PachinkoCalculatorComplete() {
   const [hesoDirections,setHesoDirections]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_heso_dirs')||'[]');}catch{return [];}});
   const [nailMemo,setNailMemo]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_nail_memo')||'{"tables":[],"machineName":""}');}catch{return {tables:[],machineName:''};}}); 
   const [nailTableInput,setNailTableInput]=useState('');
+  const [tamaBallsInput,setTamaBallsInput]=useState('');
+  const [tamaExchCat,setTamaExchCat]=useState('25');
+  const [tamaMinPrize,setTamaMinPrize]=useState(100);
+  const [tamaTargetYenInput,setTamaTargetYenInput]=useState('');
+  const [detailMachineKey,setDetailMachineKey]=useState(null);
+  const [detailChainSelect,setDetailChainSelect]=useState(10);
+  const [chainSelectDialogOpen,setChainSelectDialogOpen]=useState(false);
   function setNailGrade(id,grade){setNailGrades(p=>{const n={...p,[id]:p[id]===grade?'':grade};try{localStorage.setItem('pachi_nail_grades',JSON.stringify(n));}catch{}return n;});}
   function toggleHesoDir(dir){setHesoDirections(p=>{let n;if(p.includes(dir)){n=p.filter(d=>d!==dir);}else if(p.length<2){n=[...p,dir];}else{n=[p[1],dir];}try{localStorage.setItem('pachi_heso_dirs',JSON.stringify(n));}catch{}return n;});}
   function updateNailMemo(key,val){setNailMemo(p=>{const n={...p,[key]:val};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
@@ -664,30 +671,26 @@ export default function PachinkoCalculatorComplete() {
 
   // 振り分けカウンター
   const DEFAULT_COUNTERS = [
-    {id:'stage',  label:'ステージ入賞', color:'#ec4899', bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.4)', count:0},
-    {id:'fusha',  label:'風車振り分け',  color:'#10b981', bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.4)', count:0},
-    {id:'koboshi',label:'こぼし',         color:'#f59e0b', bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.4)', count:0},
-    {id:'warp',   label:'ワープ抜け',    color:'#3b82f6', bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.4)', count:0},
-    {id:'other1', label:'カスタム1',     color:'#8b5cf6', bg:'rgba(139,92,246,0.12)', border:'rgba(139,92,246,0.4)', count:0},
-    {id:'other2', label:'カスタム2',     color:'#6b7280', bg:'rgba(107,114,128,0.12)', border:'rgba(107,114,128,0.4)', count:0},
+    {id:'stage',  label:'ステージ入賞', color:'#ec4899', bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.4)', total:0, hit:0},
+    {id:'fusha',  label:'風車振り分け',  color:'#10b981', bg:'rgba(16,185,129,0.12)', border:'rgba(16,185,129,0.4)', total:0, hit:0},
+    {id:'koboshi',label:'こぼし',         color:'#f59e0b', bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.4)', total:0, hit:0},
+    {id:'warp',   label:'ワープ抜け',    color:'#3b82f6', bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.4)', total:0, hit:0},
+    {id:'other1', label:'カスタム1',     color:'#8b5cf6', bg:'rgba(139,92,246,0.12)', border:'rgba(139,92,246,0.4)', total:0, hit:0},
+    {id:'other2', label:'カスタム2',     color:'#6b7280', bg:'rgba(107,114,128,0.12)', border:'rgba(107,114,128,0.4)', total:0, hit:0},
   ];
-  const [counters,setCounters]=useState(()=>{try{const s=localStorage.getItem('pachi_counters');return s?JSON.parse(s):DEFAULT_COUNTERS;}catch{return DEFAULT_COUNTERS;}});
+  const [counters,setCounters]=useState(()=>{try{const s=localStorage.getItem('pachi_counters2');return s?JSON.parse(s):DEFAULT_COUNTERS;}catch{return DEFAULT_COUNTERS;}});
   const [counterLabels,setCounterLabels]=useState(()=>{try{const s=localStorage.getItem('pachi_counter_labels');return s?JSON.parse(s):DEFAULT_COUNTERS.map(c=>c.label);}catch{return DEFAULT_COUNTERS.map(c=>c.label);}});
-  // カウンター履歴（セッションごとに保存）
   const [counterHistory,setCounterHistory]=useState(()=>{try{const s=localStorage.getItem('pachi_counter_history');return s?JSON.parse(s):[];}catch{return [];}});
 
-  // カウンターの変更をlocalStorageに自動保存
-  useEffect(()=>{try{localStorage.setItem('pachi_counters',JSON.stringify(counters));}catch{}},[counters]);
+  useEffect(()=>{try{localStorage.setItem('pachi_counters2',JSON.stringify(counters));}catch{}},[counters]);
   useEffect(()=>{try{localStorage.setItem('pachi_counter_labels',JSON.stringify(counterLabels));}catch{}},[counterLabels]);
 
-  // カウンターをセッションと共に履歴保存する関数
   function saveCounterSnapshot() {
-    if(counters.every(c=>c.count===0)) return;
+    if(counters.every(c=>c.total===0)) return;
     const snap={
       id:uid(), date:todayStr(), sessionId:form.id,
-      totalSpins:Math.round(formMetrics.allTotalSpins),
       shop:form.shop, machine:form.machine?.name||form.machineFreeName||'',
-      counts:counters.map((c,i)=>({id:c.id,label:counterLabels[i],count:c.count,color:c.color})),
+      counts:counters.map((c,i)=>({id:c.id,label:counterLabels[i],total:c.total,hit:c.hit,color:c.color})),
     };
     setCounterHistory(prev=>{const next=[snap,...prev].slice(0,50);try{localStorage.setItem('pachi_counter_history',JSON.stringify(next));}catch{}return next;});
   }
@@ -1377,7 +1380,8 @@ export default function PachinkoCalculatorComplete() {
     {id:'calendar',label:'📅 日別'},
     {id:'analysis',label:'📈 まとめ'},
     {id:'history', label:'📝 履歴'},
-    {id:'counter', label:'🎯 振り分け'},
+    {id:'counter', label:'🔀 振り分け'},
+    {id:'tamadama',label:'💰 端玉'},
     {id:'settings',label:'⚙️ 設定'},
   ];
 
@@ -1498,22 +1502,22 @@ export default function PachinkoCalculatorComplete() {
 
         {/* ─── タブ ─── */}
         <div style={{ marginBottom:16 }}>
-          {/* 上段：よく使う4タブ */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5, marginBottom:5 }}>
-            {TABS.slice(0,4).map(t=>(
+          {/* 上段：よく使う5タブ */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:4, marginBottom:4 }}>
+            {TABS.slice(0,5).map(t=>(
               <button key={t.id} onClick={()=>setActiveTab(t.id)}
-                style={{ padding:'10px 4px', borderRadius:14, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:C.card, color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:500, fontSize:12, cursor:'pointer', transition:'all 0.15s', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
-                <span style={{ fontSize:16 }}>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
-                <span style={{ fontSize:11 }}>{t.label.replace(/^\p{Emoji}\s*/u,'')}</span>
+                style={{ padding:'8px 2px', borderRadius:12, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:C.card, color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:500, fontSize:11, cursor:'pointer', transition:'all 0.15s', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                <span style={{ fontSize:14 }}>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
+                <span style={{ fontSize:10 }}>{t.label.replace(/^\p{Emoji}\s*/u,'')}</span>
               </button>
             ))}
           </div>
           {/* 下段：残り4タブ */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5 }}>
-            {TABS.slice(4).map(t=>(
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:4 }}>
+            {TABS.slice(5).map(t=>(
               <button key={t.id} onClick={()=>setActiveTab(t.id)}
-                style={{ padding:'8px 4px', borderRadius:12, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:isDark?'rgba(255,255,255,0.03)':'#f8fafc', color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:400, fontSize:11, cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
-                <span>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
+                style={{ padding:'7px 2px', borderRadius:10, border:`1.5px solid ${activeTab===t.id?C.primary:C.border}`, background:activeTab===t.id?C.primary:isDark?'rgba(255,255,255,0.03)':'#f8fafc', color:activeTab===t.id?'white':C.textSecondary, fontWeight:activeTab===t.id?700:400, fontSize:10, cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', justifyContent:'center', gap:3 }}>
+                <span style={{ fontSize:12 }}>{t.label.match(/^\p{Emoji}/u)?.[0]||''}</span>
                 <span>{t.label.replace(/^\p{Emoji}\s*/u,'')}</span>
               </button>
             ))}
@@ -3894,62 +3898,78 @@ export default function PachinkoCalculatorComplete() {
 
         {/* ══════════════════ 振り分けカウンタータブ ══════════════════ */}
         {activeTab==='counter'&&(()=>{
-          const totalSpins=Math.round(formMetrics.allTotalSpins)||0;
-          const totalCount=counters.reduce((a,c)=>a+c.count,0);
-          const hasAnyCount=totalCount>0;
+          const hasAny=counters.some(c=>c.total>0);
           return (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {/* ヘッダー */}
               <div style={{ background:`linear-gradient(135deg,#1e1b4b,#4c1d95)`, borderRadius:20, padding:'16px 18px', color:'white' }}>
                 <div style={{ fontSize:11, letterSpacing:'0.2em', color:'rgba(255,255,255,0.6)', fontWeight:700, marginBottom:4 }}>振り分けカウンター</div>
-                <div style={{ display:'flex', gap:16, alignItems:'flex-end' }}>
-                  <div>
-                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>総回転（回転率タブ連携）</div>
-                    <div style={{ fontSize:28, fontWeight:900 }}>{totalSpins.toLocaleString()}<span style={{ fontSize:13, marginLeft:4 }}>回転</span></div>
-                  </div>
-                  {hasAnyCount&&<div>
-                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)' }}>合計カウント</div>
-                    <div style={{ fontSize:20, fontWeight:800 }}>{totalCount}</div>
-                  </div>}
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.75)', lineHeight:1.7 }}>
+                  試行回数と成功回数をそれぞれカウントして振り分け率を算出するぜ<br/>
+                  <span style={{ fontSize:11 }}>例: ステージ入賞 100回試行 → 50回入賞 → 50%</span>
                 </div>
-                {!hasAnyCount&&<div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginTop:6 }}>ボタンを押して振り分けを記録しよう</div>}
               </div>
 
-              {/* カウンターグリッド */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              {/* カウンターカード一覧 */}
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {counters.map((c,idx)=>{
-                  const rate=totalSpins>0?((c.count/totalSpins)*100).toFixed(1):null;
+                  const rate=c.total>0?((c.hit/c.total)*100):null;
+                  const missRate=c.total>0?(((c.total-c.hit)/c.total)*100):null;
+                  const label=counterLabels[idx];
+                  const hasData=c.total>0;
                   return (
-                    <div key={c.id} style={{ background:C.card, border:`2px solid ${c.count>0?c.border:C.border}`, borderRadius:20, overflow:'hidden', transition:'all 0.15s' }}>
-                      {/* ラベル編集 */}
-                      <div style={{ padding:'10px 12px 4px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <div key={c.id} style={{ background:C.card, border:`2px solid ${hasData?c.border:C.border}`, borderRadius:18, overflow:'hidden', transition:'all 0.15s' }}>
+                      {/* ラベル行 */}
+                      <div style={{ padding:'10px 14px 6px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                         <input
-                          value={counterLabels[idx]}
-                          onChange={e=>{const v=e.target.value; setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
-                          onBlur={e=>{const v=e.target.value.trim()||DEFAULT_COUNTERS[idx].label; setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
-                          style={{ fontSize:11, fontWeight:700, color:c.count>0?c.color:C.textMuted, background:'none', border:'none', outline:'none', width:'100%', padding:0 }}
+                          value={label}
+                          onChange={e=>{const v=e.target.value;setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
+                          onBlur={e=>{const v=e.target.value.trim()||DEFAULT_COUNTERS[idx].label;setCounterLabels(p=>{const n=[...p];n[idx]=v;return n;});}}
+                          style={{ fontSize:13, fontWeight:700, color:hasData?c.color:C.textMuted, background:'none', border:'none', outline:'none', flex:1, padding:0 }}
                         />
-                        {c.count>0&&(
-                          <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,count:Math.max(0,x.count-1)}:x))}
-                            style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:14, padding:'0 2px', flexShrink:0 }}>−</button>
-                        )}
+                        {hasData&&<div style={{ fontSize:20, fontWeight:900, color:c.color }}>{rate!==null?`${rate.toFixed(1)}%`:'-'}</div>}
                       </div>
-                      {/* 大ボタン */}
-                      <button
-                        onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,count:x.count+1}:x))}
-                        style={{ width:'100%', minHeight:90, background:c.count>0?c.bg:'transparent', border:'none', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, transition:'all 0.1s', activeOpacity:0.8 }}
-                      >
-                        <div style={{ fontSize:36, fontWeight:900, color:c.count>0?c.color:C.textMuted, lineHeight:1 }}>{c.count}</div>
-                        {rate!==null&&c.count>0?(
-                          <div style={{ fontSize:13, fontWeight:700, color:c.color }}>{rate}%</div>
-                        ):(
-                          <div style={{ fontSize:11, color:C.textMuted }}>タップで+1</div>
-                        )}
-                      </button>
+
                       {/* 進捗バー */}
-                      {totalSpins>0&&c.count>0&&(
-                        <div style={{ height:4, background:C.border }}>
-                          <div style={{ height:'100%', width:`${Math.min(100,(c.count/totalSpins)*100)}%`, background:c.color, transition:'width 0.3s', maxWidth:'100%' }}/>
+                      {hasData&&(
+                        <div style={{ height:6, background:C.border, margin:'0 14px' }}>
+                          <div style={{ height:'100%', width:`${Math.min(100,rate||0)}%`, background:c.color, borderRadius:3, transition:'width 0.3s' }}/>
+                        </div>
+                      )}
+
+                      {/* 2ボタン行：試行 / 成功 */}
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:0 }}>
+                        {/* 試行ボタン */}
+                        <div style={{ borderRight:`1px solid ${C.border}`, padding:'10px 12px' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:4, textAlign:'center' }}>試行回数</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'center' }}>
+                            <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,total:Math.max(0,x.total-1),hit:Math.min(x.hit,Math.max(0,x.total-1))}:x))}
+                              style={{ width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.textMuted,cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>−</button>
+                            <div style={{ fontSize:24, fontWeight:900, color:C.textPrimary, minWidth:36, textAlign:'center' }}>{c.total}</div>
+                            <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,total:x.total+1}:x))}
+                              style={{ width:32,height:32,borderRadius:8,border:'none',background:C.primary,color:'white',cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>＋</button>
+                          </div>
+                        </div>
+                        {/* 成功ボタン */}
+                        <div style={{ padding:'10px 12px' }}>
+                          <div style={{ fontSize:10, color:c.color, fontWeight:600, marginBottom:4, textAlign:'center' }}>成功回数</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, justifyContent:'center' }}>
+                            <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,hit:Math.max(0,x.hit-1)}:x))}
+                              style={{ width:32,height:32,borderRadius:8,border:`1px solid ${c.border}`,background:c.bg,color:c.color,cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>−</button>
+                            <div style={{ fontSize:24, fontWeight:900, color:c.color, minWidth:36, textAlign:'center' }}>{c.hit}</div>
+                            <button onClick={()=>setCounters(p=>p.map((x,i)=>i===idx?{...x,total:x.total+1,hit:x.hit+1}:x))}
+                              style={{ width:32,height:32,borderRadius:8,border:'none',background:c.color,color:'white',cursor:'pointer',fontSize:16,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}>＋</button>
+                          </div>
+                          <div style={{ fontSize:10, color:C.textMuted, textAlign:'center', marginTop:3 }}>（試行も同時＋）</div>
+                        </div>
+                      </div>
+
+                      {/* 内訳 */}
+                      {hasData&&(
+                        <div style={{ padding:'6px 14px 10px', display:'flex', gap:10, fontSize:11, color:C.textMuted }}>
+                          <span>成功 <b style={{ color:c.color }}>{c.hit}回</b></span>
+                          <span>外れ <b style={{ color:C.textMuted }}>{c.total-c.hit}回</b></span>
+                          {missRate!==null&&<span>外れ率 <b>{missRate.toFixed(1)}%</b></span>}
                         </div>
                       )}
                     </div>
@@ -3957,32 +3977,32 @@ export default function PachinkoCalculatorComplete() {
                 })}
               </div>
 
-              {/* 合計サマリー表 */}
-              {hasAnyCount&&(
+              {/* サマリー表 */}
+              {hasAny&&(
                 <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
                   <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary, padding:'10px 14px', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderBottom:`1px solid ${C.border}` }}>
                     📊 振り分け結果サマリー
-                    {totalSpins>0&&<span style={{ fontSize:11, color:C.textMuted, fontWeight:400, marginLeft:8 }}>（総回転{totalSpins.toLocaleString()}回転ベース）</span>}
                   </div>
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
                       <tr style={{ background:isDark?'rgba(255,255,255,0.03)':'#fafafa' }}>
-                        {['項目','回数','決定率'].map(h=><th key={h} style={{ padding:'8px 12px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:11 }}>{h}</th>)}
+                        {['項目','試行','成功','振り分け率'].map(h=><th key={h} style={{ padding:'7px 8px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
-                      {counters.filter(c=>c.count>0).map((c,i,arr)=>{
-                        const rate=totalSpins>0?((c.count/totalSpins)*100).toFixed(2):'-';
+                      {counters.filter(c=>c.total>0).map((c,i,arr)=>{
+                        const rate=c.total>0?((c.hit/c.total)*100).toFixed(1):'-';
                         return (
                           <tr key={c.id} style={{ borderBottom:i<arr.length-1?`1px solid ${C.border}`:'none' }}>
-                            <td style={{ padding:'9px 12px', display:'flex', alignItems:'center', gap:8 }}>
-                              <div style={{ width:10, height:10, borderRadius:'50%', background:c.color, flexShrink:0 }}/>
-                              <span style={{ fontWeight:600, color:C.textPrimary }}>{counterLabels[counters.indexOf(c)]}</span>
+                            <td style={{ padding:'8px 10px' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                <div style={{ width:8,height:8,borderRadius:'50%',background:c.color,flexShrink:0 }}/>
+                                <span style={{ fontWeight:600, color:C.textPrimary, fontSize:12 }}>{counterLabels[counters.indexOf(c)]}</span>
+                              </div>
                             </td>
-                            <td style={{ padding:'9px 12px', textAlign:'center', fontWeight:700, color:c.color }}>{c.count}</td>
-                            <td style={{ padding:'9px 12px', textAlign:'center', fontWeight:700, color:totalSpins>0?c.color:C.textMuted }}>
-                              {totalSpins>0?`${rate}%`:'記録なし'}
-                            </td>
+                            <td style={{ padding:'8px 8px', textAlign:'center', color:C.textSecondary }}>{c.total}</td>
+                            <td style={{ padding:'8px 8px', textAlign:'center', fontWeight:700, color:c.color }}>{c.hit}</td>
+                            <td style={{ padding:'8px 8px', textAlign:'center', fontWeight:800, color:c.color, fontSize:14 }}>{rate}%</td>
                           </tr>
                         );
                       })}
@@ -3992,7 +4012,7 @@ export default function PachinkoCalculatorComplete() {
               )}
 
               {/* リセットボタン */}
-              {hasAnyCount&&(
+              {hasAny&&(
                 <button onClick={()=>{saveCounterSnapshot();setCounters(DEFAULT_COUNTERS);}}
                   style={{ padding:'12px', borderRadius:14, border:`1.5px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:13, cursor:'pointer' }}>
                   🔄 カウンターをリセット（履歴に保存）
@@ -4377,6 +4397,311 @@ export default function PachinkoCalculatorComplete() {
                 })()}
               </div>
             </div>
+
+            {/* 機種ごとの詳細分析 */}
+            {(()=>{
+              // 全機種リストを収集
+              const machineKeys=[...new Set(enrichedSessions.map(s=>s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'').filter(Boolean))].sort();
+              if(machineKeys.length===0) return null;
+
+              // 選択された機種のセッションを集計
+              const detailSessions=detailMachineKey
+                ?enrichedSessions.filter(s=>(s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'')===detailMachineKey)
+                :[];
+
+              // 中央値計算
+              function median(arr){if(!arr.length)return null;const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2;}
+
+              // セッションから各種統計を計算
+              const stats=detailMachineKey&&detailSessions.length>0?(()=>{
+                const rates=detailSessions.map(s=>s.metrics.avgSpinPerThousand).filter(v=>v>0);
+                const sphs=detailSessions.map(s=>{const tm=calcTheoreticalValueMetrics(s.metrics,s.machine,numberOrZero(s.hours),settings);return tm.normalSpinsPerHour;}).filter(v=>v&&v>0);
+                const works=detailSessions.map(s=>getWorkVolumeYen(s.metrics)).filter(v=>v!==null);
+                const balances=detailSessions.map(s=>s.metrics.balanceYen);
+                const allHits=detailSessions.flatMap(s=>s.firstHits||[]);
+                const hitSpinsArr=allHits.map(h=>numberOrZero(h.hitSpins)).filter(v=>v>0);
+                const chainCounts=allHits.map(h=>numberOrZero(h.chainCount)).filter(v=>v>0);
+                const oneRArr=allHits.map(h=>h.oneRound).filter(v=>v>0);
+
+                // 10連以上のセッションの時間
+                const bigChainSessions=detailSessions.filter(s=>(s.firstHits||[]).some(h=>numberOrZero(h.chainCount)>=10));
+                const bigChainHours=bigChainSessions.map(s=>numberOrZero(s.hours)).filter(v=>v>0);
+
+                // 釘グレード別回転率
+                const nailRateMap={};
+                const NAIL_LABELS_MAP={heso:'ヘソ釘',jump:'ジャンプ釘',michi:'道釘',fusha:'風車上',kob:'こぼし',warp:'ワープ',stage:'ステージ'};
+                detailSessions.forEach(s=>{
+                  if(!s.nailGrades) return;
+                  const rate=s.metrics.avgSpinPerThousand;
+                  if(rate<=0) return;
+                  Object.entries(s.nailGrades).forEach(([nailId,grade])=>{
+                    if(!grade) return;
+                    const key=`${nailId}_${grade}`;
+                    if(!nailRateMap[key]) nailRateMap[key]={nailId,grade,rates:[],label:NAIL_LABELS_MAP[nailId]||nailId};
+                    nailRateMap[key].rates.push(rate);
+                  });
+                });
+                const nailStats=Object.values(nailRateMap).map(n=>({...n,median:median(n.rates),avg:n.rates.reduce((a,v)=>a+v,0)/n.rates.length,count:n.rates.length})).filter(n=>n.count>=2).sort((a,b)=>b.median-a.median);
+
+                return {
+                  count:detailSessions.length,
+                  winRate:Math.round(balances.filter(v=>v>0).length/balances.length*100),
+                  rateMedian:median(rates), rateAvg:rates.length?rates.reduce((a,v)=>a+v,0)/rates.length:null,
+                  rateMax:rates.length?Math.max(...rates):null, rateMin:rates.length?Math.min(...rates):null,
+                  sphMedian:median(sphs), sphAvg:sphs.length?sphs.reduce((a,v)=>a+v,0)/sphs.length:null,
+                  workMedian:median(works), workAvg:works.length?works.reduce((a,v)=>a+v,0)/works.length:null,
+                  balanceTotal:balances.reduce((a,v)=>a+v,0), balanceAvg:balances.length?balances.reduce((a,v)=>a+v,0)/balances.length:null,
+                  hitSpinMedian:median(hitSpinsArr), hitSpinAvg:hitSpinsArr.length?hitSpinsArr.reduce((a,v)=>a+v,0)/hitSpinsArr.length:null,
+                  chainMedian:median(chainCounts), chainMax:chainCounts.length?Math.max(...chainCounts):null,
+                  bigChainCount:bigChainSessions.length, bigChainHoursMedian:median(bigChainHours),
+                  oneRMedian:median(oneRArr), oneRAvg:oneRArr.length?oneRArr.reduce((a,v)=>a+v,0)/oneRArr.length:null,
+                  nailStats, totalHits:allHits.length,
+                  // 初当たり確率
+                  totalSpinsAll:detailSessions.reduce((a,s)=>a+s.metrics.totalSpins,0),
+                  firstHitProb:allHits.length>0?detailSessions.reduce((a,s)=>a+s.metrics.totalSpins,0)/allHits.length:null,
+                  // 大当たり消化効率（chainTimeSecから計算）
+                  getChainTimeStats:(targetChain)=>{
+                    const hitsWithChain=allHits.filter(h=>numberOrZero(h.chainCount)>=targetChain&&h.chainTimeSec>0);
+                    const times=hitsWithChain.map(h=>h.chainTimeSec);
+                    const rounds=hitsWithChain.map(h=>numberOrZero(h.rounds)).filter(v=>v>0);
+                    return {
+                      count:hitsWithChain.length,
+                      timeMedian:median(times), timeAvg:times.length?times.reduce((a,v)=>a+v,0)/times.length:null,
+                      roundsMedian:median(rounds), roundsAvg:rounds.length?rounds.reduce((a,v)=>a+v,0)/rounds.length:null,
+                    };
+                  },
+                };
+              })():null;
+
+              return (
+                <div style={{ ...cardStyle, overflow:'hidden' }}>
+                  <div style={{ background:`linear-gradient(135deg,#0f172a,#1e3a5f)`, padding:'14px 18px' }}>
+                    <div style={{ fontSize:16, fontWeight:800, color:'white' }}>🔍 機種別詳細分析</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>過去記録から機種の特性を分析するぜ</div>
+                  </div>
+                  <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:12 }}>
+                    {/* 機種選択 */}
+                    <div>
+                      <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:6 }}>機種を選択</label>
+                      <Select value={detailMachineKey||''} onValueChange={v=>setDetailMachineKey(v||null)}>
+                        <SelectTrigger className="rounded-2xl h-11"><SelectValue placeholder="機種を選んでください"/></SelectTrigger>
+                        <SelectContent>
+                          {machineKeys.map(k=>(
+                            <SelectItem key={k} value={k}>{k}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* 詳細表示 */}
+                    {stats&&(
+                      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                        {/* ヘッダー：基本サマリー */}
+                        <div style={{ background:isDark?'rgba(30,58,95,0.4)':C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                            <div style={{ fontWeight:800, fontSize:15, color:C.primary }}>{detailMachineKey}</div>
+                            <div style={{ fontSize:12, color:C.textMuted }}>{stats.count}回稼働 / 勝率{stats.winRate}%</div>
+                          </div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                            {[['累計収支',fmtYen(stats.balanceTotal),stats.balanceTotal>=0],['平均収支/回',fmtYen(Math.round(stats.balanceAvg)),stats.balanceAvg>=0],['仕事量中央値',stats.workMedian!==null?fmtYen(Math.round(stats.workMedian)):'-',stats.workMedian>=0]].map(([l,v,pos])=>(
+                              <div key={l} style={{ textAlign:'center', background:C.card, borderRadius:10, padding:'8px 4px' }}>
+                                <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
+                                <div style={{ fontSize:13, fontWeight:800, color:pos?C.positive:C.negative, marginTop:2 }}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 回転率 */}
+                        <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                          <div style={{ fontWeight:700, fontSize:13, color:C.accent, marginBottom:8 }}>📊 回転率（1000円あたり）</div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:6 }}>
+                            {[['中央値',stats.rateMedian],['平均',stats.rateAvg],['最高',stats.rateMax],['最低',stats.rateMin]].map(([l,v])=>(
+                              <div key={l} style={{ textAlign:'center', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderRadius:10, padding:'8px 4px' }}>
+                                <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>{l}</div>
+                                <div style={{ fontSize:14, fontWeight:800, color:C.accent, marginTop:2 }}>{v!==null?fmtRate(v):'-'}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* 通常回転時速 */}
+                        {(stats.sphMedian||stats.sphAvg)&&(
+                          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                            <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary, marginBottom:8 }}>⏱ 通常回転時速</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                              <div style={{ textAlign:'center', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderRadius:10, padding:'10px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>中央値</div>
+                                <div style={{ fontSize:20, fontWeight:900, color:C.textPrimary, marginTop:2 }}>{stats.sphMedian?Math.round(stats.sphMedian):'-'}<span style={{ fontSize:11, color:C.textMuted }}>回/h</span></div>
+                                <div style={{ fontSize:10, color:stats.sphMedian>200?'#16a34a':stats.sphMedian>180?'#0284c7':'#d97706', fontWeight:700, marginTop:2 }}>
+                                  {stats.sphMedian?`平均比 ${stats.sphMedian>200?'+':''}${Math.round(stats.sphMedian-200)}回`:''}
+                                </div>
+                              </div>
+                              <div style={{ textAlign:'center', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderRadius:10, padding:'10px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>平均</div>
+                                <div style={{ fontSize:20, fontWeight:900, color:C.textPrimary, marginTop:2 }}>{stats.sphAvg?Math.round(stats.sphAvg):'-'}<span style={{ fontSize:11, color:C.textMuted }}>回/h</span></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 初当たり統計 */}
+                        {stats.totalHits>0&&(
+                          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px' }}>
+                            <div style={{ fontWeight:700, fontSize:13, color:C.amber, marginBottom:8 }}>🎯 初当たり統計（{stats.totalHits}回分）</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+                              {/* 初当たり確率 */}
+                              <div style={{ textAlign:'center', background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', borderRadius:12, padding:'12px 8px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:4 }}>初当たり確率</div>
+                                <div style={{ fontSize:22, fontWeight:900, color:C.amber }}>
+                                  1/{stats.firstHitProb?Math.round(stats.firstHitProb):'-'}
+                                </div>
+                                <div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>
+                                  総回転 {Math.round(stats.totalSpinsAll).toLocaleString()}回
+                                </div>
+                              </div>
+                              {/* 大当たり消化効率（連チャン選択ダイアログ） */}
+                              <div style={{ background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', borderRadius:12, padding:'10px 8px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:6, textAlign:'center' }}>大当たり消化効率</div>
+                                {/* 選択ボタン */}
+                                <button onClick={()=>setChainSelectDialogOpen(true)}
+                                  style={{ width:'100%', padding:'6px 8px', borderRadius:10, border:`2px solid ${C.amber}`, background:C.amber, color:'white', fontWeight:800, fontSize:14, cursor:'pointer', marginBottom:6 }}>
+                                  {detailChainSelect}連チャン 🔽
+                                </button>
+                                {/* 連チャン選択ダイアログ */}
+                                {chainSelectDialogOpen&&(
+                                  <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setChainSelectDialogOpen(false)}>
+                                    <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'60vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                                      <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                        <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>連チャン数を選択</div>
+                                        <button onClick={()=>setChainSelectDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                                      </div>
+                                      <div style={{ overflowY:'auto', padding:'12px 16px', display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8 }}>
+                                        {Array.from({length:30},(_,i)=>i+1).map(n=>(
+                                          <button key={n} onClick={()=>{setDetailChainSelect(n);setChainSelectDialogOpen(false);}}
+                                            style={{ padding:'12px 4px', borderRadius:12, border:`2px solid ${detailChainSelect===n?C.amber:'#fcd34d'}`, background:detailChainSelect===n?C.amber:(isDark?'rgba(245,158,11,0.08)':'#fffbeb'), color:detailChainSelect===n?'white':'#d97706', fontWeight:detailChainSelect===n?800:600, fontSize:14, cursor:'pointer' }}>
+                                            {n}連
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                                {(()=>{
+                                  const cs=stats.getChainTimeStats(detailChainSelect);
+                                  const fmtTime=sec=>{if(!sec)return '-';const m=Math.floor(sec/60);const s=sec%60;return m>0?`${m}分${s}秒`:`${s}秒`;};
+                                  return cs.count>0?(
+                                    <div>
+                                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4 }}>
+                                        <div style={{ textAlign:'center' }}>
+                                          <div style={{ fontSize:9, color:C.textMuted }}>中央値</div>
+                                          <div style={{ fontSize:14, fontWeight:800, color:C.amber }}>{fmtTime(cs.timeMedian)}</div>
+                                          {cs.roundsMedian&&<div style={{ fontSize:9, color:C.textMuted }}>{Math.round(cs.roundsMedian)}R</div>}
+                                        </div>
+                                        <div style={{ textAlign:'center' }}>
+                                          <div style={{ fontSize:9, color:C.textMuted }}>平均</div>
+                                          <div style={{ fontSize:14, fontWeight:800, color:C.amber }}>{fmtTime(Math.round(cs.timeAvg))}</div>
+                                          {cs.roundsAvg&&<div style={{ fontSize:9, color:C.textMuted }}>{Math.round(cs.roundsAvg)}R</div>}
+                                        </div>
+                                      </div>
+                                      <div style={{ fontSize:10, color:C.textMuted, textAlign:'center', marginTop:3 }}>{cs.count}件のデータ</div>
+                                    </div>
+                                  ):(
+                                    <div style={{ fontSize:11, color:C.textMuted, textAlign:'center' }}>{detailChainSelect}連のデータなし</div>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                            {/* 1R出玉・連チャン数 */}
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                              {stats.oneRMedian&&<div style={{ textAlign:'center', background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', borderRadius:10, padding:'10px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>1R出玉 中央値</div>
+                                <div style={{ fontSize:20, fontWeight:900, color:C.amber, marginTop:2 }}>{fmtRate(stats.oneRMedian)}<span style={{ fontSize:11, color:C.textMuted }}>玉</span></div>
+                              </div>}
+                              {stats.chainMedian&&<div style={{ textAlign:'center', background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', borderRadius:10, padding:'10px' }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>連チャン数 中央値</div>
+                                <div style={{ fontSize:20, fontWeight:900, color:C.amber, marginTop:2 }}>{fmtRate(stats.chainMedian)}<span style={{ fontSize:11, color:C.textMuted }}>連</span></div>
+                              </div>}
+                            </div>
+                            {/* 10連以上 */}
+                            {stats.bigChainCount>0&&(
+                              <div style={{ marginTop:8, background:isDark?'rgba(245,158,11,0.06)':'#fffbeb', border:`1px solid #fcd34d`, borderRadius:10, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
+                                  <div style={{ fontSize:11, fontWeight:700, color:C.amber }}>🔥 10連以上したセッション</div>
+                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>{stats.bigChainCount}回 / 全{stats.count}回稼働</div>
+                                </div>
+                                {stats.bigChainHoursMedian&&<div style={{ textAlign:'right' }}>
+                                  <div style={{ fontSize:10, color:C.textMuted }}>所要時間 中央値</div>
+                                  <div style={{ fontSize:16, fontWeight:800, color:C.amber }}>{stats.bigChainHoursMedian.toFixed(1)}h</div>
+                                </div>}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 釘グレード別回転率 */}
+                        {stats.nailStats.length>0&&(
+                          <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                            <div style={{ padding:'10px 14px', background:isDark?'rgba(49,30,129,0.2)':'#f5f3ff', borderBottom:`1px solid ${C.border}` }}>
+                              <div style={{ fontWeight:700, fontSize:13, color:'#6d28d9' }}>🔨 釘グレード別 回転率実績</div>
+                              <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>2回以上記録があるグレードを表示</div>
+                            </div>
+                            <div style={{ padding:'10px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                              {(()=>{
+                                const GRADE_C={'◎':'#16a34a','○':'#2563eb','△':'#d97706','✕':'#dc2626'};
+                                const grouped={};
+                                stats.nailStats.forEach(n=>{if(!grouped[n.nailId])grouped[n.nailId]={label:n.label,grades:[]};grouped[n.nailId].grades.push(n);});
+                                return Object.values(grouped).map(g=>(
+                                  <div key={g.label}>
+                                    <div style={{ fontSize:11, fontWeight:700, color:C.textSecondary, marginBottom:4 }}>{g.label}</div>
+                                    <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                                      {g.grades.map(n=>(
+                                        <div key={n.grade} style={{ background:isDark?'rgba(255,255,255,0.05)':'#f8fafc', border:`1.5px solid ${GRADE_C[n.grade]}40`, borderRadius:10, padding:'5px 10px', textAlign:'center' }}>
+                                          <div style={{ fontSize:16, fontWeight:800, color:GRADE_C[n.grade] }}>{n.grade}</div>
+                                          <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary }}>{fmtRate(n.median)}回</div>
+                                          <div style={{ fontSize:10, color:C.textMuted }}>{n.count}回記録</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ));
+                              })()}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 過去セッション一覧（最新5件） */}
+                        <details style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                          <summary style={{ cursor:'pointer', listStyle:'none', padding:'10px 14px', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>📋 過去稼働ログ（最新5件）</span>
+                            <ChevronDown size={15} color={C.textMuted}/>
+                          </summary>
+                          <div style={{ padding:'8px 12px', display:'flex', flexDirection:'column', gap:6 }}>
+                            {detailSessions.slice(0,5).map(s=>(
+                              <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', borderRadius:10, padding:'8px 12px', fontSize:12 }}>
+                                <div>
+                                  <div style={{ fontWeight:600, color:C.textPrimary }}>{s.date}{s.shop?` / ${s.shop}`:''}</div>
+                                  <div style={{ color:C.textMuted, marginTop:2 }}>{Math.round(s.metrics.totalSpins)}回転 / {fmtRate(s.metrics.avgSpinPerThousand)}回/千円</div>
+                                </div>
+                                <div style={{ textAlign:'right' }}>
+                                  <div style={{ fontWeight:800, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</div>
+                                  {getWorkVolumeYen(s.metrics)!==null&&<div style={{ fontSize:10, color:C.textMuted }}>仕事量{fmtYen(Math.round(getWorkVolumeYen(s.metrics)))}</div>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    )}
+                    {!detailMachineKey&&(
+                      <div style={{ textAlign:'center', padding:'20px', color:C.textMuted, fontSize:13 }}>
+                        上から機種を選ぶと詳細分析が表示されるぜ
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* 今月のランキング */}
             <div style={{ ...cardStyle, overflow:'hidden' }}>
@@ -4804,6 +5129,297 @@ export default function PachinkoCalculatorComplete() {
               </div>
             )}
           </div>
+          );
+        })()}
+
+        {/* ══════════════════ 端玉タブ ══════════════════ */}
+        {activeTab==='tamadama'&&(()=>{
+          const ballsInput=tamaBallsInput, setBallsInput=setTamaBallsInput;
+          const exchCat=tamaExchCat, setExchCat=setTamaExchCat;
+          const minPrize=tamaMinPrize, setMinPrize=setTamaMinPrize;
+          const targetYenInput=tamaTargetYenInput, setTargetYenInput=setTamaTargetYenInput;
+          const preset=getExchangePreset(exchCat);
+          const yenPerBall=preset.yenPerBall;
+          const balls=numberOrZero(ballsInput);
+          // 最小景品1個あたりの玉数（切り上げ）
+          const ballsPerPrize=minPrize>0&&yenPerBall>0?Math.ceil(minPrize/yenPerBall):0;
+          // 換金枚数・換金額
+          const prizeCount=ballsPerPrize>0?Math.floor(balls/ballsPerPrize):0;
+          const exchangeYen=prizeCount*minPrize;
+          // 端玉（換金できない余り玉）
+          const leftoverBalls=balls-(prizeCount*ballsPerPrize);
+          const leftoverYen=leftoverBalls*yenPerBall;
+          // 全部換金した場合の理論値
+          const theoreticalYen=balls*yenPerBall;
+          // 損失
+          const lossYen=theoreticalYen-exchangeYen;
+          return (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {/* ヘッダー */}
+              <div style={{ background:`linear-gradient(135deg,#064e3b,#065f46)`, borderRadius:20, padding:'16px 18px', color:'white' }}>
+                <div style={{ fontSize:11, letterSpacing:'0.2em', color:'rgba(255,255,255,0.6)', fontWeight:700, marginBottom:4 }}>端玉計算</div>
+                <div style={{ fontSize:15, fontWeight:800 }}>玉数から換金額を計算するぜ</div>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>最小景品の端数で損する分も確認できる</div>
+              </div>
+
+              {/* 入力フォーム */}
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, padding:'16px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                {/* 玉数入力 */}
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>手持ち玉数</label>
+                  <input
+                    value={ballsInput}
+                    onChange={e=>setBallsInput(e.target.value.replace(/[^0-9]/g,''))}
+                    style={{ ...inputStyle, fontSize:24, fontWeight:900, textAlign:'center', padding:'14px', color:C.primary }}
+                    inputMode="numeric" placeholder="例：2500"
+                  />
+                  {balls>0&&<div style={{ fontSize:12, color:C.textMuted, textAlign:'center', marginTop:4 }}>理論換金額（端数なし）: <b>{fmtYen(Math.floor(theoreticalYen))}</b></div>}
+                  {/* ぴったり玉数 */}
+                  {ballsPerPrize>0&&(()=>{
+                    const lowerPittari=Math.floor(balls/ballsPerPrize)*ballsPerPrize;
+                    const pittariList=[];
+                    // 現在より下の直近1つ（0は除く）
+                    if(lowerPittari>0) pittariList.push({balls:lowerPittari,label:'下'});
+                    // 現在以上の直近3つ
+                    const startMult=Math.ceil(Math.max(1,balls)/ballsPerPrize);
+                    for(let i=0;i<3;i++) pittariList.push({balls:(startMult+i)*ballsPerPrize,label:i===0&&(startMult*ballsPerPrize)===balls?'ぴったり':'上'});
+                    const pittariAbove=pittariList.filter(p=>p.balls>balls);
+                    const pittariBelow=pittariList.filter(p=>p.balls<balls);
+                    const isPittari=balls>0&&balls%ballsPerPrize===0;
+                    return (
+                      <div style={{ marginTop:10, background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:14, padding:'10px 14px' }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:C.primary, marginBottom:6 }}>
+                          ✨ ぴったり玉数
+                          <span style={{ fontSize:10, fontWeight:400, color:C.textMuted, marginLeft:6 }}>（{ballsPerPrize}玉単位・端玉ゼロ）</span>
+                        </div>
+                        {isPittari?(
+                          <div style={{ fontSize:13, fontWeight:800, color:C.positive, textAlign:'center' }}>✅ 今がぴったり！端玉ゼロ</div>
+                        ):(
+                          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                            {/* 近いぴったり玉数を行で表示 */}
+                            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                              {pittariBelow.slice(-1).map(p=>(
+                                <button key={p.balls} onClick={()=>setBallsInput(String(p.balls))}
+                                  style={{ padding:'6px 12px', borderRadius:10, border:`1.5px solid ${C.border}`, background:C.card, color:C.textSecondary, fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                  ▼ <span style={{ fontWeight:800, color:C.textPrimary }}>{p.balls.toLocaleString()}玉</span>
+                                  <span style={{ fontSize:10, color:C.negative }}>−{(balls-p.balls)}玉</span>
+                                </button>
+                              ))}
+                              {pittariAbove.slice(0,3).map(p=>(
+                                <button key={p.balls} onClick={()=>setBallsInput(String(p.balls))}
+                                  style={{ padding:'6px 12px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:C.primaryLight, color:C.primary, fontSize:12, fontWeight:600, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                  ▲ <span style={{ fontWeight:800 }}>{p.balls.toLocaleString()}玉</span>
+                                  <span style={{ fontSize:10 }}>+{(p.balls-balls)}玉</span>
+                                </button>
+                              ))}
+                            </div>
+                            <div style={{ fontSize:10, color:C.textMuted }}>タップすると玉数が自動入力されるぜ</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* 換金率 */}
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>換金率</label>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6, flexWrap:'wrap' }}>
+                    {['25','28','30','33','35','40'].map(cat=>{
+                      const p=getExchangePreset(cat);
+                      return (
+                        <button key={cat} onClick={()=>setExchCat(cat)}
+                          style={{ padding:'10px 4px', borderRadius:12, border:`2px solid ${exchCat===cat?C.primary:C.border}`, background:exchCat===cat?C.primary:C.card, color:exchCat===cat?'white':C.textSecondary, fontWeight:exchCat===cat?700:400, fontSize:12, cursor:'pointer', transition:'all 0.12s', textAlign:'center', lineHeight:1.3 }}>
+                          {p.short}<br/><span style={{ fontSize:10 }}>{p.yenPerBall.toFixed(2)}円</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop:8 }}>
+                    <Select value={exchCat} onValueChange={setExchCat}>
+                      <SelectTrigger className="rounded-2xl h-10"><SelectValue/></SelectTrigger>
+                      <SelectContent>{EXCHANGE_ORDER.map(c=><SelectItem key={c} value={c}>{getExchangePreset(c).label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* 最小景品 */}
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>最小景品</label>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6 }}>
+                    {[100,500,1000,2000].map(p=>(
+                      <button key={p} onClick={()=>setMinPrize(p)}
+                        style={{ padding:'12px 4px', borderRadius:12, border:`2px solid ${minPrize===p?C.primary:C.border}`, background:minPrize===p?C.primary:C.card, color:minPrize===p?'white':C.textSecondary, fontWeight:minPrize===p?800:400, fontSize:13, cursor:'pointer', transition:'all 0.12s' }}>
+                        {p<1000?p+'円':(p/1000)+'千円'}
+                      </button>
+                    ))}
+                  </div>
+                  {ballsPerPrize>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:6, textAlign:'center' }}>
+                    {fmtYen(minPrize)}景品1個 = <b>{ballsPerPrize}玉</b>必要
+                  </div>}
+                </div>
+              </div>
+
+              {/* 計算結果 */}
+              {balls>0&&ballsPerPrize>0&&(
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {/* メイン結果 */}
+                  <div style={{ background:`linear-gradient(135deg,${C.positiveBg},${C.card})`, border:`2px solid ${C.positiveBorder}`, borderRadius:18, padding:'18px 18px' }}>
+                    <div style={{ fontSize:12, color:C.textMuted, fontWeight:600, marginBottom:6 }}>💴 換金額</div>
+                    <div style={{ fontSize:36, fontWeight:900, color:C.positive }}>{fmtYen(exchangeYen)}</div>
+                    <div style={{ fontSize:13, color:C.textSecondary, marginTop:4 }}>
+                      {fmtYen(minPrize)}景品 × {prizeCount}個
+                    </div>
+                  </div>
+
+                  {/* 内訳グリッド */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px', textAlign:'center' }}>
+                      <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>換金に使った玉</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:C.textPrimary, marginTop:3 }}>{(prizeCount*ballsPerPrize).toLocaleString()}玉</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{ballsPerPrize}玉×{prizeCount}個</div>
+                    </div>
+                    <div style={{ background:isDark?'rgba(239,68,68,0.08)':'#fff1f2', border:`1px solid ${C.negativeBorder}`, borderRadius:14, padding:'12px 14px', textAlign:'center' }}>
+                      <div style={{ fontSize:10, color:C.negative, fontWeight:600 }}>端玉（余り）</div>
+                      <div style={{ fontSize:18, fontWeight:800, color:C.negative, marginTop:3 }}>{leftoverBalls}玉</div>
+                      <div style={{ fontSize:11, color:C.negative, marginTop:2 }}>約{fmtYen(Math.floor(leftoverYen))}分の損</div>
+                    </div>
+                    <div style={{ gridColumn:'1/-1', background:isDark?'rgba(239,68,68,0.05)':'#fef2f2', border:`1px solid ${C.negativeBorder}`, borderRadius:14, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div>
+                        <div style={{ fontSize:10, color:C.negative, fontWeight:600 }}>換金ロス（端数による損失）</div>
+                        <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>理論値との差額</div>
+                      </div>
+                      <div style={{ fontSize:18, fontWeight:800, color:C.negative }}>−{fmtYen(Math.ceil(lossYen))}</div>
+                    </div>
+                  </div>
+
+                  {/* 最小景品別比較 */}
+                  <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden' }}>
+                    <div style={{ padding:'10px 14px', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderBottom:`1px solid ${C.border}`, fontWeight:700, fontSize:12, color:C.textPrimary }}>
+                      📊 最小景品別比較（{balls.toLocaleString()}玉）
+                    </div>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                      <thead>
+                        <tr style={{ background:isDark?'rgba(255,255,255,0.02)':'#fafafa' }}>
+                          {['最小景品','1個あたり','換金額','端玉','ロス'].map(h=>(
+                            <th key={h} style={{ padding:'7px 6px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[100,500,1000,2000].map((p,i,arr)=>{
+                          const bpp=Math.ceil(p/yenPerBall);
+                          const pc=Math.floor(balls/bpp);
+                          const exc=pc*p;
+                          const lb=balls-(pc*bpp);
+                          const loss=theoreticalYen-exc;
+                          const isSelected=p===minPrize;
+                          return (
+                            <tr key={p} onClick={()=>setMinPrize(p)} style={{ borderBottom:i<arr.length-1?`1px solid ${C.border}`:'none', background:isSelected?(isDark?'rgba(99,102,241,0.15)':C.primaryLight):'transparent', cursor:'pointer' }}>
+                              <td style={{ padding:'8px 6px', textAlign:'center', fontWeight:isSelected?800:600, color:isSelected?C.primary:C.textPrimary }}>{p<1000?p+'円':(p/1000)+'千円'}</td>
+                              <td style={{ padding:'8px 6px', textAlign:'center', color:C.textSecondary }}>{bpp}玉</td>
+                              <td style={{ padding:'8px 6px', textAlign:'center', fontWeight:700, color:C.positive }}>{fmtYen(exc)}</td>
+                              <td style={{ padding:'8px 6px', textAlign:'center', color:C.negative }}>{lb}玉</td>
+                              <td style={{ padding:'8px 6px', textAlign:'center', color:C.negative }}>−{fmtYen(Math.ceil(loss))}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 逆算セクション：金額→必要玉数 */}
+              <div style={{ background:C.card, border:`1.5px solid ${C.primaryMid}`, borderRadius:20, padding:'16px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:14, color:C.primary, marginBottom:4 }}>🔁 逆算：必要玉数を求める</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>換金したい金額を入力すると必要な玉数が分かるぜ</div>
+                </div>
+                <div>
+                  <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:8 }}>換金したい金額（円）</label>
+                  <input
+                    value={targetYenInput}
+                    onChange={e=>setTargetYenInput(e.target.value.replace(/[^0-9]/g,''))}
+                    style={{ ...inputStyle, fontSize:24, fontWeight:900, textAlign:'center', padding:'14px', color:C.primary }}
+                    inputMode="numeric" placeholder="例：55000"
+                  />
+                </div>
+                {(()=>{
+                  const targetYen=numberOrZero(targetYenInput);
+                  if(targetYen<=0||ballsPerPrize<=0) return null;
+                  // 必要な景品枚数（切り上げ）
+                  const prizesNeeded=Math.ceil(targetYen/minPrize);
+                  // 必要玉数
+                  const ballsNeeded=prizesNeeded*ballsPerPrize;
+                  // 実際の換金額（景品単位で切り上げるため目標以上になる場合あり）
+                  const actualYen=prizesNeeded*minPrize;
+                  // 理論上必要な玉数（端数なし）
+                  const theoreticalBalls=targetYen/yenPerBall;
+                  // 景品端数による余分な玉
+                  const extraBalls=ballsNeeded-Math.ceil(theoreticalBalls);
+                  return (
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      {/* メイン結果 */}
+                      <div style={{ background:isDark?'rgba(99,102,241,0.1)':C.primaryLight, border:`2px solid ${C.primaryMid}`, borderRadius:16, padding:'16px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>必要玉数</div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>{fmtYen(actualYen)}分の景品 × {prizesNeeded}個</div>
+                        </div>
+                        <div style={{ textAlign:'right' }}>
+                          <div style={{ fontSize:34, fontWeight:900, color:C.primary }}>{ballsNeeded.toLocaleString()}<span style={{ fontSize:14, marginLeft:3 }}>玉</span></div>
+                        </div>
+                      </div>
+                      {/* 内訳 */}
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                        <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px', textAlign:'center' }}>
+                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>理論上の必要玉数</div>
+                          <div style={{ fontSize:16, fontWeight:800, color:C.textPrimary, marginTop:3 }}>{Math.ceil(theoreticalBalls).toLocaleString()}玉</div>
+                          <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>端数なしの計算値</div>
+                        </div>
+                        <div style={{ background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', border:`1px solid #fcd34d`, borderRadius:12, padding:'10px 12px', textAlign:'center' }}>
+                          <div style={{ fontSize:10, color:'#d97706', fontWeight:600 }}>景品端数による余分な玉</div>
+                          <div style={{ fontSize:16, fontWeight:800, color:'#d97706', marginTop:3 }}>+{extraBalls}玉</div>
+                          <div style={{ fontSize:10, color:'#d97706', marginTop:1 }}>約{fmtYen(Math.round(extraBalls*yenPerBall))}</div>
+                        </div>
+                      </div>
+                      {/* 最小景品別比較 */}
+                      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                        <div style={{ padding:'8px 12px', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', borderBottom:`1px solid ${C.border}`, fontSize:11, fontWeight:700, color:C.textPrimary }}>
+                          最小景品別の必要玉数比較
+                        </div>
+                        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                          <thead>
+                            <tr style={{ background:isDark?'rgba(255,255,255,0.02)':'#fafafa' }}>
+                              {['最小景品','1個あたり','必要玉数','換金額'].map(h=>(
+                                <th key={h} style={{ padding:'6px 6px', textAlign:'center', color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[100,500,1000,2000].map((p,i,arr)=>{
+                              const bpp=Math.ceil(p/yenPerBall);
+                              const pn=Math.ceil(targetYen/p);
+                              const bn=pn*bpp;
+                              const ay=pn*p;
+                              const isSel=p===minPrize;
+                              return (
+                                <tr key={p} onClick={()=>setMinPrize(p)} style={{ borderBottom:i<arr.length-1?`1px solid ${C.border}`:'none', background:isSel?(isDark?'rgba(99,102,241,0.15)':C.primaryLight):'transparent', cursor:'pointer' }}>
+                                  <td style={{ padding:'8px 6px', textAlign:'center', fontWeight:isSel?800:600, color:isSel?C.primary:C.textPrimary }}>{p<1000?p+'円':(p/1000)+'千円'}</td>
+                                  <td style={{ padding:'8px 6px', textAlign:'center', color:C.textSecondary }}>{bpp}玉</td>
+                                  <td style={{ padding:'8px 6px', textAlign:'center', fontWeight:800, color:C.primary }}>{bn.toLocaleString()}玉</td>
+                                  <td style={{ padding:'8px 6px', textAlign:'center', color:C.positive }}>{fmtYen(ay)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
           );
         })()}
 
