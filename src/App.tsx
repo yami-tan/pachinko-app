@@ -351,13 +351,18 @@ function calcRateMetrics(session,machine,settings) {
   const totalRounds=(session.firstHits||[]).reduce((a,h)=>a+numberOrZero(h.rounds),0);
   const oneRoundPayout=numberOrZero(machine?.payoutPerRound);
   const totalProbability=numberOrZero(machine?.totalProbability);
-  // 仕事量 = 実収支 − (実際R数 − 理論R数) × 1R平均出玉 × 換金率
-  // 理論R数 = 通常回転数 ÷ トータル確率分母
-  // 運（出玉の引き）を除いた台の回転率による純粋な稼ぎ
-  const theoreticalRounds=totalProbability>0?allTotalSpins/totalProbability:0;
-  const workVolumeYen=(oneRoundPayout>0&&totalProbability>0)
-    ? balanceYen - (totalRounds - theoreticalRounds)*oneRoundPayout*exchangeRate
-    : null;
+  // 仕事量 = 混合回転単価 × 総回転数（持ち玉比率を考慮した正確な理論収益）
+  // 混合回転単価 = 持ち玉単価 × 持ち玉比率 + 現金単価 × (1 − 持ち玉比率)
+  // 持ち玉単価 = (1R出玉÷確率 − 250÷回転率) × 換金率
+  // 現金単価   = 1R出玉÷確率 × 換金率 − 1000÷回転率
+  const workVolumeYen=(()=>{
+    if(oneRoundPayout<=0||totalProbability<=0||allSpinPerThousand<=0) return null;
+    const holdRatio=clampNumber(allHoldBallRatio/100,0,1);
+    const holdUnit=(oneRoundPayout/totalProbability - 250/allSpinPerThousand)*exchangeRate;
+    const cashUnit=oneRoundPayout/totalProbability*exchangeRate - 1000/allSpinPerThousand;
+    const mixedUnit=holdUnit*holdRatio + cashUnit*(1-holdRatio);
+    return mixedUnit*allTotalSpins;
+  })();
 
   return {
     exchangeRate, exchangeCategory:session.exchangeCategory||'25',
@@ -655,6 +660,41 @@ export default function PachinkoCalculatorComplete() {
   const [hesoDirections,setHesoDirections]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_heso_dirs')||'[]');}catch{return [];}});
   const [nailMemo,setNailMemo]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_nail_memo')||'{"tables":[],"machineName":""}');}catch{return {tables:[],machineName:''};}}); 
   const [nailTableInput,setNailTableInput]=useState('');
+  // ガチメモ
+  const [gachiMemos,setGachiMemos]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_gachi_memos')||'[]');}catch{return [];}});
+  const [gachiMemoEditId,setGachiMemoEditId]=useState(null);
+  const [gachiMemoForm,setGachiMemoForm]=useState({shopName:'',tableNum:'',machineName:'',content:''});
+  const [gachiShopDialogOpen,setGachiShopDialogOpen]=useState(false);
+  const [gachiMachineDialogOpen,setGachiMachineDialogOpen]=useState(false);
+  const [gachiOpenShops,setGachiOpenShops]=useState({}); // 店舗ごとの開閉状態
+
+  function saveGachiMemo(){
+    if(!gachiMemoForm.content.trim()) return;
+    setGachiMemos(prev=>{
+      const now=Date.now();
+      let next;
+      if(gachiMemoEditId){
+        next=prev.map(m=>m.id===gachiMemoEditId?{...m,...gachiMemoForm,updatedAt:now}:m);
+      } else {
+        next=[{id:uid(),...gachiMemoForm,createdAt:now,updatedAt:now},...prev];
+      }
+      try{localStorage.setItem('pachi_gachi_memos',JSON.stringify(next));}catch{}
+      return next;
+    });
+    setGachiMemoEditId(null);
+    setGachiMemoForm({shopName:'',tableNum:'',machineName:'',content:''});
+  }
+  function deleteGachiMemo(id){
+    setGachiMemos(prev=>{const n=prev.filter(m=>m.id!==id);try{localStorage.setItem('pachi_gachi_memos',JSON.stringify(n));}catch{}return n;});
+  }
+  function startEditGachiMemo(m){
+    setGachiMemoEditId(m.id);
+    setGachiMemoForm({shopName:m.shopName||'',tableNum:m.tableNum||'',machineName:m.machineName||'',content:m.content||''});
+  }
+  function cancelGachiMemoEdit(){
+    setGachiMemoEditId(null);
+    setGachiMemoForm({shopName:'',tableNum:'',machineName:'',content:''});
+  }
   const [tamaBallsInput,setTamaBallsInput]=useState('');
   const [tamaExchCat,setTamaExchCat]=useState('25');
   const [tamaMinPrize,setTamaMinPrize]=useState(100);
@@ -662,6 +702,8 @@ export default function PachinkoCalculatorComplete() {
   const [detailMachineKey,setDetailMachineKey]=useState(null);
   const [detailChainSelect,setDetailChainSelect]=useState(10);
   const [chainSelectDialogOpen,setChainSelectDialogOpen]=useState(false);
+  const [detailMachineDialogOpen,setDetailMachineDialogOpen]=useState(false);
+  const [detailMachineSearchQuery,setDetailMachineSearchQuery]=useState('');
   function setNailGrade(id,grade){setNailGrades(p=>{const n={...p,[id]:p[id]===grade?'':grade};try{localStorage.setItem('pachi_nail_grades',JSON.stringify(n));}catch{}return n;});}
   function toggleHesoDir(dir){setHesoDirections(p=>{let n;if(p.includes(dir)){n=p.filter(d=>d!==dir);}else if(p.length<2){n=[...p,dir];}else{n=[p[1],dir];}try{localStorage.setItem('pachi_heso_dirs',JSON.stringify(n));}catch{}return n;});}
   function updateNailMemo(key,val){setNailMemo(p=>{const n={...p,[key]:val};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
@@ -1818,13 +1860,27 @@ export default function PachinkoCalculatorComplete() {
                           <div style={{ marginTop:6 }}>
                             <div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>🕐 直近の機種（最大5件）</div>
                             <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                              {recentMachinePresets.slice(0,5).map(m=>(
-                                <button key={m.id} onClick={()=>selectMachine(m.id)}
-                                  style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', borderRadius:10, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left' }}>
-                                  <span style={{ fontSize:13, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
-                                  {favoriteMachineIds.includes(m.id)&&<span style={{ fontSize:14, flexShrink:0 }}>⭐</span>}
-                                </button>
-                              ))}
+                              {recentMachinePresets.slice(0,5).map(m=>{
+                                const autoBorder=(m.payoutPerRound>0&&m.totalProbability>0)
+                                  ?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
+                                const displayBorder=m.border25>0?m.border25:autoBorder>0?autoBorder:null;
+                                const isAuto=(!m.border25||m.border25<=0)&&autoBorder>0;
+                                return (
+                                  <button key={m.id} onClick={()=>selectMachine(m.id)}
+                                    style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 12px', borderRadius:10, border:`1.5px solid ${form.machineId===m.id?C.primary:C.border}`, background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left' }}>
+                                    <div style={{ overflow:'hidden' }}>
+                                      <div style={{ fontSize:13, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</div>
+                                      {(displayBorder||m.totalProbability>0)&&(
+                                        <div style={{ fontSize:10, color:C.textMuted, marginTop:1, display:'flex', gap:6 }}>
+                                          {displayBorder&&<span>B:{displayBorder}{isAuto?'*':''}</span>}
+                                          {m.totalProbability>0&&<span>1/{m.totalProbability}</span>}
+                                        </div>
+                                      )}
+                                    </div>
+                                    {favoriteMachineIds.includes(m.id)&&<span style={{ fontSize:14, flexShrink:0 }}>⭐</span>}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -1862,7 +1918,20 @@ export default function PachinkoCalculatorComplete() {
                                       style={{ flex:1, display:'flex', justifyContent:'space-between', alignItems:'center', padding:'13px 8px 13px 0', border:'none', background:form.machineId===m.id?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
                                       <div>
                                         <div style={{ fontSize:14, fontWeight:form.machineId===m.id?700:400, color:form.machineId===m.id?C.primary:C.textPrimary }}>{m.name}</div>
-                                        {m.border25>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>等価B: {m.border25} / 確率: {m.totalProbability||'-'}</div>}
+                                        {(()=>{
+                                          const manualBorder=m.border25||0;
+                                          const autoBorder=(m.payoutPerRound>0&&m.totalProbability>0)
+                                            ?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
+                                          const displayBorder=manualBorder>0?manualBorder:autoBorder>0?autoBorder:null;
+                                          const isAuto=manualBorder<=0&&autoBorder>0;
+                                          if(!displayBorder&&!m.totalProbability) return null;
+                                          return (
+                                            <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:'flex', gap:8, flexWrap:'wrap' }}>
+                                              {displayBorder&&<span>等価B: <b style={{ color:isAuto?'#9333ea':C.textSecondary }}>{displayBorder}{isAuto?' (自動)':''}</b></span>}
+                                              {m.totalProbability>0&&<span>確率: <b style={{ color:C.textSecondary }}>1/{m.totalProbability}</b></span>}
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                       <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
                                         {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:isDark?'rgba(147,51,234,0.12)':'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
@@ -3892,6 +3961,209 @@ export default function PachinkoCalculatorComplete() {
                   )}
                 </div>
               </div>
+
+              {/* ガチメモセクション */}
+              <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:20, overflow:'hidden' }}>
+                <div style={{ background:`linear-gradient(135deg,#7c2d12,#9a3412)`, padding:'14px 18px' }}>
+                  <div style={{ fontWeight:800, fontSize:15, color:'white' }}>📝 ガチメモ</div>
+                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>稼働中に気づいた重要ポイントを店舗・台番ごとに記録するぜ</div>
+                </div>
+                <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                  {/* 入力フォーム */}
+                  <div style={{ background:isDark?'rgba(124,45,18,0.1)':'#fff7ed', border:`1.5px solid #fed7aa`, borderRadius:16, padding:'14px' }}>
+                    <div style={{ fontWeight:700, fontSize:13, color:'#c2410c', marginBottom:12 }}>
+                      {gachiMemoEditId?'✏️ メモを編集':'＋ 新しいメモを追加'}
+                    </div>
+
+                    {/* 店舗名：入力＋ダイアログ */}
+                    <div style={{ marginBottom:10 }}>
+                      <label style={{ fontSize:12, fontWeight:600, color:C.textPrimary, display:'block', marginBottom:6 }}>店舗名</label>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <input value={gachiMemoForm.shopName} onChange={e=>setGachiMemoForm(f=>({...f,shopName:e.target.value}))}
+                          style={{ ...inputStyle, fontSize:14, padding:'10px 12px', flex:1 }} placeholder="店舗名を入力"/>
+                        <button onClick={()=>setGachiShopDialogOpen(true)}
+                          style={{ padding:'10px 12px', borderRadius:12, border:`1.5px solid #fed7aa`, background:'#fff7ed', color:'#c2410c', fontWeight:700, fontSize:12, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+                          一覧
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 台番・機種名：入力＋ダイアログ */}
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:10 }}>
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:C.textPrimary, display:'block', marginBottom:4 }}>台番号</label>
+                        <input value={gachiMemoForm.tableNum} onChange={e=>setGachiMemoForm(f=>({...f,tableNum:e.target.value.replace(/[^0-9]/g,'')}))}
+                          style={{ ...inputStyle, fontSize:14, padding:'10px 12px', textAlign:'center', fontWeight:700 }}
+                          inputMode="numeric" placeholder="例: 101"/>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:12, fontWeight:600, color:C.textPrimary, display:'block', marginBottom:4 }}>機種名</label>
+                        <div style={{ display:'flex', gap:6 }}>
+                          <input value={gachiMemoForm.machineName} onChange={e=>setGachiMemoForm(f=>({...f,machineName:e.target.value}))}
+                            style={{ ...inputStyle, fontSize:12, padding:'10px 8px', flex:1 }} placeholder="機種名"/>
+                          <button onClick={()=>setGachiMachineDialogOpen(true)}
+                            style={{ padding:'10px 8px', borderRadius:12, border:`1.5px solid #fed7aa`, background:'#fff7ed', color:'#c2410c', fontWeight:700, fontSize:11, cursor:'pointer', flexShrink:0 }}>
+                            一覧
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* メモ本文 */}
+                    <div style={{ marginBottom:10 }}>
+                      <label style={{ fontSize:12, fontWeight:600, color:C.textPrimary, display:'block', marginBottom:4 }}>メモ内容 <span style={{ color:'#c2410c' }}>*</span></label>
+                      <textarea value={gachiMemoForm.content} onChange={e=>setGachiMemoForm(f=>({...f,content:e.target.value}))}
+                        style={{ ...inputStyle, fontSize:14, padding:'11px 12px', minHeight:88, resize:'vertical', fontFamily:'inherit' }}
+                        placeholder="例: 釘が良かった、時短で増えた、特定時間帯に状態が良くなるなど"/>
+                    </div>
+
+                    <div style={{ display:'grid', gridTemplateColumns:gachiMemoEditId?'1fr 1fr':'1fr', gap:8 }}>
+                      {gachiMemoEditId&&(
+                        <button onClick={cancelGachiMemoEdit}
+                          style={{ padding:'12px', borderRadius:12, border:`1px solid ${C.border}`, background:C.card, color:C.textSecondary, fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                          キャンセル
+                        </button>
+                      )}
+                      <button onClick={saveGachiMemo} disabled={!gachiMemoForm.content.trim()}
+                        style={{ padding:'12px', borderRadius:12, border:'none', background:gachiMemoForm.content.trim()?'#c2410c':'#e5e7eb', color:'white', fontWeight:800, fontSize:13, cursor:gachiMemoForm.content.trim()?'pointer':'default', opacity:gachiMemoForm.content.trim()?1:0.6 }}>
+                        {gachiMemoEditId?'💾 更新する':'📝 メモを保存'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 店舗別折りたたみ一覧 */}
+                  {gachiMemos.length>0&&(()=>{
+                    // 店舗ごとにグループ化
+                    const grouped={};
+                    gachiMemos.forEach(m=>{
+                      const key=m.shopName||'店舗未設定';
+                      if(!grouped[key]) grouped[key]=[];
+                      grouped[key].push(m);
+                    });
+                    return (
+                      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary }}>
+                          🏪 店舗別メモ（全{gachiMemos.length}件）
+                        </div>
+                        {Object.entries(grouped).map(([shopName,memos])=>{
+                          const isOpen=gachiOpenShops[shopName]!==false; // デフォルト開く
+                          return (
+                            <div key={shopName} style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                              {/* 店舗ヘッダー（タップで開閉） */}
+                              <button onClick={()=>setGachiOpenShops(p=>({...p,[shopName]:!isOpen}))}
+                                style={{ width:'100%', background:isDark?'rgba(124,45,18,0.15)':'#fff7ed', border:'none', padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', borderBottom:isOpen?`1px solid #fed7aa`:'none' }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                                  <span style={{ fontSize:14 }}>🏪</span>
+                                  <span style={{ fontWeight:700, fontSize:14, color:'#c2410c' }}>{shopName}</span>
+                                  <span style={{ fontSize:11, color:'#c2410c', background:'#fed7aa', borderRadius:8, padding:'1px 7px', fontWeight:700 }}>{memos.length}件</span>
+                                </div>
+                                <ChevronDown size={16} color="#c2410c" style={{ transform:isOpen?'rotate(180deg)':'none', transition:'0.2s' }}/>
+                              </button>
+                              {/* メモ一覧 */}
+                              {isOpen&&(
+                                <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+                                  {memos.map((m,i)=>(
+                                    <div key={m.id} style={{ padding:'12px 14px', borderBottom:i<memos.length-1?`1px solid ${C.border}`:'none' }}>
+                                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8, marginBottom:6 }}>
+                                        <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                                          {m.tableNum&&<span style={{ background:'#c2410c', color:'white', borderRadius:8, padding:'2px 8px', fontSize:11, fontWeight:700 }}>{m.tableNum}番台</span>}
+                                          {m.machineName&&<span style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>🎰 {m.machineName}</span>}
+                                          {!m.tableNum&&!m.machineName&&<span style={{ fontSize:11, color:C.textMuted }}>台番・機種未設定</span>}
+                                        </div>
+                                        <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                                          <button onClick={()=>startEditGachiMemo(m)}
+                                            style={{ background:'#fff7ed', border:`1px solid #fed7aa`, borderRadius:8, padding:'3px 8px', color:'#c2410c', fontSize:11, fontWeight:700, cursor:'pointer' }}>✏️</button>
+                                          <button onClick={()=>deleteGachiMemo(m.id)}
+                                            style={{ background:C.negativeBg, border:`1px solid ${C.negativeBorder}`, borderRadius:8, padding:'3px 8px', color:C.negative, fontSize:11, fontWeight:700, cursor:'pointer' }}>🗑</button>
+                                        </div>
+                                      </div>
+                                      <div style={{ fontSize:13, color:C.textPrimary, lineHeight:1.7, whiteSpace:'pre-wrap' }}>{m.content}</div>
+                                      <div style={{ fontSize:10, color:C.textMuted, marginTop:5 }}>
+                                        {new Date(m.updatedAt||m.createdAt).toLocaleDateString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+                                        {m.updatedAt!==m.createdAt&&' (編集済み)'}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                  {gachiMemos.length===0&&(
+                    <div style={{ textAlign:'center', padding:'16px', color:C.textMuted, fontSize:12 }}>
+                      まだメモがないぜ。稼働中に気づいたことをどんどん記録しよう！
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 店舗選択ダイアログ */}
+              {gachiShopDialogOpen&&(
+                <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setGachiShopDialogOpen(false)}>
+                  <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'65vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                    <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🏪 店舗を選ぶ</div>
+                      <button onClick={()=>setGachiShopDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                    </div>
+                    <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
+                      {(settings.shopProfiles||[]).length===0?(
+                        <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>設定タブで店舗を登録するぜ</div>
+                      ):(settings.shopProfiles||[]).map(p=>(
+                        <div key={p.name} style={{ borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
+                          <button onClick={()=>{setGachiMemoForm(f=>({...f,shopName:p.name}));setGachiShopDialogOpen(false);}}
+                            style={{ width:'100%', padding:'12px 8px', border:'none', background:gachiMemoForm.shopName===p.name?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <div>
+                              <div style={{ fontSize:14, fontWeight:gachiMemoForm.shopName===p.name?700:400, color:gachiMemoForm.shopName===p.name?C.primary:C.textPrimary }}>{p.name}</div>
+                              {p.specialDays&&<div style={{ fontSize:11, color:C.primary, marginTop:2 }}>📅 {p.specialDays}</div>}
+                            </div>
+                            {gachiMemoForm.shopName===p.name&&<span style={{ fontSize:14, color:C.primary, fontWeight:700 }}>✓</span>}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 機種選択ダイアログ */}
+              {gachiMachineDialogOpen&&(
+                <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setGachiMachineDialogOpen(false)}>
+                  <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'65vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                    <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🎰 機種を選ぶ</div>
+                      <button onClick={()=>setGachiMachineDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                    </div>
+                    <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
+                      {machines.length===0?(
+                        <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>設定タブで機種を登録するぜ</div>
+                      ):machines.map(m=>{
+                        const autoBorder=(m.payoutPerRound>0&&m.totalProbability>0)?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
+                        const displayBorder=m.border25>0?m.border25:autoBorder>0?autoBorder:null;
+                        return (
+                          <div key={m.id} style={{ borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
+                            <button onClick={()=>{setGachiMemoForm(f=>({...f,machineName:m.name}));setGachiMachineDialogOpen(false);}}
+                              style={{ width:'100%', padding:'12px 8px', border:'none', background:gachiMemoForm.machineName===m.name?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <div>
+                                <div style={{ fontSize:14, fontWeight:gachiMemoForm.machineName===m.name?700:400, color:gachiMemoForm.machineName===m.name?C.primary:C.textPrimary }}>{m.name}</div>
+                                {(displayBorder||m.totalProbability>0)&&(
+                                  <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:'flex', gap:8 }}>
+                                    {displayBorder&&<span>等価B:{displayBorder}</span>}
+                                    {m.totalProbability>0&&<span>1/{m.totalProbability}</span>}
+                                  </div>
+                                )}
+                              </div>
+                              {gachiMemoForm.machineName===m.name&&<span style={{ fontSize:14, color:C.primary, fontWeight:700 }}>✓</span>}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -4131,55 +4403,55 @@ export default function PachinkoCalculatorComplete() {
                             const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
                             const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings);
                             const unitPrice=tm.mixedUnitPriceYen;
+                            const holdRatio=s.metrics.holdBallRatio;
+                            const avgOneR=(()=>{const hits=(s.firstHits||[]).filter(h=>h.oneRound>0);return hits.length>0?(hits.reduce((a,h)=>a+h.oneRound,0)/hits.length):0;})();
+                            const machineOneR=machine?.payoutPerRound||0;
+                            const oneRDisplay=avgOneR>0?avgOneR:machineOneR;
+                            const oneRSub=avgOneR>0?'実測平均値':machineOneR>0?'機種登録値':null;
                             return [
-                              ['収支',fmtYen(s.metrics.balanceYen),s.metrics.balanceYen>=0],
-                              ['仕事量',wv!==null?fmtYen(Math.round(wv)):'-',wv!==null?wv>=0:null],
-                              ['回転単価',unitPrice!==null?`${unitPrice>=0?'+':''}${fmtRate(unitPrice)}円`:'-',unitPrice!==null?unitPrice>=0:null],
-                            ].map(([l,v,pos])=>(
+                              {l:'収支',    v:fmtYen(s.metrics.balanceYen), pos:s.metrics.balanceYen>=0, sub:null},
+                              {l:'仕事量',  v:wv!==null?fmtYen(Math.round(wv)):'-', pos:wv!==null?wv>=0:null, sub:null},
+                              {l:'回転単価',v:unitPrice!==null?`${unitPrice>=0?'+':''}${fmtRate(unitPrice)}円`:'-', pos:unitPrice!==null?unitPrice>=0:null, sub:null},
+                              {l:'持ち玉比率',v:holdRatio>0?`${fmtRate(holdRatio)}%`:'-', pos:null, sub:null},
+                              {l:'総回転数', v:`${Math.round(s.metrics.totalSpins).toLocaleString()}回`, pos:null, sub:`回転率 ${fmtRate(s.metrics.avgSpinPerThousand)}`},
+                              {l:'1R出玉',   v:oneRDisplay>0?fmtRate(oneRDisplay):'未記録', pos:null, sub:oneRSub, accent:true},
+                            ].map(({l,v,pos,sub,accent})=>(
                               <div key={l} style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
                                 <div style={{ fontSize:11, color:C.textMuted }}>{l}</div>
-                                <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?C.textPrimary:pos?C.positive:C.negative }}>{v}</div>
+                                <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:pos===null?(accent?C.accent:C.textPrimary):pos?C.positive:C.negative }}>{v}</div>
+                                {sub&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{sub}</div>}
                               </div>
                             ));
                           })()}
-                          <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
-                            <div style={{ fontSize:11, color:C.textMuted }}>総回転数</div>
-                            <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.textPrimary }}>{Math.round(s.metrics.totalSpins).toLocaleString()}回</div>
-                            <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>回転率 {fmtRate(s.metrics.avgSpinPerThousand)}</div>
-                          </div>
-                          {/* 合計R・1R出玉 */}
+
+                          {/* 合計R数（全幅） */}
                           {(()=>{
                             const totalR=(s.firstHits||[]).reduce((a,h)=>a+numberOrZero(h.rounds),0);
-                            const avgOneR=(()=>{const hits=(s.firstHits||[]).filter(h=>h.oneRound>0);return hits.length>0?(hits.reduce((a,h)=>a+h.oneRound,0)/hits.length):0;})();
-                            const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
-                            const machineOneR=machine?.payoutPerRound||0;
-                            const oneRDisplay=avgOneR>0?avgOneR:machineOneR;
+                            if(!totalR) return null;
+                            const maxChain=Math.max(...(s.firstHits||[]).map(h=>numberOrZero(h.chainCount)),0);
                             return (
-                              <>
-                                <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                              <div style={{ gridColumn:'1/-1', background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div>
                                   <div style={{ fontSize:11, color:C.textMuted }}>合計R数</div>
-                                  <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.primary }}>{totalR>0?totalR+'R':'未記録'}</div>
-                                  {totalR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{(s.firstHits||[]).length}回の初当たり</div>}
+                                  <div style={{ fontSize:16, fontWeight:700, color:C.primary, marginTop:3 }}>{totalR}R</div>
                                 </div>
-                                <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
-                                  <div style={{ fontSize:11, color:C.textMuted }}>1R出玉</div>
-                                  <div style={{ fontSize:16, fontWeight:700, marginTop:3, color:C.accent }}>{oneRDisplay>0?fmtRate(oneRDisplay):'未記録'}</div>
-                                  {avgOneR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>実測平均値</div>}
-                                  {avgOneR===0&&machineOneR>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>機種登録値</div>}
+                                <div style={{ textAlign:'right' }}>
+                                  <div style={{ fontSize:11, color:C.textMuted }}>初当たり {(s.firstHits||[]).length}回</div>
+                                  {maxChain>0&&<div style={{ fontSize:12, fontWeight:700, color:C.amber, marginTop:2 }}>最大 {maxChain}連チャン</div>}
                                 </div>
-                              </>
+                              </div>
                             );
                           })()}
-                          {/* 通常回転時速 */}
+
+                          {/* 通常回転時速（全幅・稼働時間ある場合のみ） */}
                           {(()=>{
-                            const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
-                            const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings);
-                            const sph=tm.normalSpinsPerHour;
-                            if(!sph||sph<=0) return null;
+                            const hours=numberOrZero(s.hours);
+                            if(hours<=0||s.metrics.totalSpins<=0) return null;
+                            const sph=Math.round(s.metrics.totalSpins/hours);
+                            if(sph<50||sph>600) return null;
                             const AVERAGE=200;
                             const diff=sph-AVERAGE;
                             const pct=Math.round((sph/AVERAGE)*100);
-                            // 速い(>220)→緑・やや速い(>180)→水色・平均付近→グレー・やや遅い(>150)→黄・遅い(<=150)→赤
                             const color=sph>220?'#16a34a':sph>180?'#0284c7':sph>150?C.textMuted:'#d97706';
                             const bg=sph>220?(isDark?'rgba(22,163,74,0.12)':'#f0fdf4'):sph>180?(isDark?'rgba(2,132,199,0.12)':'#e0f2fe'):sph>150?(isDark?'rgba(255,255,255,0.03)':'#f8fafc'):(isDark?'rgba(245,158,11,0.12)':'#fef3c7');
                             const border=sph>220?'#86efac':sph>180?'#7dd3fc':sph>150?C.border:'#fcd34d';
@@ -4191,7 +4463,7 @@ export default function PachinkoCalculatorComplete() {
                                   <div style={{ fontSize:11, color:C.textMuted }}>平均200回転/h比較</div>
                                 </div>
                                 <div style={{ textAlign:'right' }}>
-                                  <div style={{ fontSize:22, fontWeight:900, color }}>{Math.round(sph)}<span style={{ fontSize:12, fontWeight:600, marginLeft:3 }}>回/h</span></div>
+                                  <div style={{ fontSize:22, fontWeight:900, color }}>{sph}<span style={{ fontSize:12, fontWeight:600, marginLeft:3 }}>回/h</span></div>
                                   <div style={{ fontSize:11, fontWeight:700, color, marginTop:1 }}>
                                     {diff>=0?'+':''}{Math.round(diff)}回 （{pct}%） {label}
                                   </div>
@@ -4415,7 +4687,7 @@ export default function PachinkoCalculatorComplete() {
               // セッションから各種統計を計算
               const stats=detailMachineKey&&detailSessions.length>0?(()=>{
                 const rates=detailSessions.map(s=>s.metrics.avgSpinPerThousand).filter(v=>v>0);
-                const sphs=detailSessions.map(s=>{const tm=calcTheoreticalValueMetrics(s.metrics,s.machine,numberOrZero(s.hours),settings);return tm.normalSpinsPerHour;}).filter(v=>v&&v>0);
+                const sphs=detailSessions.filter(s=>numberOrZero(s.hours)>0).map(s=>{const elapsedH=numberOrZero(s.hours);return elapsedH>0?Math.round(s.metrics.totalSpins/elapsedH):null;}).filter(v=>v&&v>=50&&v<=600);
                 const works=detailSessions.map(s=>getWorkVolumeYen(s.metrics)).filter(v=>v!==null);
                 const balances=detailSessions.map(s=>s.metrics.balanceYen);
                 const allHits=detailSessions.flatMap(s=>s.firstHits||[]);
@@ -4483,14 +4755,71 @@ export default function PachinkoCalculatorComplete() {
                     {/* 機種選択 */}
                     <div>
                       <label style={{ fontSize:12, fontWeight:700, color:C.textPrimary, display:'block', marginBottom:6 }}>機種を選択</label>
-                      <Select value={detailMachineKey||''} onValueChange={v=>setDetailMachineKey(v||null)}>
-                        <SelectTrigger className="rounded-2xl h-11"><SelectValue placeholder="機種を選んでください"/></SelectTrigger>
-                        <SelectContent>
-                          {machineKeys.map(k=>(
-                            <SelectItem key={k} value={k}>{k}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <button onClick={()=>{setDetailMachineSearchQuery('');setDetailMachineDialogOpen(true);}}
+                        style={{ width:'100%', padding:'12px 16px', borderRadius:14, border:`1.5px solid ${detailMachineKey?C.primary:C.border}`, background:detailMachineKey?C.primaryLight:C.card, cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', textAlign:'left' }}>
+                        <div>
+                          {detailMachineKey?(
+                            <>
+                              <div style={{ fontSize:14, fontWeight:700, color:C.primary }}>{detailMachineKey}</div>
+                              {(()=>{
+                                const m=machines.find(mc=>mc.name===detailMachineKey);
+                                const autoBorder=(m?.payoutPerRound>0&&m?.totalProbability>0)?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
+                                const b=m?.border25>0?m.border25:autoBorder>0?autoBorder:null;
+                                if(!b&&!m?.totalProbability) return null;
+                                return <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{b?`等価B:${b} `:''}{m?.totalProbability?`1/${m.totalProbability}`:''}</div>;
+                              })()}
+                            </>
+                          ):(
+                            <span style={{ fontSize:13, color:C.textMuted }}>機種を選んでください</span>
+                          )}
+                        </div>
+                        <ChevronDown size={16} color={C.textMuted}/>
+                      </button>
+
+                      {/* 機種選択ダイアログ */}
+                      {detailMachineDialogOpen&&(
+                        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setDetailMachineDialogOpen(false)}>
+                          <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, maxHeight:'75vh', display:'flex', flexDirection:'column' }} onClick={e=>e.stopPropagation()}>
+                            <div style={{ padding:'14px 18px 10px', borderBottom:`1px solid ${C.border}` }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                                <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🎰 機種を選ぶ</div>
+                                <button onClick={()=>setDetailMachineDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                              </div>
+                              <input value={detailMachineSearchQuery} onChange={e=>setDetailMachineSearchQuery(e.target.value)}
+                                style={{ ...inputStyle, fontSize:14, padding:'9px 12px' }} placeholder="機種名で絞り込み…"/>
+                            </div>
+                            <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
+                              {machineKeys.filter(k=>!detailMachineSearchQuery||k.toLowerCase().includes(detailMachineSearchQuery.toLowerCase())).map(k=>{
+                                const m=machines.find(mc=>mc.name===k);
+                                const autoBorder=(m?.payoutPerRound>0&&m?.totalProbability>0)?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
+                                const displayBorder=m?.border25>0?m.border25:autoBorder>0?autoBorder:null;
+                                const isAuto=(!m?.border25||m?.border25<=0)&&autoBorder>0;
+                                const isSel=detailMachineKey===k;
+                                return (
+                                  <div key={k} style={{ borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
+                                    <button onClick={()=>{setDetailMachineKey(k);setDetailMachineDialogOpen(false);}}
+                                      style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 8px', border:'none', background:isSel?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
+                                      <div>
+                                        <div style={{ fontSize:14, fontWeight:isSel?700:400, color:isSel?C.primary:C.textPrimary }}>{k}</div>
+                                        {(displayBorder||m?.totalProbability>0)&&(
+                                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:'flex', gap:8 }}>
+                                            {displayBorder&&<span>等価B: <b style={{ color:isAuto?'#9333ea':C.textSecondary }}>{displayBorder}{isAuto?' (自動)':''}</b></span>}
+                                            {m?.totalProbability>0&&<span>確率: <b>1/{m.totalProbability}</b></span>}
+                                          </div>
+                                        )}
+                                      </div>
+                                      {isSel&&<span style={{ fontSize:14, color:C.primary, fontWeight:700 }}>✓</span>}
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                              {machineKeys.filter(k=>!detailMachineSearchQuery||k.toLowerCase().includes(detailMachineSearchQuery.toLowerCase())).length===0&&(
+                                <div style={{ textAlign:'center', padding:'24px', color:C.textMuted, fontSize:13 }}>該当する機種がないぜ</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* 詳細表示 */}
