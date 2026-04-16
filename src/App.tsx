@@ -651,6 +651,7 @@ export default function PachinkoCalculatorComplete() {
   const [resetConfirmOpen,setResetConfirmOpen]=useState(false);
   const [tableMoveConfirmOpen,setTableMoveConfirmOpen]=useState(false);
   const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
+  const stopLossAlertShownRef=useRef(0); // 最後に損切りアラートを出した損失額
   const [belowBorderAlertOpen,setBelowBorderAlertOpen]=useState(false);
   const belowBorderAlertSpinsRef=useRef(0); // 最後にアラートを出した回転数
   const [showHomeWidget,setShowHomeWidget]=useState(false);
@@ -799,7 +800,10 @@ export default function PachinkoCalculatorComplete() {
     if(!settings.stopLossEnabled) return;
     const loss=-formMetrics.balanceYen;
     const limit=numberOrZero(settings.stopLossYen);
-    if(loss>=limit&&limit>0&&!stopLossAlertOpen&&formMetrics.totalSpins>0){
+    // 5000円ごとにマイルストーンで再通知
+    const milestone=Math.floor(loss/5000)*5000;
+    if(loss>=limit&&limit>0&&milestone>stopLossAlertShownRef.current&&formMetrics.totalSpins>0){
+      stopLossAlertShownRef.current=milestone;
       setStopLossAlertOpen(true);
     }
   },[formMetrics.balanceYen, settings.stopLossEnabled, settings.stopLossYen]);
@@ -842,25 +846,21 @@ export default function PachinkoCalculatorComplete() {
     return mixedBorder;
   },[borderCalc]);
 
-  const [borderCalcAutoApplied,setBorderCalcAutoApplied]=useState(false); // 自動反映済みフラグ
+  const [borderCalcAutoApplied,setBorderCalcAutoApplied]=useState(false);
+  const borderCalcAutoAppliedRef=useRef(false); // refでも管理して二重発火防止
 
   useEffect(()=>{
     if(borderCalcDisplayBorder<=0) return;
-    // ユーザーが手動でボーダーを変更している場合は上書きしない
-    // borderCalcAutoApplied がfalse（まだ自動反映していない）か、
-    // または値が変わった場合のみ反映
-    setBorderCalcAutoApplied(prev=>{
-      const newVal=String(Number(borderCalcDisplayBorder.toFixed(2)));
-      if(!prev){
-        applyFormUpdate(p=>({...p,sessionBorderOverride:newVal}),{trackUndo:false,markDirty:false});
-        return true;
-      }
-      return prev;
-    });
+    if(borderCalcAutoAppliedRef.current) return; // 既に反映済みなら上書きしない
+    const newVal=String(Number(borderCalcDisplayBorder.toFixed(2)));
+    borderCalcAutoAppliedRef.current=true;
+    setBorderCalcAutoApplied(true);
+    applyFormUpdate(p=>({...p,sessionBorderOverride:newVal}),{trackUndo:false,markDirty:false});
   },[borderCalcDisplayBorder]);
 
-  // ボーダー算出タブの値が変わったら自動反映フラグをリセット
+  // ボーダー算出タブの入力値が変わったらフラグリセット
   useEffect(()=>{
+    borderCalcAutoAppliedRef.current=false;
     setBorderCalcAutoApplied(false);
   },[borderCalc.oneRoundPayout, borderCalc.totalRatePer1R, borderCalc.exchangeCategory, borderCalc.holdBallRatioInput]);
 
@@ -898,11 +898,11 @@ export default function PachinkoCalculatorComplete() {
   const targetSessions=useMemo(()=>enrichedSessions.filter(s=>periodMode==='year'?yearKey(s.date)===currentYear:monthKey(s.date)===currentMonth),[enrichedSessions,periodMode,currentMonth,currentYear]);
   const selectedDateSessions=enrichedSessions.filter(s=>s.date===selectedDate);
 
-  const trendChartData=useMemo(()=>{ if(periodMode==='year'){const map={}; for(let i=1;i<=12;i++) map[`${currentYear}-${String(i).padStart(2,'0')}`]={label:`${i}月`,balance:0,work:0}; targetSessions.forEach(s=>{const k=monthKey(s.date); if(map[k]){map[k].balance+=s.metrics.balanceYen; map[k].work+=(getWorkVolumeYen(s.metrics)??0);}}); return Object.values(map); } const sorted=[...targetSessions].sort((a,b)=>a.date>b.date?1:-1); let bc=0,wc=0; return sorted.map(s=>{bc+=s.metrics.balanceYen; wc+=(getWorkVolumeYen(s.metrics)??0); return {label:dateLabel(s.date),balance:bc,work:wc};}); },[targetSessions,periodMode,currentYear]);
+  const trendChartData=useMemo(()=>{ if(periodMode==='year'){const map={}; for(let i=1;i<=12;i++) map[`${currentYear}-${String(i).padStart(2,'0')}`]={label:`${i}月`,balance:0,work:0}; targetSessions.forEach(s=>{const k=monthKey(s.date); if(map[k]){map[k].balance+=s.metrics.balanceYen; const w=getWorkVolumeYen(s.metrics); map[k].work+=w??0; if(w===null)map[k].workNull=true;}}); return Object.values(map); } const sorted=[...targetSessions].sort((a,b)=>a.date>b.date?1:-1); let bc=0,wc=0; return sorted.map(s=>{bc+=s.metrics.balanceYen; const w=getWorkVolumeYen(s.metrics); wc+=w??0; return {label:dateLabel(s.date),balance:bc,work:w!==null?wc:null};}); },[targetSessions,periodMode,currentYear]);
   const machineAggregate=useMemo(()=>{ const map={}; targetSessions.forEach(s=>{const k=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'未設定'; if(!map[k])map[k]={name:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.ev-a.ev); },[targetSessions]);
   const shopAggregate=useMemo(()=>{ const map={}; targetSessions.forEach(s=>{const k=s.shop||'未入力'; if(!map[k])map[k]={name:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.ev-a.ev); },[targetSessions]);
   const lifetimeSummary=useMemo(()=>enrichedSessions.reduce((acc,s)=>({balance:acc.balance+s.metrics.balanceYen,ev:acc.ev+s.metrics.estimatedEVYen,count:acc.count+1,spins:acc.spins+s.metrics.totalSpins}),{balance:0,ev:0,count:0,spins:0}),[enrichedSessions]);
-  const yearSummaryRows=useMemo(()=>{ const map={}; enrichedSessions.forEach(s=>{const k=yearKey(s.date)||'未設定'; if(!map[k])map[k]={key:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>a.key<b.key?1:-1); },[enrichedSessions]);
+  const yearSummaryRows=useMemo(()=>{ const map={}; enrichedSessions.forEach(s=>{const k=yearKey(s.date)||'未設定'; if(!map[k])map[k]={key:k,count:0,balance:0,work:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].work+=(getWorkVolumeYen(s.metrics)??0); map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>a.key<b.key?1:-1); },[enrichedSessions]);
   const monthSummaryRows=useMemo(()=>{ const map={}; enrichedSessions.forEach(s=>{const k=monthKey(s.date)||'未設定'; if(!map[k])map[k]={key:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>a.key<b.key?1:-1); },[enrichedSessions]);
   const monthlyReport=useMemo(()=>{ const ms=enrichedSessions.filter(s=>monthKey(s.date)===currentMonth); const totals=ms.reduce((acc,s)=>({balance:acc.balance+s.metrics.balanceYen,ev:acc.ev+s.metrics.estimatedEVYen,spins:acc.spins+s.metrics.totalSpins,hours:acc.hours+numberOrZero(s.hours),workBalls:acc.workBalls+getWorkVolumeBalls(s.metrics),count:acc.count+1}),{balance:0,ev:0,spins:0,hours:0,workBalls:0,count:0}); const dayMap={}; ms.forEach(s=>{if(!dayMap[s.date])dayMap[s.date]={balance:0,ev:0}; dayMap[s.date].balance+=s.metrics.balanceYen; dayMap[s.date].ev+=s.metrics.estimatedEVYen;}); const dr=Object.entries(dayMap).map(([d,v])=>({date:d,...v})); const plusDays=dr.filter(r=>r.balance>0).length,minusDays=dr.filter(r=>r.balance<0).length,evenDays=dr.filter(r=>r.balance===0).length; const shopMap={},machineMap={}; ms.forEach(s=>{const sk=s.shop||'店舗未入力',mk=s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定'; if(!shopMap[sk])shopMap[sk]={name:sk,balance:0,ev:0,count:0}; if(!machineMap[mk])machineMap[mk]={name:mk,balance:0,ev:0,count:0}; shopMap[sk].balance+=s.metrics.balanceYen; shopMap[sk].ev+=s.metrics.estimatedEVYen; shopMap[sk].count+=1; machineMap[mk].balance+=s.metrics.balanceYen; machineMap[mk].ev+=s.metrics.estimatedEVYen; machineMap[mk].count+=1;}); const bestShop=Object.values(shopMap).sort((a,b)=>b.ev-a.ev)[0]||null,bestMachine=Object.values(machineMap).sort((a,b)=>b.ev-a.ev)[0]||null; const averageRate=totals.spins>0&&ms.length>0?ms.reduce((acc,s)=>acc+s.metrics.spinPerThousand*s.metrics.totalSpins,0)/totals.spins:0; return {monthSessions:ms,totals,plusDays,minusDays,evenDays,bestShop,bestMachine,averageRate}; },[enrichedSessions,currentMonth]);
   const allShopSummaryRows=useMemo(()=>{ const map={}; enrichedSessions.forEach(s=>{const k=s.shop||'未入力'; if(!map[k])map[k]={key:k,count:0,balance:0,ev:0,spins:0}; map[k].count+=1; map[k].balance+=s.metrics.balanceYen; map[k].ev+=s.metrics.estimatedEVYen; map[k].spins+=s.metrics.totalSpins;}); return Object.values(map).sort((a,b)=>b.balance-a.balance); },[enrichedSessions]);
@@ -945,6 +945,7 @@ export default function PachinkoCalculatorComplete() {
     // 釘チェックをリセット
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
+    saveCounterSnapshot(); setCounters(DEFAULT_COUNTERS); // 振り分けカウンターも終了時リセット
     skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history');
   }
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
@@ -1156,6 +1157,9 @@ export default function PachinkoCalculatorComplete() {
       date:form.date,
       shop:form.shop,
       exchangeCategory:form.exchangeCategory,
+      machineId:form.machineId,               // 機種も引き継ぎ
+      machineFreeName:form.machineFreeName,    // 機種フリー名も引き継ぎ
+      machineNameSnapshot:form.machineNameSnapshot,
       currentInputMode: inheritBalls>0?'balls':'cash',
       inheritedBalls: inheritBalls,
       inheritedBalanceYen: inheritBalls>0 ? inheritBalls*formMetrics.exchangeRate : 0,
@@ -1508,11 +1512,10 @@ export default function PachinkoCalculatorComplete() {
           const today=todayStr();
           const todaySessions=enrichedSessions.filter(s=>s.date===today&&s.status==='completed');
           const todayBalance=todaySessions.reduce((a,s)=>a+s.metrics.balanceYen,0);
-          const todayEV=todaySessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
           const lastSession=[...enrichedSessions].filter(s=>s.status==='completed').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
           const daysSinceLast=lastSession?Math.floor((Date.now()-new Date(lastSession.date+'T00:00:00').getTime())/(1000*60*60*24)):null;
           const monthSessions=enrichedSessions.filter(s=>monthKey(s.date)===monthKey(today));
-          const monthEV=monthSessions.reduce((a,s)=>a+s.metrics.estimatedEVYen,0);
+          const monthWork=monthSessions.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)??0),0);
           if(todaySessions.length===0&&!lastSession) return null;
           return (
             <details open={showHomeWidget} onToggle={e=>setShowHomeWidget(e.currentTarget.open)}
@@ -1530,8 +1533,8 @@ export default function PachinkoCalculatorComplete() {
                   <div style={{ fontSize:16, fontWeight:800, color:todayBalance>=0?C.positive:C.negative, marginTop:2 }}>{todaySessions.length>0?fmtYen(todayBalance):'未記録'}</div>
                 </div>
                 <div style={{ textAlign:'center', background:C.accentLight, borderRadius:12, padding:'8px 6px' }}>
-                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>今月期待値</div>
-                  <div style={{ fontSize:16, fontWeight:800, color:monthEV>=0?C.positive:C.negative, marginTop:2 }}>{fmtYen(Math.round(monthEV))}</div>
+                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>今月仕事量</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:monthWork>=0?C.positive:C.negative, marginTop:2 }}>{fmtYen(Math.round(monthWork))}</div>
                 </div>
                 <div style={{ textAlign:'center', background:C.primaryLight, borderRadius:12, padding:'8px 6px' }}>
                   <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>前回から</div>
@@ -2153,7 +2156,7 @@ export default function PachinkoCalculatorComplete() {
                             {selectedMachine&&<button onClick={syncBorderToMachine} style={{ background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:10, fontWeight:600 }}>機種へ反映</button>}
                           </div>
                         </div>
-                        <MetricBox label="持ち玉比率" value={`${fmtRate(formMetrics.holdBallRatio)}%`} sub={getExchangePreset(form.exchangeCategory||'25').label}/>
+                        <MetricBox label="持ち玉比率" value={`${fmtRate(formMetrics.holdBallRatio)}%`} sub={form.exchangeCategory==='25'?'等価のため影響なし':getExchangePreset(form.exchangeCategory||'25').label}/>
                         <MetricBox label="仕事量(理論)" value={theoreticalMetrics.workVolumeYen!==null?fmtYen(theoreticalMetrics.workVolumeYen):'-'} sub={theoreticalMetrics.workVolumeBalls!==null?`${Math.round(theoreticalMetrics.workVolumeBalls).toLocaleString()}玉`:'確率入力待ち'} color={C.positive}/>
                         <MetricBox
                           label="1R出玉（実測平均）"
@@ -4040,12 +4043,14 @@ export default function PachinkoCalculatorComplete() {
                       if(!grouped[key]) grouped[key]=[];
                       grouped[key].push(m);
                     });
+                    // 50音順にソート
+                    const sortedKeys=Object.keys(grouped).sort((a,b)=>a.localeCompare(b,'ja'));
                     return (
                       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                         <div style={{ fontSize:12, fontWeight:700, color:C.textPrimary }}>
                           🏪 店舗別メモ（全{gachiMemos.length}件）
                         </div>
-                        {Object.entries(grouped).map(([shopName,memos])=>{
+                        {sortedKeys.map((shopName)=>{ const memos=grouped[shopName];
                           const isOpen=gachiOpenShops[shopName]!==false; // デフォルト開く
                           return (
                             <div key={shopName} style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
@@ -4412,7 +4417,7 @@ export default function PachinkoCalculatorComplete() {
                               {l:'収支',    v:fmtYen(s.metrics.balanceYen), pos:s.metrics.balanceYen>=0, sub:null},
                               {l:'仕事量',  v:wv!==null?fmtYen(Math.round(wv)):'-', pos:wv!==null?wv>=0:null, sub:null},
                               {l:'回転単価',v:unitPrice!==null?`${unitPrice>=0?'+':''}${fmtRate(unitPrice)}円`:'-', pos:unitPrice!==null?unitPrice>=0:null, sub:null},
-                              {l:'持ち玉比率',v:holdRatio>0?`${fmtRate(holdRatio)}%`:'-', pos:null, sub:null},
+                              {l:'持ち玉比率',v:holdRatio>0?`${fmtRate(holdRatio)}%`:'-', pos:null, sub:s.exchangeCategory==='25'?'等価のため影響なし':null},
                               {l:'総回転数', v:`${Math.round(s.metrics.totalSpins).toLocaleString()}回`, pos:null, sub:`回転率 ${fmtRate(s.metrics.avgSpinPerThousand)}`},
                               {l:'1R出玉',   v:oneRDisplay>0?fmtRate(oneRDisplay):'未記録', pos:null, sub:oneRSub, accent:true},
                             ].map(({l,v,pos,sub,accent})=>(
@@ -4481,6 +4486,87 @@ export default function PachinkoCalculatorComplete() {
                             </div>
                           </div>
                         </div>
+
+                        {/* タグ・メモ（freeMemoのみ表示） */}
+                        {(s.tags||s.freeMemo)&&(
+                          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                            {s.tags&&(
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                                {s.tags.split(/[,、\s]+/).filter(Boolean).map(tag=>(
+                                  <span key={tag} style={{ background:C.primaryLight, color:C.primary, border:`1px solid ${C.primaryMid}`, borderRadius:8, padding:'3px 10px', fontSize:12, fontWeight:600 }}>
+                                    #{tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {s.freeMemo&&(
+                              <div style={{ background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 12px' }}>
+                                <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:4 }}>📝 メモ</div>
+                                <div style={{ fontSize:13, color:C.textPrimary, lineHeight:1.7, whiteSpace:'pre-wrap' }}>{s.freeMemo}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 1万円ごとの回転率 */}
+                        {(()=>{
+                          const pts=getSessionTrendData(s,settings);
+                          if(pts.length<2) return null;
+                          const segments=[];
+                          let segIdx=1, prevSpins=0;
+                          pts.forEach(p=>{
+                            while(p.totalInvestYen>=segIdx*10000){
+                              const threshold=segIdx*10000;
+                              const prevP=pts.filter(x=>x.totalInvestYen<threshold).slice(-1)[0];
+                              const nextP=pts.find(x=>x.totalInvestYen>=threshold);
+                              if(prevP&&nextP&&nextP.totalInvestYen>prevP.totalInvestYen){
+                                const ratio=(threshold-prevP.totalInvestYen)/(nextP.totalInvestYen-prevP.totalInvestYen);
+                                const spinsAt=prevP.totalSpins+(nextP.totalSpins-prevP.totalSpins)*ratio;
+                                segments.push({label:`${segIdx}万円目`,spins:Math.round(spinsAt-prevSpins),rate:Math.round(spinsAt-prevSpins)/10,isFinal:false});
+                                prevSpins=spinsAt;
+                              }
+                              segIdx++;
+                            }
+                          });
+                          const lastP=pts[pts.length-1];
+                          const remain=lastP.totalInvestYen%10000;
+                          if(remain>0&&lastP.totalSpins>prevSpins){
+                            const segSpins=Math.round(lastP.totalSpins-prevSpins);
+                            segments.push({label:`${segIdx}万円目（${fmtYen(remain)}・途中）`,spins:segSpins,rate:segSpins/(remain/1000),isFinal:true});
+                          }
+                          if(segments.length===0) return null;
+                          const avgRate=segments.reduce((a,sg)=>a+sg.rate,0)/segments.length;
+                          const border=s.metrics.machineBorder||0;
+                          return (
+                            <details style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
+                              <summary style={{ cursor:'pointer', listStyle:'none', padding:'12px 14px', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>💴 1万円ごとの回転率</div>
+                                <div style={{ display:'flex', gap:10, alignItems:'center' }}>
+                                  <span style={{ fontSize:12, color:C.textMuted }}>{segments.length}区間 / 平均 <b style={{ color:C.accent }}>{fmtRate(avgRate)}</b></span>
+                                  <ChevronDown size={14} color={C.textMuted}/>
+                                </div>
+                              </summary>
+                              <div style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:6 }}>
+                                {segments.map((seg,i)=>{
+                                  const diff=seg.rate-border;
+                                  const good=border>0?diff>=0:seg.rate>=avgRate;
+                                  return (
+                                    <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:good?(isDark?'rgba(16,185,129,0.08)':'#f0fdf4'):(isDark?'rgba(239,68,68,0.08)':'#fef2f2'), border:`1px solid ${good?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 12px' }}>
+                                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                        <span style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>{seg.label}</span>
+                                        {seg.isFinal&&<span style={{ fontSize:10, color:C.textMuted, background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9', borderRadius:6, padding:'1px 6px' }}>端数</span>}
+                                      </div>
+                                      <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+                                        <span style={{ fontSize:11, color:C.textMuted }}>{seg.spins.toLocaleString()}回転</span>
+                                        <span style={{ fontSize:16, fontWeight:800, color:good?C.positive:C.negative }}>{fmtRate(seg.rate)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </details>
+                          );
+                        })()}
 
                         {/* 釘チェック記録 */}
                         {s.nailGrades&&Object.keys(s.nailGrades).some(k=>s.nailGrades[k])&&(()=>{
@@ -5252,7 +5338,7 @@ export default function PachinkoCalculatorComplete() {
                 {yearSummaryRows.length===0?<div style={{ fontSize:13, color:C.textMuted }}>まだデータがないぜ。</div>:yearSummaryRows.map(row=>(
                   <div key={row.key} style={{ border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 12px', fontSize:13 }}>
                     <div style={{ display:'flex', justifyContent:'space-between' }}><div style={{ fontWeight:600 }}>{row.key}</div><div style={{ fontWeight:700, color:row.balance>=0?C.positive:C.negative }}>{fmtYen(row.balance)}</div></div>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}><div>EV {fmtYen(row.ev)}</div><div>{row.count}件</div></div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4, marginTop:5, fontSize:12, color:C.textSecondary }}><div>仕事量 {fmtYen(Math.round(row.work))}</div><div>{row.count}件</div></div>
                   </div>
                 ))}
               </div>
