@@ -632,7 +632,9 @@ export default function PachinkoCalculatorComplete() {
   const [firstHitForm,setFirstHitForm]=useState({ label:'初当たり1回目',rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'' });
   const firstHitDialogOpenTimeRef=useRef(0);
   const [firstHitStep,setFirstHitStep]=useState(1); // 1:R数 2:持ち玉 3:ゲーム数・確認
-  const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'' });
+  const [machineDraft,setMachineDraft]=useState({ name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',maker:'' });
+  const [makers,setMakers]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_makers')||'[]');}catch{return [];}});
+  const [makerDraftInput,setMakerDraftInput]=useState('');
   const [editMachineId,setEditMachineId]=useState(null);
   const [editMachineDialogOpen,setEditMachineDialogOpen]=useState(false);
   const [addMachineDialogOpen,setAddMachineDialogOpen]=useState(false);
@@ -640,7 +642,8 @@ export default function PachinkoCalculatorComplete() {
   const [shopListDialogOpen,setShopListDialogOpen]=useState(false);
   const [favoriteMachineIds,setFavoriteMachineIds]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_favorites')||'[]');}catch{return [];}});
   const [favoriteShopNames,setFavoriteShopNames]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_fav_shops')||'[]');}catch{return [];}});
-  const [machineListTab,setMachineListTab]=useState('all'); // 'all' | 'fav'
+  const [machineListTab,setMachineListTab]=useState('all'); // 'all' | 'fav' | maker名
+  const [machineListMakerFilter,setMachineListMakerFilter]=useState(''); // メーカーフィルター
   const [shopListTab,setShopListTab]=useState('all'); // 'all' | 'fav'
   const toggleFavorite=(id)=>{setFavoriteMachineIds(prev=>{const next=prev.includes(id)?prev.filter(x=>x!==id):[...prev,id];try{localStorage.setItem('pachi_favorites',JSON.stringify(next));}catch{}return next;});};
   const toggleFavoriteShop=(name)=>{setFavoriteShopNames(prev=>{const next=prev.includes(name)?prev.filter(x=>x!==name):[...prev,name];try{localStorage.setItem('pachi_fav_shops',JSON.stringify(next));}catch{}return next;});};
@@ -705,6 +708,7 @@ export default function PachinkoCalculatorComplete() {
   const [chainSelectDialogOpen,setChainSelectDialogOpen]=useState(false);
   const [detailMachineDialogOpen,setDetailMachineDialogOpen]=useState(false);
   const [detailMachineSearchQuery,setDetailMachineSearchQuery]=useState('');
+  const [makerInput,setMakerInput]=useState(''); // 設定タブのメーカー入力
   function setNailGrade(id,grade){setNailGrades(p=>{const n={...p,[id]:p[id]===grade?'':grade};try{localStorage.setItem('pachi_nail_grades',JSON.stringify(n));}catch{}return n;});}
   function toggleHesoDir(dir){setHesoDirections(p=>{let n;if(p.includes(dir)){n=p.filter(d=>d!==dir);}else if(p.length<2){n=[...p,dir];}else{n=[p[1],dir];}try{localStorage.setItem('pachi_heso_dirs',JSON.stringify(n));}catch{}return n;});}
   function updateNailMemo(key,val){setNailMemo(p=>{const n={...p,[key]:val};try{localStorage.setItem('pachi_nail_memo',JSON.stringify(n));}catch{}return n;});}
@@ -727,6 +731,7 @@ export default function PachinkoCalculatorComplete() {
 
   useEffect(()=>{try{localStorage.setItem('pachi_counters2',JSON.stringify(counters));}catch{}},[counters]);
   useEffect(()=>{try{localStorage.setItem('pachi_counter_labels',JSON.stringify(counterLabels));}catch{}},[counterLabels]);
+  useEffect(()=>{try{localStorage.setItem('pachi_makers',JSON.stringify(makers));}catch{}},[makers]);
 
   function saveCounterSnapshot() {
     if(counters.every(c=>c.total===0)) return;
@@ -1203,15 +1208,15 @@ export default function PachinkoCalculatorComplete() {
   function duplicateSession(s) { skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm({...emptySession(settings),...s,id:uid(),date:todayStr(),status:'draft',updatedAt:Date.now(),firstHits:[],rateSections:[],photos:[],rateEntries:[emptyRateEntry(s.currentInputMode||'cash',(s.currentInputMode||'cash')==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000,'')]}); setActiveTab('rate'); }
   function deleteSession(id) { setSessions(p=>p.filter(x=>x.id!==id)); }
   async function addPhotos(files) { const list=Array.from(files||[]).slice(0,6); const images=[]; for(const f of list){const d=await readFileAsDataUrl(f); images.push({id:uid(),name:f.name,dataUrl:d,createdAt:Date.now()});} applyFormUpdate(p=>({...p,photos:[...(p.photos||[]),...images].slice(0,12)})); }
-  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''}); setAddMachineDialogOpen(false); }
+  function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',maker:machineDraft.maker||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',maker:''}); setAddMachineDialogOpen(false); }
   function openEditMachine(m) {
     setEditMachineId(m.id);
-    setMachineDraft({name:m.name,border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||''});
+    setMachineDraft({name:m.name,border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||'',maker:m.maker||''});
     setEditMachineDialogOpen(true);
   }
   function saveEditMachine() {
     if(!machineDraft.name.trim()||!editMachineId) return;
-    setMachines(prev=>prev.map(m=>m.id===editMachineId?{...m,name:machineDraft.name.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||''}:m));
+    setMachines(prev=>prev.map(m=>m.id===editMachineId?{...m,name:machineDraft.name.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',maker:machineDraft.maker||''}:m));
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
     setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''});
@@ -1897,21 +1902,21 @@ export default function PachinkoCalculatorComplete() {
                                   <div style={{ fontWeight:800, fontSize:15, color:C.textPrimary }}>🎰 機種を選ぶ</div>
                                   <button onClick={()=>setMachineListDialogOpen(false)} style={{ background:'none', border:'none', fontSize:20, color:C.textMuted, cursor:'pointer' }}>✕</button>
                                 </div>
-                                {/* タブ：全て ／ お気に入り */}
-                                <div style={{ display:'flex', gap:8 }}>
-                                  {[['all','全て'],['fav','⭐ お気に入り']].map(([tab,label])=>(
-                                    <button key={tab} onClick={()=>setMachineListTab(tab)}
-                                      style={{ padding:'6px 14px', borderRadius:10, border:`1.5px solid ${machineListTab===tab?C.primary:C.border}`, background:machineListTab===tab?C.primary:'transparent', color:machineListTab===tab?'white':C.textSecondary, fontWeight:700, fontSize:12, cursor:'pointer' }}>
+                                {/* タブ：全て ／ お気に入り ／ メーカー別 */}
+                                <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', display:'flex', gap:6, paddingBottom:2 }}>
+                                  {[['all','全て'],['fav','⭐ お気に入り'],...makers.map(mk=>['maker:'+mk,mk])].map(([tab,label])=>(
+                                    <button key={tab} onClick={()=>{setMachineListTab(tab);if(tab.startsWith('maker:'))setMachineListMakerFilter(tab.slice(6));else setMachineListMakerFilter('');}}
+                                      style={{ flexShrink:0, padding:'6px 12px', borderRadius:10, border:`1.5px solid ${machineListTab===tab?C.primary:C.border}`, background:machineListTab===tab?C.primary:'transparent', color:machineListTab===tab?'white':C.textSecondary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
                                       {label}
                                     </button>
                                   ))}
-                                  <span style={{ fontSize:11, color:C.textMuted, alignSelf:'center', marginLeft:'auto' }}>
-                                    {machineListTab==='fav'?`${favoriteMachineIds.length}件`:`全${machines.length}件`}
+                                  <span style={{ fontSize:11, color:C.textMuted, alignSelf:'center', marginLeft:'auto', flexShrink:0 }}>
+                                    {machineListTab==='fav'?`${favoriteMachineIds.length}件`:machineListTab.startsWith('maker:')?`${machines.filter(m=>m.maker===machineListMakerFilter).length}件`:`全${machines.length}件`}
                                   </span>
                                 </div>
                               </div>
                               <div style={{ overflowY:'auto', WebkitOverflowScrolling:'touch', padding:'8px 14px', flex:1 }}>
-                                {(machineListTab==='fav'?machines.filter(m=>favoriteMachineIds.includes(m.id)):machines).map(m=>(
+                                {(machineListTab==='fav'?machines.filter(m=>favoriteMachineIds.includes(m.id)):machineListTab.startsWith('maker:')?machines.filter(m=>m.maker===machineListMakerFilter):machines).map(m=>(
                                   <div key={m.id} style={{ display:'flex', alignItems:'center', borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
                                     <button onClick={e=>{e.stopPropagation();toggleFavorite(m.id);}}
                                       style={{ background:'none', border:'none', fontSize:20, padding:'0 8px 0 0', cursor:'pointer', flexShrink:0, opacity:favoriteMachineIds.includes(m.id)?1:0.3 }}>
@@ -1927,9 +1932,10 @@ export default function PachinkoCalculatorComplete() {
                                             ?Math.round((250*m.totalProbability/m.payoutPerRound)*100)/100:0;
                                           const displayBorder=manualBorder>0?manualBorder:autoBorder>0?autoBorder:null;
                                           const isAuto=manualBorder<=0&&autoBorder>0;
-                                          if(!displayBorder&&!m.totalProbability) return null;
+                                          if(!displayBorder&&!m.totalProbability&&!m.maker) return null;
                                           return (
                                             <div style={{ fontSize:11, color:C.textMuted, marginTop:2, display:'flex', gap:8, flexWrap:'wrap' }}>
+                                              {m.maker&&<span style={{ color:C.accent, fontWeight:600 }}>{m.maker}</span>}
                                               {displayBorder&&<span>等価B: <b style={{ color:isAuto?'#9333ea':C.textSecondary }}>{displayBorder}{isAuto?' (自動)':''}</b></span>}
                                               {m.totalProbability>0&&<span>確率: <b style={{ color:C.textSecondary }}>1/{m.totalProbability}</b></span>}
                                             </div>
@@ -2009,6 +2015,20 @@ export default function PachinkoCalculatorComplete() {
                           <DialogHeader><DialogTitle>機種データ追加</DialogTitle></DialogHeader>
                           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                             <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
+                            {/* メーカー選択 */}
+                            <div>
+                              <Label>メーカー（任意）</Label>
+                              <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6, marginBottom:6 }}>
+                                {makers.map(mk=>(
+                                  <button key={mk} onClick={()=>setMachineDraft(p=>({...p,maker:p.maker===mk?'':mk}))}
+                                    style={{ padding:'5px 12px', borderRadius:10, border:`1.5px solid ${machineDraft.maker===mk?C.primary:C.border}`, background:machineDraft.maker===mk?C.primary:'transparent', color:machineDraft.maker===mk?'white':C.textSecondary, fontWeight:600, fontSize:12, cursor:'pointer' }}>
+                                    {mk}
+                                  </button>
+                                ))}
+                                {makers.length===0&&<span style={{ fontSize:12, color:C.textMuted }}>設定タブでメーカーを登録できるぜ</span>}
+                              </div>
+                              {machineDraft.maker&&<Input value={machineDraft.maker} onChange={e=>setMachineDraft(p=>({...p,maker:e.target.value}))} className="mt-1 rounded-2xl" placeholder="メーカー名（直接入力も可）"/>}
+                            </div>
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                               {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個']].map(([k,l])=>(
                                 <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
@@ -2032,6 +2052,18 @@ export default function PachinkoCalculatorComplete() {
                           {!deleteConfirmOpen?(
                             <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
                               <div><Label>機種名</Label><Input value={machineDraft.name} onChange={e=>setMachineDraft(p=>({...p,name:e.target.value}))} className="mt-1 rounded-2xl"/></div>
+                              <div>
+                                <Label>メーカー（任意）</Label>
+                                <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:6, marginBottom:6 }}>
+                                  {makers.map(mk=>(
+                                    <button key={mk} onClick={()=>setMachineDraft(p=>({...p,maker:p.maker===mk?'':mk}))}
+                                      style={{ padding:'5px 12px', borderRadius:10, border:`1.5px solid ${machineDraft.maker===mk?C.primary:C.border}`, background:machineDraft.maker===mk?C.primary:'transparent', color:machineDraft.maker===mk?'white':C.textSecondary, fontWeight:600, fontSize:12, cursor:'pointer' }}>
+                                      {mk}
+                                    </button>
+                                  ))}
+                                </div>
+                                <Input value={machineDraft.maker||''} onChange={e=>setMachineDraft(p=>({...p,maker:e.target.value}))} className="mt-1 rounded-2xl" placeholder="メーカー名（直接入力も可）"/>
+                              </div>
                               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                                 {[['border25','25個(等価)'],['border28','28個'],['border30','30個'],['border33','33個']].map(([k,l])=>(
                                   <div key={k}><Label>{l}</Label><Input value={machineDraft[k]} onChange={e=>setMachineDraft(p=>({...p,[k]:e.target.value}))} className="mt-1 rounded-2xl" inputMode="decimal"/></div>
@@ -6093,6 +6125,36 @@ export default function PachinkoCalculatorComplete() {
                         </>
                       );
                   })()}
+                </div>
+              )},
+              { title:'メーカー管理', icon:<span style={{ fontSize:16 }}>🏭</span>, content:(
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ fontSize:12, color:C.textMuted }}>登録したメーカーは機種データ追加時に選択できるぜ。機種一覧のメーカー別タブにも表示されるぜ。</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <input value={makerInput} onChange={e=>setMakerInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==='Enter'&&makerInput.trim()){const v=makerInput.trim();if(!makers.includes(v)){setMakers(p=>[...p,v]);}setMakerInput('');}}}
+                      style={{ ...inputStyle, flex:1, fontSize:15, padding:'11px 14px', fontWeight:600 }}
+                      placeholder="例：三洋物産、京楽産業など"/>
+                    <button onClick={()=>{const v=makerInput.trim();if(!v||makers.includes(v))return;setMakers(p=>[...p,v]);setMakerInput('');}}
+                      style={{ ...btnPrimary, padding:'11px 18px', whiteSpace:'nowrap' }}>追加</button>
+                  </div>
+                  {makers.length>0?(
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {makers.map(mk=>(
+                        <div key={mk} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px' }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <span style={{ fontSize:14 }}>🏭</span>
+                            <span style={{ fontWeight:600, fontSize:14, color:C.textPrimary }}>{mk}</span>
+                            <span style={{ fontSize:11, color:C.textMuted }}>（{machines.filter(m=>m.maker===mk).length}機種）</span>
+                          </div>
+                          <button onClick={()=>setMakers(p=>p.filter(x=>x!==mk))}
+                            style={{ background:C.negativeBg, color:C.negative, border:`1px solid ${C.negativeBorder}`, borderRadius:10, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>削除</button>
+                        </div>
+                      ))}
+                    </div>
+                  ):(
+                    <div style={{ fontSize:13, color:C.textMuted }}>まだメーカーが登録されていないぜ。</div>
+                  )}
                 </div>
               )},
               { title:'データ管理', icon:<Database size={16} color={C.primary}/>, content:(
