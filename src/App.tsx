@@ -180,15 +180,16 @@ function getWorkVolumeYen(m) {
 }
 function getWorkVolumeBalls(m) { return m.exchangeRate>0?getWorkVolumeYen(m)/m.exchangeRate:0; }
 
-function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
+function calcTheoreticalValueMetrics(metrics,machine,hours,settings,spinsPerHourManual) {
   const rate=numberOrZero(metrics.spinPerThousand), exchangeRate=numberOrZero(metrics.exchangeRate);
   const totalSpins=numberOrZero(metrics.totalSpins), enteredHours=numberOrZero(hours);
   const totalProbability=numberOrZero(machine?.totalProbability), averagePayout=numberOrZero(machine?.expectedBallsPerHit);
   const registeredOneRound=numberOrZero(machine?.payoutPerRound);
-  // 実測1R出玉（metrics.avgOneRoundActual）を優先、なければ機種登録値
   const oneRoundPayout=numberOrZero(metrics.avgOneRoundActual||registeredOneRound);
   const holdRatio=clampNumber(metrics.holdBallRatio/100,0,1);
-  const normalSpinsPerHour=enteredHours>0&&totalSpins>0?totalSpins/enteredHours:numberOrZero(settings.spinsPerHour);
+  // 通常回転時速の優先順位: ①手動入力 > ②実稼働時間から計算 > ③設定デフォルト値
+  const manualSph=numberOrZero(spinsPerHourManual);
+  const normalSpinsPerHour=manualSph>0?manualSph:(enteredHours>0&&totalSpins>0?totalSpins/enteredHours:numberOrZero(settings.spinsPerHour));
   if(rate<=0||exchangeRate<=0||totalProbability<=0||oneRoundPayout<=0) return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen:null,cashUnitPriceYen:null,mixedUnitPriceYen:null,workVolumeYen:null,workVolumeBalls:null,theoreticalHourlyYen:null };
   const holdUnitPriceYen=(oneRoundPayout/totalProbability-250/rate)*exchangeRate;
   const cashUnitPriceYen=oneRoundPayout/totalProbability*exchangeRate-1000/rate;
@@ -227,7 +228,7 @@ function getSessionTrendData(session,settings) {
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
 function emptySession(settings=defaultSettings) {
-  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
+  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',spinsPerHourManual:'',notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
 }
 
 function hasMeaningfulSession(s) {
@@ -762,13 +763,22 @@ export default function PachinkoCalculatorComplete() {
     setMachines(lm); setSessions(ls); setSettings(lset);
     const draft=[...ls].filter(s=>s.status==='draft').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
-    setForm(draft?{...emptySession(lset),...draft}:emptySession(lset));
+    const today=todayStr();
+    // ドラフトの日付が今日と違う場合は今日の日付に更新してロード
+    const restoredForm=draft
+      ?{...emptySession(lset),...draft, date:draft.date===today?draft.date:today}
+      :emptySession(lset);
+    setForm(restoredForm);
   },[]);
   useEffect(()=>saveJSON(STORAGE_KEYS.machines,machines),[machines]);
   useEffect(()=>saveJSON(STORAGE_KEYS.sessions,sessions),[sessions]);
   useEffect(()=>saveJSON(STORAGE_KEYS.settings,settings),[settings]);
 
-  const enrichedSessions=useMemo(()=>sessions.map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)),[sessions,machines,settings]);
+  const enrichedSessions=useMemo(()=>sessions.map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>{
+    // まず日付の新しい順、同日は更新時刻の新しい順
+    if(b.date!==a.date) return b.date>a.date?1:-1;
+    return (b.updatedAt||0)-(a.updatedAt||0);
+  }),[sessions,machines,settings]);
   const selectedMachine=form.machineId&&form.machineId!=='__none__'?machines.find(m=>m.id===form.machineId)||null:null;
   const formMetrics=calcRateMetrics(form,selectedMachine,settings);
 
@@ -805,7 +815,7 @@ export default function PachinkoCalculatorComplete() {
   const resultPreviewMetrics=useMemo(()=>calcRateMetrics({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls},selectedMachine,settings),[form,resultReturnedBalls,selectedMachine,settings]);
   const recentShopPresets=useMemo(()=>{ const u=[]; (settings.shopProfiles||[]).forEach(p=>{if(p.name&&!u.includes(p.name))u.push(p.name);}); enrichedSessions.forEach(s=>{if(s.shop&&!u.includes(s.shop))u.push(s.shop);}); return u; },[settings.shopProfiles,enrichedSessions]);
   const recentMachinePresets=useMemo(()=>{ const seen=new Set(); const sorted=[...enrichedSessions].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)); const recentIds=[]; sorted.forEach(s=>{const k=s.machineId&&s.machineId!=='__none__'?s.machineId:'';if(k&&!seen.has(k)){seen.add(k);recentIds.push(k);}}); return recentIds.slice(0,7).map(id=>machines.find(m=>m.id===id)).filter(Boolean); },[enrichedSessions,machines]);
-  const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings),[formMetrics,selectedMachine,form.hours,settings]);
+  const theoreticalMetrics=useMemo(()=>calcTheoreticalValueMetrics(formMetrics,selectedMachine,form.hours,settings,form.spinsPerHourManual),[formMetrics,selectedMachine,form.hours,settings,form.spinsPerHourManual]);
 
   useEffect(()=>{ setJudgeForm(p=>({...p,observedRate:p.observedRate||(formMetrics.spinPerThousand?String(Number(formMetrics.spinPerThousand.toFixed(2))):''),border:p.border||(formMetrics.machineBorder?String(formMetrics.machineBorder||''):'')})); },[formMetrics.spinPerThousand,formMetrics.machineBorder]);
 
@@ -1057,7 +1067,18 @@ export default function PachinkoCalculatorComplete() {
     }
     setTimeout(()=>{readingInputRefs.current[idx+1]?.focus(); readingInputRefs.current[idx+1]?.select?.();},0);
   }
-  function addRateEntry(kind=form.currentInputMode||'cash',amount) { const ba=amount??(kind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000); applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(kind,ba,'')]})); }
+  function addRateEntry(kind=form.currentInputMode||'cash',amount) {
+    // ゲーム数未入力の行がある場合は追加しない
+    const lastValid=(form.rateEntries||[]).filter(e=>e.kind!=='restart'&&e.kind!=='jackpot_after').slice(-1)[0];
+    if(lastValid&&!numberOrZero(lastValid.reading)){
+      // 未入力行にフォーカスを当てる
+      const lastIdx=(form.rateEntries||[]).findLastIndex(e=>e.kind!=='restart'&&e.kind!=='jackpot_after');
+      if(lastIdx>=0) setTimeout(()=>readingInputRefs.current[lastIdx]?.focus(),0);
+      return;
+    }
+    const ba=amount??(kind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000);
+    applyFormUpdate(p=>({...p,rateEntries:[...p.rateEntries,emptyRateEntry(kind,ba,'')]}));
+  }
 
   // 1万円(現金)or 2500玉(持ち玉)達成で自動アーカイブ
   function archiveMeasurement(p, kind='normal', labelOverride='') {
@@ -1067,6 +1088,8 @@ export default function PachinkoCalculatorComplete() {
     const investYen=met.currentInvestYen;
     if(spins<=0&&investYen<=0) return p;
     const logCount=(p.measurementLogs||[]).length+1;
+    // ゲーム数が入力されている行のみ保存（未入力行は除外）
+    const validEntries=(p.rateEntries||[]).filter(e=>e.kind==='restart'||e.kind==='jackpot_after'||numberOrZero(e.reading)>0);
     // 現在枠の最後のゲーム数を取得（入力済みのものだけ対象）
     const lastReading=(p.rateEntries||[]).reduce((last,e)=>{
       const r=numberOrZero(e.reading);
@@ -1081,7 +1104,7 @@ export default function PachinkoCalculatorComplete() {
       id:uid(),
       kind,
       label:labelOverride||(kind==='jackpot_before'?`大当たり前 計測${logCount}`:`計測${logCount}`),
-      entries:[...p.rateEntries],
+      entries:validEntries,
       spins,
       investYen,
       cashInvestYen: met.currentCashInvestYen,
@@ -1133,7 +1156,10 @@ export default function PachinkoCalculatorComplete() {
   function removeRateEntry(id) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.length<=1?p.rateEntries:p.rateEntries.filter(e=>e.id!==id)})); }
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
   function createNewSession() {
-    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate');
+    skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
+    setForm(emptySession(settings));
+    setActiveTab('rate');
+    setAdvancedInvestOpen(false); // 高度な設定を閉じる（表示キャッシュをリセット）
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
     setBreaks([]); setIsOnBreak(false);
@@ -1363,7 +1389,37 @@ export default function PachinkoCalculatorComplete() {
         }
       }
 
-      if(!restartAfter)return nb;
+      if(!restartAfter){
+        // endBalls>0の場合でも大当たり前の投資を分離してcurrentBalls計算を正確にする
+        const endBallsNum=numberOrZero(firstHitForm.endBalls);
+        if(endBallsNum>0){
+          const m2=nb.machineId&&nb.machineId!=='__none__'?machines.find(m=>m.id===nb.machineId)||null:null;
+          const met2=calcRateMetrics(nb,m2,settings);
+          const lc=(nb.measurementLogs||[]).length+1;
+          const jLog={
+            id:uid(), kind:'jackpot_before',
+            label:`大当たり前 計測${lc}`,
+            entries:[...nb.rateEntries],
+            spins:met2.currentSpins, investYen:met2.currentInvestYen,
+            cashInvestYen:met2.currentCashInvestYen,
+            ballInvestBalls:met2.currentBallInvestBalls,
+            ballInvestYen:met2.currentBallInvestYen,
+            estimatedEVYen:met2.currentEstimatedEVYen,
+            rate:Number(met2.currentSpinPerThousand.toFixed(2)),
+            endReading:met2.currentEndRotation, createdAt:Date.now(),
+          };
+          const rsr2=numberOrZero(firstHitForm.restartRotation);
+          const na2=nb.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
+          const afterEntry2={id:uid(),kind:'jackpot_after',amount:'0',reading:rsr2>0?String(rsr2):''};
+          const nextEntry2=emptyRateEntry(nb.currentInputMode||'cash',na2,'');
+          return {
+            ...nb,
+            measurementLogs:[...(nb.measurementLogs||[]),jLog],
+            rateEntries:[afterEntry2, nextEntry2],
+          };
+        }
+        return nb;
+      }
       const m=nb.machineId&&nb.machineId!=='__none__'?machines.find(m=>m.id===nb.machineId)||null:null;
       const met=calcRateMetrics(nb,m,settings);
       const rsr=numberOrZero(firstHitForm.restartRotation);
@@ -1409,10 +1465,7 @@ export default function PachinkoCalculatorComplete() {
       };
     });
     setFirstHitDialogOpen(false);
-    // 1R出玉を機種へ自動反映（機種選択済みかつ1R出玉が算出されている場合）
-    if(selectedMachine&&firstHitMetrics.oneRound>0){
-      applyFirstHitOneRoundToMachine();
-    }
+    // 1R出玉の機種への反映は自動では行わない（手動ボタンから実施）
   }
   function removeFirstHit(hid) { applyFormUpdate(p=>{ const hit=(p.firstHits||[]).find(h=>h.id===hid); const newNotes=hit?.memoLine?p.notes.split('\n').filter(l=>l!==hit.memoLine).join('\n'):p.notes; return {...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid),notes:newNotes}; }); }
 
@@ -2330,6 +2383,20 @@ export default function PachinkoCalculatorComplete() {
                         <button onClick={()=>addRateEntry('cash',numberOrZero(settings.subCashUnitYen)||500)} style={btnSecondary}>+500円行</button>
                         <button onClick={()=>addRateEntry('balls',numberOrZero(settings.defaultBallUnit)||250)} style={btnSecondary}>+持ち玉行</button>
                       </div>
+                      {/* 通常回転時速の手動入力 */}
+                      <div>
+                        <label style={labelStyle}>通常回転時速（手動）</label>
+                        <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:4 }}>
+                          <input value={form.spinsPerHourManual||''} onChange={e=>updateForm('spinsPerHourManual',e.target.value.replace(/[^0-9]/g,''))}
+                            style={{ ...inputStyle, flex:1 }} inputMode="numeric" placeholder={`自動: ${theoreticalMetrics.normalSpinsPerHour?Math.round(theoreticalMetrics.normalSpinsPerHour):'200'}回/h`}/>
+                          <span style={{ fontSize:12, color:C.textMuted, flexShrink:0 }}>回/h</span>
+                          {form.spinsPerHourManual&&<button onClick={()=>updateForm('spinsPerHourManual','')}
+                            style={{ fontSize:11, color:C.negative, background:C.negativeBg, border:`1px solid ${C.negativeBorder}`, borderRadius:8, padding:'4px 8px', cursor:'pointer', flexShrink:0 }}>クリア</button>}
+                        </div>
+                        <div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>
+                          {form.spinsPerHourManual?`手動入力値が時給・期待時速に反映されるぜ`:'入力なし = 稼働時間から自動計算（未入力時は設定の'+numberOrZero(settings.spinsPerHour)+'回/hを使用）'}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2982,8 +3049,17 @@ export default function PachinkoCalculatorComplete() {
                           ))}
                         </div>
                       </div>
-                      {selectedMachine&&firstHitMetrics.oneRound>0&&(
-                        <div style={{ fontSize:10, color:C.positive, textAlign:'center' }}>✅ 1R出玉 {fmtRate(firstHitMetrics.oneRound)} を機種へ自動反映します</div>
+                      {selectedMachine&&firstHitMetrics.oneRound>0&&!firstHitMetrics.startUnknown&&(
+                        <div style={{ background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:10, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                          <div style={{ fontSize:11, color:C.textSecondary }}>
+                            実測1R: <b style={{ color:C.primary }}>{fmtRate(firstHitMetrics.oneRound)}玉</b>
+                            　登録値: <b style={{ color:C.textMuted }}>{selectedMachine.payoutPerRound}玉</b>
+                          </div>
+                          <button onClick={()=>applyFirstHitOneRoundToMachine()}
+                            style={{ fontSize:11, fontWeight:700, color:C.primary, background:C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:8, padding:'4px 10px', cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
+                            機種に反映
+                          </button>
+                        </div>
                       )}
                       <div className="grid grid-cols-2 gap-2">
                         <Button variant="secondary" className="rounded-xl h-9 text-sm" onClick={()=>setFirstHitDialogOpen(false)}>キャンセル</Button>
@@ -3578,8 +3654,8 @@ export default function PachinkoCalculatorComplete() {
           // 現在の回転率（回転率タブから連携）
           const currentRate=formMetrics.avgSpinPerThousand||0;
           const displayBorder=bc.exchangeCategory==='25'?equivBorder:mixedBorder;
-          // 稼働想定：選択時間 × 通常回転200回/h
-          const spinsPerH=numberOrZero(settings.spinsPerHour)||200;
+          // 稼働想定：選択時間 × 通常回転（手動入力優先、なければ設定値）
+          const spinsPerH=numberOrZero(bc.planSpinsPerH)||numberOrZero(settings.spinsPerHour)||200;
           const planHours=bc.planHours||4;
           const planSpins=planHours*spinsPerH;
           function calcEVForRate(rate){
@@ -3847,6 +3923,20 @@ export default function PachinkoCalculatorComplete() {
                       style={{ padding:'8px 14px', borderRadius:10, border:`1.5px solid ${C.primaryMid}`, background:bc.showExtended?C.primary:C.primaryLight, color:bc.showExtended?'white':C.primary, fontWeight:700, fontSize:12, cursor:'pointer', whiteSpace:'nowrap' }}>
                       {bc.showExtended?'±5に戻す':'±10まで'}
                     </button>
+                  </div>
+                  {/* 1hあたりの回転数入力 */}
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                    <label style={{ fontSize:12, fontWeight:600, color:C.textPrimary, flexShrink:0 }}>1hあたりの回転数</label>
+                    <input
+                      value={bc.planSpinsPerH||''}
+                      onChange={e=>setBorderCalc(p=>({...p,planSpinsPerH:e.target.value.replace(/[^0-9]/g,'')}))}
+                      style={{ ...inputStyle, width:80, textAlign:'center', fontWeight:700, fontSize:14, padding:'6px 8px' }}
+                      inputMode="numeric"
+                      placeholder={String(spinsPerH)}
+                    />
+                    <span style={{ fontSize:12, color:C.textMuted }}>回/h</span>
+                    {bc.planSpinsPerH&&<button onClick={()=>setBorderCalc(p=>({...p,planSpinsPerH:''}))}
+                      style={{ fontSize:11, color:C.textMuted, background:isDark?'rgba(255,255,255,0.06)':'#f1f5f9', border:`1px solid ${C.border}`, borderRadius:8, padding:'4px 8px', cursor:'pointer' }}>リセット</button>}
                   </div>
                   {/* 稼働時間切替ボタン */}
                   <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:2 }}>
@@ -4544,7 +4634,7 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                           {(()=>{
                             const machine=s.machine||machines.find(m=>m.id===s.machineId)||null;
-                            const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings);
+                            const tm=calcTheoreticalValueMetrics(s.metrics,machine,numberOrZero(s.hours),settings,s.spinsPerHourManual);
                             const unitPrice=tm.mixedUnitPriceYen;
                             const holdRatio=s.metrics.holdBallRatio;
                             const avgOneR=(()=>{const hits=(s.firstHits||[]).filter(h=>h.oneRound>0);return hits.length>0?(hits.reduce((a,h)=>a+h.oneRound,0)/hits.length):0;})();
