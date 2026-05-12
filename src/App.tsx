@@ -187,9 +187,9 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings,spinsPerHour
   const registeredOneRound=numberOrZero(machine?.payoutPerRound);
   const oneRoundPayout=numberOrZero(metrics.avgOneRoundActual||registeredOneRound);
   const holdRatio=clampNumber(metrics.holdBallRatio/100,0,1);
-  // 通常回転時速の優先順位: ①手動入力 > ②実稼働時間から計算 > ③設定デフォルト値
+  // 通常回転時速の優先順位: ①手動入力 > ②実稼働時間から計算 > ③200（固定デフォルト）
   const manualSph=numberOrZero(spinsPerHourManual);
-  const normalSpinsPerHour=manualSph>0?manualSph:(enteredHours>0&&totalSpins>0?totalSpins/enteredHours:numberOrZero(settings.spinsPerHour));
+  const normalSpinsPerHour=manualSph>0?manualSph:(enteredHours>0&&totalSpins>0?Math.round(totalSpins/enteredHours):200);
   if(rate<=0||exchangeRate<=0||totalProbability<=0||oneRoundPayout<=0) return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen:null,cashUnitPriceYen:null,mixedUnitPriceYen:null,workVolumeYen:null,workVolumeBalls:null,theoreticalHourlyYen:null };
   const holdUnitPriceYen=(oneRoundPayout/totalProbability-250/rate)*exchangeRate;
   const cashUnitPriceYen=oneRoundPayout/totalProbability*exchangeRate-1000/rate;
@@ -201,12 +201,21 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings,spinsPerHour
 }
 
 function buildSectionRateHistoryPoints(session,settings) {
-  const archived=session.rateHistoryPoints||[];
-  // 持ち玉は常に1玉=4円固定で投資額換算
   const BALL_UNIT_PRICE=4;
-  let baseSpins=archived.length?numberOrZero(archived[archived.length-1].totalSpins):0;
+  const archived=session.rateHistoryPoints||[];
+  // measurementLogsのデータも加算して漏れを防ぐ
+  // rateHistoryPointsに反映済みのログは除外（重複防止）
+  const archivedSpins=archived.length?numberOrZero(archived[archived.length-1].totalSpins):0;
+  let baseSpins=archivedSpins;
   let baseCashInvestYen=archived.length?numberOrZero(archived[archived.length-1].cashInvestYen):0;
   let baseBallInvestYen=archived.length?numberOrZero(archived[archived.length-1].ballInvestYen):0;
+  // measurementLogsのうちrateHistoryPointsに含まれていないものを追加
+  const allLogs=(session.measurementLogs||[]);
+  const logsNotInHistory=allLogs.filter(l=>{
+    if(l.kind==='jackpot_before'||l.kind==='normal') return false; // これらはrateHistoryPoints経由で追加済み
+    return false;
+  });
+  // ※現状はrateHistoryPointsに頼る方式を維持
   let prevReading=numberOrZero(session.startRotation);
   const si=(session.rateSections||[]).length+1;
   return (session.rateEntries||[]).flatMap((entry,index)=>{
@@ -228,7 +237,7 @@ function getSessionTrendData(session,settings) {
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
 function emptySession(settings=defaultSettings) {
-  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',spinsPerHourManual:'',notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
+  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',spinsPerHourManual:'',currentBallsManual:'',notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
 }
 
 function hasMeaningfulSession(s) {
@@ -334,7 +343,9 @@ function calcRateMetrics(session,machine,settings) {
   const ballsBase=lastEndBalls>0?lastEndBalls:inheritedBallsBase;
   // 大当たり後は現在枠＋アーカイブ済み投資玉を引く（measurementLogsも含む）
   const ballsDeducted=lastEndBalls>0?(logTotals.ballBalls+cBalls):allBallInvestBalls;
-  const currentBalls=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
+  const currentBallsAuto=ballsBase>0?Math.max(0,ballsBase-ballsDeducted):null;
+  const currentBallsManualVal=numberOrZero(session.currentBallsManual);
+  const currentBalls=currentBallsManualVal>0?currentBallsManualVal:currentBallsAuto;
   const currentBallsYen=currentBalls!==null?currentBalls*exchangeRate:null;  // 持ち玉は換金率で計算
 
   // ── 収支：残り持ち玉の価値 − 今回の現金投資のみ + 引き継ぎ収支補正 ──
@@ -661,7 +672,8 @@ export default function PachinkoCalculatorComplete() {
   const [resetConfirmOpen,setResetConfirmOpen]=useState(false);
   const [tableMoveConfirmOpen,setTableMoveConfirmOpen]=useState(false);
   const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
-  const stopLossAlertShownRef=useRef(0); // 最後に損切りアラートを出した損失額
+  const stopLossAlertShownRef=useRef(0);
+  const [sphResetConfirmOpen,setSphResetConfirmOpen]=useState(false); // 最後に損切りアラートを出した損失額
   const [belowBorderAlertOpen,setBelowBorderAlertOpen]=useState(false);
   const belowBorderAlertSpinsRef=useRef(0); // 最後にアラートを出した回転数
   const [showHomeWidget,setShowHomeWidget]=useState(false);
@@ -1037,19 +1049,8 @@ export default function PachinkoCalculatorComplete() {
       return updated;
     });
 
-    // ── 実際の時速を計算してspinsPerHourを自動更新 ──
-    const currentReading=numberOrZero(val);
-    const startRot=numberOrZero(form.startRotation);
-    const startT=form.startTime;
-    if(currentReading>startRot&&startT){
-      const elapsedH=calcElapsedHours(startT,nowTimeStr());
-      if(elapsedH>=0.05){ // 3分以上経過した場合のみ更新（誤値防止）
-        const realSpinsPerHour=Math.round((currentReading-startRot)/elapsedH);
-        if(realSpinsPerHour>=100&&realSpinsPerHour<=500){ // 異常値フィルタ
-          setSettings(p=>({...p,spinsPerHour:realSpinsPerHour}));
-        }
-      }
-    }
+    // ※ settings.spinsPerHourの自動上書きは廃止（設定値を汚さないため）
+    // 実測時速はform.spinsPerHourManualまたは稼働時間から自動計算される
 
     const ne=Boolean(form.rateEntries[idx+1]);
     if(!ne){
@@ -1408,6 +1409,8 @@ export default function PachinkoCalculatorComplete() {
             rate:Number(met2.currentSpinPerThousand.toFixed(2)),
             endReading:met2.currentEndRotation, createdAt:Date.now(),
           };
+          // rateHistoryPointsも更新して1万円ごとの回転率に反映
+          const ap2=buildSectionRateHistoryPoints(nb,settings);
           const rsr2=numberOrZero(firstHitForm.restartRotation);
           const na2=nb.currentInputMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
           const afterEntry2={id:uid(),kind:'jackpot_after',amount:'0',reading:rsr2>0?String(rsr2):''};
@@ -1415,6 +1418,8 @@ export default function PachinkoCalculatorComplete() {
           return {
             ...nb,
             measurementLogs:[...(nb.measurementLogs||[]),jLog],
+            rateHistoryPoints:[...(nb.rateHistoryPoints||[]),...ap2],
+            startRotation:rsr2>0?String(rsr2):nb.startRotation,
             rateEntries:[afterEntry2, nextEntry2],
           };
         }
@@ -2263,10 +2268,22 @@ export default function PachinkoCalculatorComplete() {
                             <div style={{ fontSize:15, fontWeight:800, color:formMetrics.rateDiff>=0?C.positive:C.negative }}>{formMetrics.rateDiff>=0?'+':''}{fmtRate(formMetrics.rateDiff)}</div>
                           </div>
                         )}
-                        {formMetrics.currentBalls!==null&&(
+                        {(formMetrics.currentBalls!==null||form.currentBallsManual)&&(
                           <div style={{ textAlign:'left' }}>
                             <div style={{ fontSize:10, color:'#0369a1', fontWeight:600 }}>🎰 持ち玉</div>
-                            <div style={{ fontSize:15, fontWeight:800, color:C.amber }}>{formMetrics.currentBalls.toLocaleString()}玉</div>
+                            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                              <input
+                                value={form.currentBallsManual||''}
+                                onChange={e=>updateForm('currentBallsManual',e.target.value.replace(/[^0-9]/g,''))}
+                                style={{ ...inputStyle, width:72, fontSize:13, fontWeight:800, padding:'3px 6px', textAlign:'center', color:C.amber, borderColor:form.currentBallsManual?C.amber:C.border }}
+                                inputMode="numeric"
+                                placeholder={formMetrics.currentBalls!==null?String(formMetrics.currentBalls):'0'}
+                              />
+                              <span style={{ fontSize:11, color:C.amber, fontWeight:600 }}>玉</span>
+                              {form.currentBallsManual&&<button onClick={()=>updateForm('currentBallsManual','')}
+                                style={{ fontSize:10, color:C.textMuted, background:'none', border:`1px solid ${C.border}`, borderRadius:6, padding:'2px 5px', cursor:'pointer' }}>✕</button>}
+                            </div>
+                            {form.currentBallsManual&&<div style={{ fontSize:9, color:C.amber }}>手動入力</div>}
                           </div>
                         )}
                       </div>
@@ -2302,7 +2319,35 @@ export default function PachinkoCalculatorComplete() {
                           }
                           color={C.amber}
                         />
-                        <MetricBox label="通常回転時速" value={theoreticalMetrics.normalSpinsPerHour?fmtRate(theoreticalMetrics.normalSpinsPerHour):'-'} sub="h あたり通常回転"/>
+                        {/* 通常回転時速（インライン入力） */}
+                        {(()=>{
+                          const autoSph=formMetrics.totalSpins>0&&numberOrZero(form.hours)>0
+                            ?Math.round(formMetrics.totalSpins/numberOrZero(form.hours)):null;
+                          const isManual=!!form.spinsPerHourManual;
+                          const subLabel=isManual?'手動入力':autoSph!==null?'稼働時間から計算':'デフォルト値（200回/h）';
+                          return (
+                            <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:'12px 14px' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+                                <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>通常回転時速</div>
+                                <button onClick={()=>setSphResetConfirmOpen(true)}
+                                  style={{ fontSize:9, color:C.textMuted, background:'transparent', border:`1px solid ${C.border}`, borderRadius:6, padding:'2px 6px', cursor:'pointer', lineHeight:1.4 }}>
+                                  リセット
+                                </button>
+                              </div>
+                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                                <input
+                                  value={form.spinsPerHourManual||''}
+                                  onChange={e=>updateForm('spinsPerHourManual',e.target.value.replace(/[^0-9]/g,''))}
+                                  style={{ ...inputStyle, fontSize:18, fontWeight:700, padding:'4px 6px', width:64, textAlign:'center', color:C.textPrimary }}
+                                  inputMode="numeric"
+                                  placeholder="200"
+                                />
+                                <span style={{ fontSize:12, color:C.textMuted }}>回/h</span>
+                              </div>
+                              <div style={{ marginTop:2, fontSize:10, color:isManual?C.primary:C.textMuted }}>{subLabel}</div>
+                            </div>
+                          );
+                        })()}
                         <div style={{ background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:16, padding:'12px 14px' }}>
                           <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>回転単価</div>
                           <div style={{ marginTop:4, fontSize:18, fontWeight:700, color:theoreticalMetrics.mixedUnitPriceYen===null?C.textMuted:numberOrZero(theoreticalMetrics.mixedUnitPriceYen)>=0?C.positive:C.negative }}>{theoreticalMetrics.mixedUnitPriceYen!==null?`${theoreticalMetrics.mixedUnitPriceYen>=0?'+':''}${fmtRate(theoreticalMetrics.mixedUnitPriceYen)}円`:'-'}</div>
@@ -3475,6 +3520,25 @@ export default function PachinkoCalculatorComplete() {
                   )}
 
                   {/* 損切りアラートダイアログ */}
+                  {/* 通常回転時速リセット確認 */}
+                  {sphResetConfirmOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 24px' }} onClick={()=>setSphResetConfirmOpen(false)}>
+                      <div style={{ background:C.card, borderRadius:20, padding:'24px 20px', width:'100%', maxWidth:360 }} onClick={e=>e.stopPropagation()}>
+                        <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary, marginBottom:8 }}>通常回転時速をリセット</div>
+                        <div style={{ fontSize:13, color:C.textSecondary, marginBottom:20, lineHeight:1.6 }}>
+                          手動入力をクリアして初期値（200回転/h）に戻しますか？
+                          {numberOrZero(form.hours)>0&&<><br/><span style={{ color:C.primary }}>※稼働時間から自動計算した値が反映されます</span></>}
+                        </div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                          <button onClick={()=>setSphResetConfirmOpen(false)}
+                            style={{ ...btnSecondary, padding:'12px', borderRadius:12, fontSize:14 }}>キャンセル</button>
+                          <button onClick={()=>{updateForm('spinsPerHourManual','');setSphResetConfirmOpen(false);}}
+                            style={{ ...btnPrimary, padding:'12px', borderRadius:12, fontSize:14 }}>リセット</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {stopLossAlertOpen&&(
                     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', zIndex:1001, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
                       <div style={{ background:C.card, borderRadius:24, padding:'24px 20px', width:'100%', maxWidth:360, border:`2px solid ${C.negativeBorder}` }}>
