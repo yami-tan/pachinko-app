@@ -184,7 +184,9 @@ function calcTheoreticalValueMetrics(metrics,machine,hours,settings) {
   const rate=numberOrZero(metrics.spinPerThousand), exchangeRate=numberOrZero(metrics.exchangeRate);
   const totalSpins=numberOrZero(metrics.totalSpins), enteredHours=numberOrZero(hours);
   const totalProbability=numberOrZero(machine?.totalProbability), averagePayout=numberOrZero(machine?.expectedBallsPerHit);
-  const oneRoundPayout=numberOrZero(machine?.payoutPerRound);
+  const registeredOneRound=numberOrZero(machine?.payoutPerRound);
+  // 実測1R出玉（metrics.avgOneRoundActual）を優先、なければ機種登録値
+  const oneRoundPayout=numberOrZero(metrics.avgOneRoundActual||registeredOneRound);
   const holdRatio=clampNumber(metrics.holdBallRatio/100,0,1);
   const normalSpinsPerHour=enteredHours>0&&totalSpins>0?totalSpins/enteredHours:numberOrZero(settings.spinsPerHour);
   if(rate<=0||exchangeRate<=0||totalProbability<=0||oneRoundPayout<=0) return { totalProbability,averagePayout,oneRoundPayout,normalSpinsPerHour,holdUnitPriceYen:null,cashUnitPriceYen:null,mixedUnitPriceYen:null,workVolumeYen:null,workVolumeBalls:null,theoreticalHourlyYen:null };
@@ -349,12 +351,15 @@ function calcRateMetrics(session,machine,settings) {
 
   // ── 総R数・1R平均出玉（仕事量計算用） ──
   const totalRounds=(session.firstHits||[]).reduce((a,h)=>a+numberOrZero(h.rounds),0);
-  const oneRoundPayout=numberOrZero(machine?.payoutPerRound);
+  // 実測1R出玉を優先（startBallsKnown=falseの記録は除外）
+  const hitsWithOneRound=(session.firstHits||[]).filter(h=>h.oneRound>0&&h.startBallsKnown!==false);
+  const avgOneRoundActual=hitsWithOneRound.length>0
+    ?hitsWithOneRound.reduce((a,h)=>a+h.oneRound,0)/hitsWithOneRound.length
+    :null;
+  const oneRoundPayout=numberOrZero(avgOneRoundActual!==null?avgOneRoundActual:machine?.payoutPerRound);
   const totalProbability=numberOrZero(machine?.totalProbability);
   // 仕事量 = 混合回転単価 × 総回転数（持ち玉比率を考慮した正確な理論収益）
-  // 混合回転単価 = 持ち玉単価 × 持ち玉比率 + 現金単価 × (1 − 持ち玉比率)
-  // 持ち玉単価 = (1R出玉÷確率 − 250÷回転率) × 換金率
-  // 現金単価   = 1R出玉÷確率 × 換金率 − 1000÷回転率
+  // 実測1R出玉がある場合は技術介入（捻り打ち・止め打ち等）が反映される
   const workVolumeYen=(()=>{
     if(oneRoundPayout<=0||totalProbability<=0||allSpinPerThousand<=0) return null;
     const holdRatio=clampNumber(allHoldBallRatio/100,0,1);
@@ -374,6 +379,7 @@ function calcRateMetrics(session,machine,settings) {
     ballInvestBalls:allBallInvestBalls,
     ballInvestYen:  allBallInvestYen,
     holdBallRatio:  allHoldBallRatio,
+    avgOneRoundActual: avgOneRoundActual, // 実測1R出玉（技術介入込み）
     spinPerThousand:allSpinPerThousand,    // 回転率は現金+持ち玉で計算
     avgSpinPerThousand: allSpinPerThousand,
     estimatedEVYen: allEstimatedEVYen,
@@ -659,6 +665,9 @@ export default function PachinkoCalculatorComplete() {
   const belowBorderAlertSpinsRef=useRef(0); // 最後にアラートを出した回転数
   const [showHomeWidget,setShowHomeWidget]=useState(false);
   const [swipeStates,setSwipeStates]=useState({});
+  const [breakDialogOpen,setBreakDialogOpen]=useState(false);
+  const [breaks,setBreaks]=useState([]); // [{id,type,startTime,endTime}]
+  const [isOnBreak,setIsOnBreak]=useState(false);
   const swipeTouchStart=useRef({});
   const [nailGrades,setNailGrades]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_nail_grades')||'{}');}catch{return {};}});
   const [hesoDirections,setHesoDirections]=useState(()=>{try{return JSON.parse(localStorage.getItem('pachi_heso_dirs')||'[]');}catch{return [];}});
@@ -890,7 +899,7 @@ export default function PachinkoCalculatorComplete() {
     });
   },[activeTab, form.machineId, form.exchangeCategory, formMetrics.holdBallRatio, avgOneRoundFromHits]);
 
-  const firstHitMetrics=useMemo(()=>{ const rounds=numberOrZero(firstHitForm.rounds),startBalls=numberOrZero(firstHitForm.startBalls),upperBalls=numberOrZero(firstHitForm.upperBalls),endBalls=numberOrZero(firstHitForm.endBalls); const gainedBalls=Math.max(0,endBalls-(startBalls+upperBalls)); const oneRound=rounds>0&&gainedBalls>0?gainedBalls/rounds:0; return {rounds,gainedBalls,oneRound}; },[firstHitForm]);
+  const firstHitMetrics=useMemo(()=>{ const rounds=numberOrZero(firstHitForm.rounds),startBalls=numberOrZero(firstHitForm.startBalls),upperBalls=numberOrZero(firstHitForm.upperBalls),endBalls=numberOrZero(firstHitForm.endBalls); const startUnknown=firstHitForm.startBalls===''; const gainedBalls=startUnknown?0:Math.max(0,endBalls-(startBalls+upperBalls)); const oneRound=startUnknown?null:(rounds>0&&gainedBalls>0?gainedBalls/rounds:0); return {rounds,gainedBalls,oneRound,startUnknown}; },[firstHitForm]);
 
   const judgeMetrics=useMemo(()=>{ const observed=numberOrZero(judgeForm.observedRate),border=numberOrZero(judgeForm.border),diff=observed-border; const playDiff=numberOrZero(settings.judgePlayDiff),watchDiff=numberOrZero(settings.judgeWatchDiff); const reliability=formMetrics.totalSpins>=200?'高':formMetrics.totalSpins>=100?'中':'低'; let verdict='判定不能',tone='secondary',comment='回転率かボーダーを入れてくれ。'; if(observed>0&&border>0){if(diff>=playDiff&&formMetrics.totalSpins>=80){verdict='打てる';tone='default';comment='今の数値なら続行候補だぜ。ブレはあるが、まだ追う価値がある。';}else if(diff>=watchDiff){verdict='様子見';tone='secondary';comment='ボーダー付近だな。もう少しサンプルを取ると精度が上がる。';}else{verdict='やめ候補';tone='destructive';comment='今のところ弱い。根拠が増えない限り深追いは危険だぜ。';}} return {observed,border,diff,verdict,tone,comment,reliability}; },[judgeForm,settings,formMetrics.totalSpins]);
 
@@ -926,9 +935,32 @@ export default function PachinkoCalculatorComplete() {
   function addShopProfile() { const name=String(shopProfileDraft.name||'').trim(); if(!name)return; const np={name,exchangeCategory:shopProfileDraft.exchangeCategory||'25',specialDays:shopProfileDraft.specialDays||'',specialDayList:(shopProfileDraft.specialDayList||[]).filter(d=>d.day),notes:shopProfileDraft.notes||''}; setSettings(p=>{const f=(p.shopProfiles||[]).filter(pr=>String(pr.name||'').trim().toLowerCase()!==name.toLowerCase()); return {...p,shopProfiles:[...f,np]};}); setShopProfileDraft({name:'',exchangeCategory:'25',specialDays:'',specialDayList:[],notes:''}); }
   function saveShopEdit() { const name=String(shopEditDraft.name||'').trim(); if(!name)return; setSettings(p=>{const updated=(p.shopProfiles||[]).map(pr=>pr.name===editingShopName?{...pr,...shopEditDraft,name}:pr); return {...p,shopProfiles:updated};}); setEditingShopName(null); }
   function removeShopProfile(name) { setSettings(p=>({...p,shopProfiles:(p.shopProfiles||[]).filter(pr=>pr.name!==name)})); }
+  function startBreak(type) {
+    const now=nowTimeStr();
+    setBreaks(p=>[...p,{id:uid(),type,startTime:now,endTime:null}]);
+    setIsOnBreak(true);
+    setBreakDialogOpen(false);
+  }
+  function endBreak() {
+    const now=nowTimeStr();
+    setBreaks(p=>p.map(b=>b.endTime===null?{...b,endTime:now}:b));
+    setIsOnBreak(false);
+  }
+  // 休憩合計時間（時間単位）
+  function calcBreakHours(breakList) {
+    return (breakList||[]).reduce((acc,b)=>{
+      if(!b.startTime||!b.endTime) return acc;
+      const bh=calcElapsedHours(b.startTime,b.endTime);
+      return acc+(bh||0);
+    },0);
+  }
   function openCompleteDialog() {
     const endTime=nowTimeStr();
-    const elapsed=calcElapsedHours(form.startTime,endTime);
+    // 休憩中なら終了させる
+    if(isOnBreak) endBreak();
+    const rawElapsed=calcElapsedHours(form.startTime,endTime);
+    const breakH=calcBreakHours(breaks);
+    const elapsed=rawElapsed!==null?Math.max(0,rawElapsed-breakH):null;
     applyFormUpdate(p=>({...p, endTime, hours:elapsed!==null?String(Math.round(elapsed*10)/10):p.hours}));
     // キーボードを確実に閉じてからダイアログを開く
     if(document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -951,7 +983,16 @@ export default function PachinkoCalculatorComplete() {
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
     saveCounterSnapshot(); setCounters(DEFAULT_COUNTERS); // 振り分けカウンターも終了時リセット
+    setBreaks([]); setIsOnBreak(false);
     skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history');
+    // ボーダータブの持ち玉比率・1R出玉をリセット
+    setBorderCalc(p=>({
+      ...p,
+      holdBallRatioInput: '',
+      oneRoundPayout: p.selectedBorderMachineId
+        ? String(machines.find(m=>m.id===p.selectedBorderMachineId)?.payoutPerRound||'')
+        : '',
+    }));
   }
   function updateRateEntry(id,k,v) { applyFormUpdate(p=>({...p,rateEntries:p.rateEntries.map(e=>e.id===id?{...e,[k]:v}:e)})); }
   function setCurrentInputMode(m) {
@@ -1095,6 +1136,15 @@ export default function PachinkoCalculatorComplete() {
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved'); setForm(emptySession(settings)); setActiveTab('rate');
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
+    setBreaks([]); setIsOnBreak(false);
+    // ボーダータブの持ち玉比率・1R出玉をリセット（前回セッションの値が残らないように）
+    setBorderCalc(p=>({
+      ...p,
+      holdBallRatioInput: '', // 持ち玉比率をクリア
+      oneRoundPayout: p.selectedBorderMachineId
+        ? String(machines.find(m=>m.id===p.selectedBorderMachineId)?.payoutPerRound||'')
+        : '',                 // 機種登録値に戻す（hits実測値をクリア）
+    }));
   }
 
   // 引き継ぎダイアログを開く（完了済みセッション全件対象）
@@ -1228,20 +1278,20 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'0',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() { const hits=form.firstHits||[]; if(!hits.length)return; const last=hits[hits.length-1]; applyFormUpdate(p=>{ const newNotes=last?.memoLine?p.notes.split('\n').filter(line=>line!==last.memoLine).join('\n'):p.notes; return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes}; }); }
-  function applyFirstHitOneRoundToMachine() { if(!selectedMachine)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
+  function applyFirstHitOneRoundToMachine() { if(!selectedMachine||firstHitMetrics.oneRound===null)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
     const label=firstHitForm.label||`初当たり${(form.firstHits||[]).length+1}回目`;
     const crl=getChainResultLabel(firstHitForm.chainCount);
     const rh=numberOrZero(firstHitForm.remainingHolds);
     const rhStr=rh>0?(' / 残り保留'+rh+'個'):'';
-    const ml='['+label+'] '+firstHitMetrics.rounds+'R / 獲得'+Math.round(firstHitMetrics.gainedBalls)+'玉 / 1R '+Number(firstHitMetrics.oneRound.toFixed(1))+' / '+crl+rhStr;
+    const ml='['+label+'] '+firstHitMetrics.rounds+'R / '+(firstHitMetrics.startUnknown?'1R不明':('獲得'+Math.round(firstHitMetrics.gainedBalls)+'玉 / 1R '+Number(firstHitMetrics.oneRound!==null?firstHitMetrics.oneRound.toFixed(1):'0')))+' / '+crl+rhStr;
     // 連チャン時間（ダイアログを開いてから完了するまでの秒数）
     const chainTimeSec=firstHitDialogOpenTimeRef.current>0
       ? Math.round((Date.now()-firstHitDialogOpenTimeRef.current)/1000)
       : 0;
-    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:Number(firstHitMetrics.oneRound.toFixed(1)),chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml,hitSpins:numberOrZero(firstHitForm.hitSpins),chainTimeSec};
+    const hit={id:uid(),label,rounds:firstHitMetrics.rounds,startBalls:numberOrZero(firstHitForm.startBalls),upperBalls:numberOrZero(firstHitForm.upperBalls),endBalls:numberOrZero(firstHitForm.endBalls),gainedBalls:firstHitMetrics.gainedBalls,oneRound:firstHitMetrics.oneRound!==null?Number(firstHitMetrics.oneRound.toFixed(1)):0,startBallsKnown:!firstHitMetrics.startUnknown,chainCount:numberOrZero(firstHitForm.chainCount),chainResultLabel:crl,remainingHolds:rh,memoLine:ml,hitSpins:numberOrZero(firstHitForm.hitSpins),chainTimeSec};
 
     // 差玉投資行の自動生成
     const hitSpins=numberOrZero(firstHitForm.hitSpins);
@@ -2310,38 +2360,14 @@ export default function PachinkoCalculatorComplete() {
                     const ev=border>0&&rate>0?calcEvYenFromRate(rate,border,entryInvestYen,settings):0;
                     const isFocused=flashReadingId===entry.id;
                     const isRestart=entry.kind==='restart';
-                    const swipeX=swipeStates[entry.id]||0;
-                    const showDelete=swipeX<-60;
                     return (
-                      <div key={entry.id} style={{ position:'relative', overflow:'hidden', borderRadius:16 }}>
-                        {/* スワイプ削除背景 */}
-                        {showDelete&&(
-                          <div style={{ position:'absolute', right:0, top:0, bottom:0, width:80, background:C.negative, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'0 16px 16px 0', zIndex:1 }}>
-                            <button onClick={()=>{removeRateEntry(entry.id);setSwipeStates(p=>({...p,[entry.id]:0}));}}
-                              style={{ background:'none', border:'none', color:'white', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2, fontSize:11, fontWeight:700 }}>
-                              <Trash2 size={18} color="white"/>削除
-                            </button>
-                          </div>
-                        )}
+                      <div key={entry.id}>
                         <div
                           style={{
                             border:`2px solid ${isRestart?'#fde68a':isFocused?'#10b981':hasReading?tone.border:C.border}`,
                             borderRadius:16,
                             background:isRestart?(isDark?'rgba(251,191,36,0.12)':'#fffbeb'):isFocused?(isDark?'rgba(16,185,129,0.12)':'#ecfdf5'):hasReading?tone.bg:C.card,
                             overflow:'hidden',
-                            transition:swipeX===0?'transform 0.2s':'none',
-                            transform:`translateX(${Math.min(0,swipeX)}px)`,
-                            position:'relative', zIndex:2,
-                          }}
-                          onTouchStart={e=>{swipeTouchStart.current[entry.id]=e.touches[0].clientX;}}
-                          onTouchMove={e=>{
-                            const dx=e.touches[0].clientX-(swipeTouchStart.current[entry.id]||0);
-                            if(dx<0) setSwipeStates(p=>({...p,[entry.id]:Math.max(-80,dx)}));
-                          }}
-                          onTouchEnd={()=>{
-                            const x=swipeStates[entry.id]||0;
-                            if(x>-40) setSwipeStates(p=>({...p,[entry.id]:0}));
-                            else setSwipeStates(p=>({...p,[entry.id]:-80}));
                           }}
                         >
                         {/* 上段：ゲーム数入力 ＋ 投資種別・金額 ＋ 削除 */}
@@ -2558,14 +2584,18 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ position:'sticky', bottom:80, zIndex:10, background:isDark?'rgba(15,23,42,0.97)':'rgba(255,255,255,0.97)', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 16px', backdropFilter:'blur(12px)', boxShadow:'0 -2px 20px rgba(0,0,0,0.12)' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
                     <div style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>今日の1台サマリー</div>
-                    {formMetrics.machineBorder>0&&(
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span style={{ fontSize:11, color:C.textMuted }}>ボーダー差</span>
-                        <span style={{ fontSize:15, fontWeight:800, color:formMetrics.rateDiff>=0?C.positive:C.negative, background:formMetrics.rateDiff>=0?C.positiveBg:C.negativeBg, border:`1px solid ${formMetrics.rateDiff>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:8, padding:'2px 8px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      {formMetrics.machineBorder>0&&(
+                        <span style={{ fontSize:11, color:C.textMuted }}>
+                          B<span style={{ fontWeight:700, color:C.textSecondary, marginLeft:2 }}>{fmtRate(formMetrics.machineBorder)}</span>
+                        </span>
+                      )}
+                      {formMetrics.machineBorder>0&&(
+                        <span style={{ fontSize:13, fontWeight:800, color:formMetrics.rateDiff>=0?C.positive:C.negative, background:formMetrics.rateDiff>=0?C.positiveBg:C.negativeBg, border:`1px solid ${formMetrics.rateDiff>=0?C.positiveBorder:C.negativeBorder}`, borderRadius:8, padding:'2px 8px' }}>
                           {formMetrics.rateDiff>=0?'▲':'▼'}{Math.abs(formMetrics.rateDiff).toFixed(2)}
                         </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                   {/* 収支・回転率を大きく中央に */}
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
@@ -2747,7 +2777,26 @@ export default function PachinkoCalculatorComplete() {
                       {/* 持ち玉・回転 2列グリッド */}
                       <div className="grid grid-cols-2 gap-2 rounded-xl border p-2">
                         <div><Label className="text-xs">開始持ち玉</Label><Input value={firstHitForm.startBalls} onChange={e=>setFirstHitForm(p=>({...p,startBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
-                        <div><Label className="text-xs">終了持ち玉</Label><Input value={firstHitForm.endBalls} onChange={e=>setFirstHitForm(p=>({...p,endBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
+                        <div>
+                          <Label className="text-xs" style={{ color:!firstHitForm.endBalls?'#dc2626':undefined }}>
+                            終了持ち玉{!firstHitForm.endBalls&&<span style={{ fontSize:10, marginLeft:4 }}>⚠️ 未入力</span>}
+                          </Label>
+                          <Input value={firstHitForm.endBalls} onChange={e=>setFirstHitForm(p=>({...p,endBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"
+                            style={{ borderColor:!firstHitForm.endBalls?'#dc2626':undefined }}/>
+                          {(()=>{
+                            const payoutPerRound=selectedMachine?.payoutPerRound||0;
+                            const rounds=numberOrZero(firstHitForm.rounds);
+                            const startBalls=numberOrZero(firstHitForm.startBalls);
+                            if(payoutPerRound>0&&rounds>0&&!firstHitForm.endBalls){
+                              const suggested=startBalls+Math.round(rounds*payoutPerRound);
+                              return <button onClick={()=>setFirstHitForm(p=>({...p,endBalls:String(suggested)}))}
+                                style={{ fontSize:10, color:C.primary, background:C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:6, padding:'2px 7px', marginTop:3, cursor:'pointer', display:'block' }}>
+                                自動入力: {suggested.toLocaleString()}玉
+                              </button>;
+                            }
+                            return null;
+                          })()}
+                        </div>
                         <div><Label className="text-xs">上皿玉数(任意)</Label><Input value={firstHitForm.upperBalls} onChange={e=>setFirstHitForm(p=>({...p,upperBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/></div>
                         <div><Label className="text-xs">連チャン数</Label><Input value={firstHitForm.chainCount} onChange={e=>{const v=e.target.value; const n=numberOrZero(v); setFirstHitForm(p=>({...p,chainCount:v,restartReason:n>1?'st':p.restartReason}));}} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="1"/></div>
                         <div><Label className="text-xs">再スタート回転</Label><Input value={firstHitForm.restartRotation} onChange={e=>{const v=e.target.value; setFirstHitForm(p=>({...p,restartRotation:v,...(numberOrZero(p.chainCount)<=1&&numberOrZero(v)>0?{restartReason:'jitan'}:{}),...(numberOrZero(p.chainCount)<=1&&numberOrZero(v)<=0?{restartReason:'single'}:{})}));}} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="0"/></div>
@@ -2922,7 +2971,7 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'2px 12px', fontSize:12 }}>
                           {[
                             ['獲得出玉', firstHitMetrics.gainedBalls>0?fmtBall(firstHitMetrics.gainedBalls):'-'],
-                            ['1R出玉', firstHitMetrics.oneRound>0?fmtRate(firstHitMetrics.oneRound):(firstHitMetrics.gainedBalls>0&&firstHitMetrics.rounds<=0?'R数入力待ち':'-')],
+                            ['1R出玉', firstHitMetrics.startUnknown?'不明':(firstHitMetrics.oneRound>0?fmtRate(firstHitMetrics.oneRound):(firstHitMetrics.gainedBalls>0&&firstHitMetrics.rounds<=0?'R数入力待ち':'-'))],
                             ['合計R', firstHitMetrics.rounds>0?String(firstHitMetrics.rounds)+'R':'未入力'],
                             ['連チャン', getChainResultLabel(firstHitForm.chainCount)],
                           ].map(([l,v])=>(
@@ -2989,7 +3038,7 @@ export default function PachinkoCalculatorComplete() {
                             <div style={{ fontWeight:700, color:C.textPrimary, fontSize:14 }}>{hit.label}</div>
                             {hit.hitSpins>0&&<div style={{ fontSize:12, fontWeight:700, color:C.amber, background:isDark?'rgba(245,158,11,0.15)':C.amberBg, border:`1px solid ${C.amberBorder}`, borderRadius:8, padding:'2px 8px' }}>🎯 初当たり{hit.hitSpins}回転</div>}
                           </div>
-                          <div style={{ fontSize:12, color:C.textSecondary, marginTop:3 }}>{hit.rounds}R / 獲得{Math.round(hit.gainedBalls)}玉 / 1R {hit.oneRound.toFixed(1)} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
+                          <div style={{ fontSize:12, color:C.textSecondary, marginTop:3 }}>{hit.rounds}R / {hit.startBallsKnown===false?'1R不明':('獲得'+Math.round(hit.gainedBalls)+'玉 / 1R '+hit.oneRound.toFixed(1))} / {hit.chainResultLabel||getChainResultLabel(hit.chainCount)}</div>
                           {hit.restartRotation>0&&<div style={{ fontSize:12, color:C.primary, marginTop:3, fontWeight:600 }}>🔄 再スタート: {hit.restartRotation}回転</div>}
                           {hit.hitSpins>0&&hit.remainingHolds>0&&(
                             <div style={{ fontSize:12, color:C.amber, marginTop:3, fontWeight:600 }}>
@@ -3129,7 +3178,7 @@ export default function PachinkoCalculatorComplete() {
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.textMuted, fontWeight:600 }}>{i+1}</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', fontWeight:700, color:C.textPrimary }}>{hit.rounds}R</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.positive }}>{Math.round(hit.gainedBalls).toLocaleString()}</td>
-                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.accent }}>{hit.oneRound>0?hit.oneRound.toFixed(1):'-'}</td>
+                                <td style={{ padding:'7px 8px', textAlign:'center', color:C.accent }}>{hit.startBallsKnown===false?'不明':hit.oneRound>0?hit.oneRound.toFixed(1):'-'}</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.textSecondary, whiteSpace:'nowrap' }}>{hit.chainResultLabel||'単発'}</td>
                                 <td style={{ padding:'7px 8px', textAlign:'center', color:C.textMuted, whiteSpace:'nowrap' }}>
                                   {hit.chainTimeSec>0
@@ -3258,13 +3307,70 @@ export default function PachinkoCalculatorComplete() {
                       <CheckCircle2 size={18}/> 終了
                     </button>
                   </div>
-                  {/* サブボタン：台移動のみ */}
-                  <div style={{ display:'flex', justifyContent:'center' }}>
+                  {/* サブボタン：台移動＋休憩 */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                     <button onClick={()=>setTableMoveConfirmOpen(true)}
-                      style={{ ...btnSecondary, padding:'10px 32px', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', gap:6, borderRadius:14 }}>
+                      style={{ ...btnSecondary, padding:'10px', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, borderRadius:14 }}>
                       <span style={{ fontSize:16 }}>🚶</span><span>台移動</span>
                     </button>
+                    <button onClick={()=>isOnBreak?endBreak():setBreakDialogOpen(true)}
+                      style={{ padding:'10px', fontSize:13, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:6, borderRadius:14, border:`2px solid ${isOnBreak?C.amber:'#d97706'}`, background:isOnBreak?(isDark?'rgba(245,158,11,0.15)':'#fffbeb'):'transparent', color:C.amber, cursor:'pointer' }}>
+                      <span style={{ fontSize:16 }}>☕</span>
+                      <span>{isOnBreak?'休憩終了':'休憩'}</span>
+                      {isOnBreak&&<span style={{ fontSize:10, background:C.amber, color:'white', borderRadius:6, padding:'1px 5px' }}>中</span>}
+                    </button>
                   </div>
+
+                  {/* 休憩選択ダイアログ */}
+                  {breakDialogOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'flex-end', justifyContent:'center' }} onClick={()=>setBreakDialogOpen(false)}>
+                      <div style={{ background:C.card, borderRadius:'24px 24px 0 0', width:'100%', maxWidth:520, padding:'20px 20px 32px' }} onClick={e=>e.stopPropagation()}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
+                          <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary }}>☕ 休憩の種類を選んでください</div>
+                          <button onClick={()=>setBreakDialogOpen(false)} style={{ background:'none', border:'none', fontSize:22, color:C.textMuted, cursor:'pointer' }}>✕</button>
+                        </div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                          {[
+                            {type:'タバコ',icon:'🚬',label:'タバコ休憩',sub:'約5〜10分'},
+                            {type:'ご飯',icon:'🍱',label:'ご飯休憩',sub:'約30〜60分'},
+                          ].map(b=>(
+                            <button key={b.type} onClick={()=>startBreak(b.type)}
+                              style={{ padding:'20px 12px', borderRadius:18, border:`2px solid ${C.amber}`, background:isDark?'rgba(245,158,11,0.1)':'#fffbeb', cursor:'pointer', textAlign:'center' }}>
+                              <div style={{ fontSize:36, marginBottom:8 }}>{b.icon}</div>
+                              <div style={{ fontWeight:800, fontSize:15, color:C.amber }}>{b.label}</div>
+                              <div style={{ fontSize:11, color:C.textMuted, marginTop:3 }}>{b.sub}</div>
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ marginTop:14, fontSize:12, color:C.textMuted, textAlign:'center' }}>
+                          休憩中は稼働時間のカウントが止まるぜ
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 休憩中バナー */}
+                  {isOnBreak&&(()=>{
+                    const currentBreak=breaks[breaks.length-1];
+                    const elapsedMins=currentBreak?.startTime
+                      ?Math.round((calcElapsedHours(currentBreak.startTime,nowTimeStr())||0)*60):0;
+                    return (
+                      <div style={{ background:isDark?'rgba(245,158,11,0.15)':'#fffbeb', border:`2px solid ${C.amber}`, borderRadius:14, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontWeight:800, fontSize:14, color:C.amber }}>
+                            {currentBreak?.type==='タバコ'?'🚬':'🍱'} {currentBreak?.type}休憩中
+                          </div>
+                          <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                            {currentBreak?.startTime}〜　{elapsedMins>0?`（${elapsedMins}分経過）`:''}
+                          </div>
+                        </div>
+                        <button onClick={endBreak}
+                          style={{ background:C.amber, color:'white', border:'none', borderRadius:10, padding:'8px 14px', fontWeight:700, fontSize:13, cursor:'pointer' }}>
+                          終了
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* 台移動確認ダイアログ */}
                   {tableMoveConfirmOpen&&(
@@ -4480,30 +4586,42 @@ export default function PachinkoCalculatorComplete() {
                             );
                           })()}
 
-                          {/* 通常回転時速（全幅・稼働時間ある場合のみ） */}
+                          {/* 稼働時間・通常回転時速（全幅） */}
                           {(()=>{
-                            const hours=numberOrZero(s.hours);
-                            if(hours<=0||s.metrics.totalSpins<=0) return null;
-                            const sph=Math.round(s.metrics.totalSpins/hours);
-                            if(sph<50||sph>600) return null;
+                            const st=s.startTime, et=s.endTime;
+                            const hoursNum=numberOrZero(s.hours);
+                            const elapsed=st&&et?calcElapsedHours(st,et):null;
+                            const displayH=elapsed!==null?elapsed:hoursNum>0?hoursNum:null;
+                            const hasSphData=displayH&&displayH>0&&s.metrics.totalSpins>0;
+                            const sph=hasSphData?Math.round(s.metrics.totalSpins/displayH):null;
+                            // 稼働時間もsphも両方ない場合は非表示
+                            if(!displayH&&!sph) return null;
                             const AVERAGE=200;
-                            const diff=sph-AVERAGE;
-                            const pct=Math.round((sph/AVERAGE)*100);
-                            const color=sph>220?'#16a34a':sph>180?'#0284c7':sph>150?C.textMuted:'#d97706';
-                            const bg=sph>220?(isDark?'rgba(22,163,74,0.12)':'#f0fdf4'):sph>180?(isDark?'rgba(2,132,199,0.12)':'#e0f2fe'):sph>150?(isDark?'rgba(255,255,255,0.03)':'#f8fafc'):(isDark?'rgba(245,158,11,0.12)':'#fef3c7');
-                            const border=sph>220?'#86efac':sph>180?'#7dd3fc':sph>150?C.border:'#fcd34d';
-                            const label=sph>220?'速い ✅':sph>180?'やや速い':sph>150?'平均的':sph>120?'やや遅い':'遅い ⚠️';
+                            const diff=sph?sph-AVERAGE:null;
+                            const pct=sph?Math.round((sph/AVERAGE)*100):null;
+                            const color=!sph?C.textMuted:sph>220?'#16a34a':sph>180?'#0284c7':sph>150?C.textMuted:'#d97706';
+                            const bg=!sph?(isDark?'rgba(255,255,255,0.03)':'#f8fafc'):sph>220?(isDark?'rgba(22,163,74,0.12)':'#f0fdf4'):sph>180?(isDark?'rgba(2,132,199,0.12)':'#e0f2fe'):sph>150?(isDark?'rgba(255,255,255,0.03)':'#f8fafc'):(isDark?'rgba(245,158,11,0.12)':'#fef3c7');
+                            const border=!sph?C.border:sph>220?'#86efac':sph>180?'#7dd3fc':sph>150?C.border:'#fcd34d';
+                            const label=!sph?'':sph>220?'速い ✅':sph>180?'やや速い':sph>150?'平均的':sph>120?'やや遅い':'遅い ⚠️';
+                            const fmtH=h=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}時間${mm}分`:`${hh}時間`;};
                             return (
-                              <div style={{ gridColumn:'1/-1', background:bg, border:`1.5px solid ${border}`, borderRadius:12, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <div>
-                                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:2 }}>⏱ 通常回転時速</div>
-                                  <div style={{ fontSize:11, color:C.textMuted }}>平均200回転/h比較</div>
-                                </div>
-                                <div style={{ textAlign:'right' }}>
-                                  <div style={{ fontSize:22, fontWeight:900, color }}>{sph}<span style={{ fontSize:12, fontWeight:600, marginLeft:3 }}>回/h</span></div>
-                                  <div style={{ fontSize:11, fontWeight:700, color, marginTop:1 }}>
-                                    {diff>=0?'+':''}{Math.round(diff)}回 （{pct}%） {label}
+                              <div style={{ gridColumn:'1/-1', background:bg, border:`1.5px solid ${border}`, borderRadius:12, padding:'10px 14px' }}>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                  <div>
+                                    <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:2 }}>🕐 稼働時間</div>
+                                    <div style={{ fontSize:22, fontWeight:900, color:C.textPrimary }}>
+                                      {displayH?fmtH(displayH):'記録なし'}
+                                    </div>
+                                    {st&&et&&<div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{st} → {et}</div>}
+                                    {st&&!et&&<div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{st} 〜</div>}
                                   </div>
+                                  {sph&&sph>=50&&sph<=600&&(
+                                    <div style={{ textAlign:'right' }}>
+                                      <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:2 }}>⏱ 通常回転時速</div>
+                                      <div style={{ fontSize:22, fontWeight:900, color }}>{sph}<span style={{ fontSize:12, marginLeft:3 }}>回/h</span></div>
+                                      <div style={{ fontSize:11, fontWeight:700, color }}>{diff>=0?'+':''}{diff}回 ({pct}%) {label}</div>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             );
