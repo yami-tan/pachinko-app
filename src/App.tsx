@@ -686,7 +686,10 @@ export default function PachinkoCalculatorComplete() {
   const stopLossAlertShownRef=useRef(0);
   const [sphResetConfirmOpen,setSphResetConfirmOpen]=useState(false);
   const [showAllRateEntries,setShowAllRateEntries]=useState(false); // ⑪投資入力欄の折りたたみ
-  const [summaryExpanded,setSummaryExpanded]=useState(false); // ⑫サマリー展開 // 最後に損切りアラートを出した損失額
+  const [summaryExpanded,setSummaryExpanded]=useState(true); // ⑫サマリー展開
+  const [starFilterStar,setStarFilterStar]=useState(5);   // 星評価フィルター
+  const [starFilterPage,setStarFilterPage]=useState(0);   // ページ
+  const [starFilterSort,setStarFilterSort]=useState('new'); // ソート順 // 最後に損切りアラートを出した損失額
   const [belowBorderAlertOpen,setBelowBorderAlertOpen]=useState(false);
   const belowBorderAlertSpinsRef=useRef(0); // 最後にアラートを出した回転数
   const [showHomeWidget,setShowHomeWidget]=useState(false);
@@ -799,7 +802,13 @@ export default function PachinkoCalculatorComplete() {
   useEffect(()=>saveJSON(STORAGE_KEYS.sessions,sessions),[sessions]);
   useEffect(()=>saveJSON(STORAGE_KEYS.settings,settings),[settings]);
 
-  const enrichedSessions=useMemo(()=>sessions.map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>{
+  const enrichedSessions=useMemo(()=>sessions
+    .filter(s=>{
+      // ゲーム数が未入力のセッションは除外（0回転かつ初当たりなし）
+      const hasSpins=(s.rateEntries||[]).some(e=>numberOrZero(e.reading)>0)||(s.firstHits||[]).length>0;
+      return hasSpins;
+    })
+    .map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>{
     // まず日付の新しい順、同日は更新時刻の新しい順
     if(b.date!==a.date) return b.date>a.date?1:-1;
     return (b.updatedAt||0)-(a.updatedAt||0);
@@ -963,7 +972,11 @@ export default function PachinkoCalculatorComplete() {
   function applyFormUpdate(u,opts={}) { const {trackUndo=true,markDirty=true}=opts; setForm(prev=>{if(trackUndo)setUndoStack(s=>[cloneDeep(prev),...s].slice(0,10)); return typeof u==='function'?u(prev):u;}); if(markDirty)setSaveStatus('dirty'); }
   function undoLastChange() { setUndoStack(prev=>{if(!prev.length)return prev; const [l,...r]=prev; skipAutosaveRef.current=true; setForm(l); setSaveStatus('dirty'); return r;}); }
 
-  useEffect(()=>{ if(skipAutosaveRef.current){skipAutosaveRef.current=false;return;} if(!hasMeaningfulSession(form)||form.status==='completed')return; clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current=setTimeout(()=>{setSaveStatus('saving'); upsertSession(buildPersistedSession(form,'draft')); setSaveStatus('saved');},700); return ()=>clearTimeout(autosaveTimerRef.current); },[form,machines]);
+  useEffect(()=>{ if(skipAutosaveRef.current){skipAutosaveRef.current=false;return;} if(!hasMeaningfulSession(form)||form.status==='completed')return;
+    // ゲーム数が未入力（totalSpins=0かつfirstHitsなし）の場合は自動保存しない
+    const hasSpins=(form.rateEntries||[]).some(e=>numberOrZero(e.reading)>0)||(form.firstHits||[]).length>0;
+    if(!hasSpins) return;
+    clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current=setTimeout(()=>{setSaveStatus('saving'); upsertSession(buildPersistedSession(form,'draft')); setSaveStatus('saved');},700); return ()=>clearTimeout(autosaveTimerRef.current); },[form,machines]);
 
   function updateForm(k,v) { applyFormUpdate(p=>({...p,[k]:v})); }
   function applyShopValue(v) { applyFormUpdate(p=>{ const mp=getShopProfileByName(settings.shopProfiles||[],v); return {...p,shop:v,exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:mp?'':p.sessionBorderOverride}; }); }
@@ -990,6 +1003,11 @@ export default function PachinkoCalculatorComplete() {
     },0);
   }
   function openCompleteDialog() {
+    // ゲーム数が入力されていない場合は保存しない
+    if(formMetrics.allTotalSpins===0&&(form.firstHits||[]).length===0){
+      alert('ゲーム数が入力されていません。\n少なくとも1件の回転数を入力してから終了してください。');
+      return;
+    }
     const endTime=nowTimeStr();
     // 休憩中なら終了させる
     if(isOnBreak) endBreak();
@@ -1171,12 +1189,21 @@ export default function PachinkoCalculatorComplete() {
   function selectMachine(machineId) { if(machineId==='__none__'){applyFormUpdate(p=>({...p,machineId:'__none__',sessionBorderOverride:''}));return;} const m=machines.find(m=>m.id===machineId); applyFormUpdate(p=>{ const ns=p.shop||m?.shopDefault||''; const mp=getShopProfileByName(settings.shopProfiles||[],ns); return {...p,machineId,shop:ns,machineFreeName:p.machineFreeName||'',exchangeCategory:mp?.exchangeCategory||p.exchangeCategory,sessionBorderOverride:''}; }); }
   function createNewSession() {
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
+    // 現在のdraftをsessionsから削除（更新時に復元されないよう）
+    if(form.id&&form.status!=='completed'){
+      setSessions(prev=>prev.filter(s=>s.id!==form.id));
+    }
     setForm(emptySession(settings));
     setActiveTab('rate');
-    setAdvancedInvestOpen(false); // 高度な設定を閉じる（表示キャッシュをリセット）
+    setAdvancedInvestOpen(false);
+    setShowAllRateEntries(false); // ②投資入力欄を折りたたみ状態に戻す
+    stopLossAlertShownRef.current=0; // ①損切りアラートrefをリセット
+    borderCalcAutoAppliedRef.current=false; // ⑥ボーダー自動連携refをリセット
+    setBorderCalcAutoApplied(false);
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
     setBreaks([]); setIsOnBreak(false);
+    setGachiOpenShops({}); // ③ガチメモ開閉状態リセット
     // ボーダータブの持ち玉比率・1R出玉をリセット（前回セッションの値が残らないように）
     setBorderCalc(p=>({
       ...p,
@@ -1484,6 +1511,7 @@ export default function PachinkoCalculatorComplete() {
       };
     });
     setFirstHitDialogOpen(false);
+    setFirstHitStep(1); // ④閉じたらstepを初期化
     // 1R出玉の機種への反映は自動では行わない（手動ボタンから実施）
   }
   function removeFirstHit(hid) { applyFormUpdate(p=>{ const hit=(p.firstHits||[]).find(h=>h.id===hid); const newNotes=hit?.memoLine?p.notes.split('\n').filter(l=>l!==hit.memoLine).join('\n'):p.notes; return {...p,firstHits:(p.firstHits||[]).filter(h=>h.id!==hid),notes:newNotes}; }); }
@@ -2442,20 +2470,7 @@ export default function PachinkoCalculatorComplete() {
                         <button onClick={()=>addRateEntry('cash',numberOrZero(settings.subCashUnitYen)||500)} style={btnSecondary}>+500円行</button>
                         <button onClick={()=>addRateEntry('balls',numberOrZero(settings.defaultBallUnit)||250)} style={btnSecondary}>+持ち玉行</button>
                       </div>
-                      {/* 通常回転時速の手動入力 */}
-                      <div>
-                        <label style={labelStyle}>通常回転時速（手動）</label>
-                        <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:4 }}>
-                          <input value={form.spinsPerHourManual||''} onChange={e=>updateForm('spinsPerHourManual',e.target.value.replace(/[^0-9]/g,''))}
-                            style={{ ...inputStyle, flex:1 }} inputMode="numeric" placeholder={`自動: ${theoreticalMetrics.normalSpinsPerHour?Math.round(theoreticalMetrics.normalSpinsPerHour):'200'}回/h`}/>
-                          <span style={{ fontSize:12, color:C.textMuted, flexShrink:0 }}>回/h</span>
-                          {form.spinsPerHourManual&&<button onClick={()=>updateForm('spinsPerHourManual','')}
-                            style={{ fontSize:11, color:C.negative, background:C.negativeBg, border:`1px solid ${C.negativeBorder}`, borderRadius:8, padding:'4px 8px', cursor:'pointer', flexShrink:0 }}>クリア</button>}
-                        </div>
-                        <div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>
-                          {form.spinsPerHourManual?`手動入力値が時給・期待時速に反映されるぜ`:'入力なし = 稼働時間から自動計算（未入力時は設定の'+numberOrZero(settings.spinsPerHour)+'回/hを使用）'}
-                        </div>
-                      </div>
+
                     </div>
                   )}
                 </div>
@@ -4907,23 +4922,24 @@ export default function PachinkoCalculatorComplete() {
                           </div>
                         </div>
 
+                        {/* ⑩ 星評価（常に表示） */}
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>評価</span>
+                          <div style={{ display:'flex', gap:2 }}>
+                            {[1,2,3,4,5].map(star=>(
+                              <button key={star}
+                                onClick={()=>{setSessions(prev=>{const next=prev.map(sess=>sess.id===s.id?{...sess,starRating:sess.starRating===star?0:star,updatedAt:Date.now()}:sess);try{localStorage.setItem('pachi_complete_sessions_v12',JSON.stringify(next));}catch{}return next;});}}
+                                style={{ background:'none', border:'none', cursor:'pointer', padding:'2px', fontSize:22, lineHeight:1, color:(s.starRating||0)>=star?C.amber:'#d1d5db', transition:'color 0.1s' }}>
+                                ★
+                              </button>
+                            ))}
+                          </div>
+                          {s.starRating>0&&<span style={{ fontSize:11, color:C.amber, fontWeight:600 }}>{'★'.repeat(s.starRating)}</span>}
+                        </div>
+
                         {/* タグ・メモ（freeMemoのみ表示） */}
-                        {(s.tags||s.freeMemo||s.starRating>0)&&(
+                        {(s.tags||s.freeMemo)&&(
                           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                            {/* ⑩ 星評価 */}
-                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                              <span style={{ fontSize:11, color:C.textMuted, fontWeight:600 }}>評価</span>
-                              <div style={{ display:'flex', gap:3 }}>
-                                {[1,2,3,4,5].map(star=>(
-                                  <button key={star}
-                                    onClick={()=>setSessions(prev=>prev.map(sess=>sess.id===s.id?{...sess,starRating:sess.starRating===star?0:star,updatedAt:Date.now()}:sess))}
-                                    style={{ background:'none', border:'none', cursor:'pointer', padding:'2px', fontSize:20, lineHeight:1, color:(s.starRating||0)>=star?C.amber:'#d1d5db', transition:'color 0.1s' }}>
-                                    ★
-                                  </button>
-                                ))}
-                              </div>
-                              {s.starRating>0&&<span style={{ fontSize:10, color:C.amber, fontWeight:600 }}>{['','★','★★','★★★','★★★★','★★★★★'][s.starRating]}</span>}
-                            </div>
                             {s.tags&&(
                               <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                                 {s.tags.split(/[,、\s]+/).filter(Boolean).map(tag=>(
@@ -5317,7 +5333,7 @@ export default function PachinkoCalculatorComplete() {
                                 const isSel=detailMachineKey===k;
                                 return (
                                   <div key={k} style={{ borderBottom:`1px solid ${C.border}`, marginBottom:2 }}>
-                                    <button onClick={()=>{setDetailMachineKey(k);setDetailMachineDialogOpen(false);}}
+                                    <button onClick={()=>{setDetailMachineKey(k);setDetailMachineDialogOpen(false);setTimeout(()=>window.scrollTo({top:0,behavior:'smooth'}),100);}}
                                       style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 8px', border:'none', background:isSel?C.primaryLight:C.card, cursor:'pointer', textAlign:'left', borderRadius:12 }}>
                                       <div>
                                         <div style={{ fontSize:14, fontWeight:isSel?700:400, color:isSel?C.primary:C.textPrimary }}>{k}</div>
@@ -5545,6 +5561,114 @@ export default function PachinkoCalculatorComplete() {
                     {!detailMachineKey&&(
                       <div style={{ textAlign:'center', padding:'20px', color:C.textMuted, fontSize:13 }}>
                         上から機種を選ぶと詳細分析が表示されるぜ
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ⭐ 星評価別記録 */}
+            {(()=>{
+              const rated=enrichedSessions.filter(s=>s.starRating>0);
+              if(rated.length===0) return null;
+              const PER_PAGE=10;
+              const SORT_OPTIONS=[
+                {v:'new',   l:'新しい順'},
+                {v:'old',   l:'古い順'},
+                {v:'balH',  l:'収支高い順'},
+                {v:'balL',  l:'収支低い順'},
+                {v:'workH', l:'仕事量高い順'},
+                {v:'workL', l:'仕事量低い順'},
+              ];
+              // 選択中の星のセッションをフィルタ＆ソート
+              const filtered=rated.filter(s=>s.starRating===starFilterStar);
+              const sorted=[...filtered].sort((a,b)=>{
+                if(starFilterSort==='new')  return b.date>a.date?1:-1;
+                if(starFilterSort==='old')  return a.date>b.date?1:-1;
+                if(starFilterSort==='balH') return b.metrics.balanceYen-a.metrics.balanceYen;
+                if(starFilterSort==='balL') return a.metrics.balanceYen-b.metrics.balanceYen;
+                if(starFilterSort==='workH') return (getWorkVolumeYen(b.metrics)??-Infinity)-(getWorkVolumeYen(a.metrics)??-Infinity);
+                if(starFilterSort==='workL') return (getWorkVolumeYen(a.metrics)??Infinity)-(getWorkVolumeYen(b.metrics)??Infinity);
+                return 0;
+              });
+              const totalPages=Math.ceil(sorted.length/PER_PAGE);
+              const safePage=Math.min(starFilterPage,Math.max(0,totalPages-1));
+              const pageItems=sorted.slice(safePage*PER_PAGE,(safePage+1)*PER_PAGE);
+              // 各星の件数
+              const starCounts=[1,2,3,4,5].reduce((acc,s)=>({...acc,[s]:rated.filter(x=>x.starRating===s).length}),{});
+              return (
+                <div style={{ ...cardStyle, overflow:'hidden' }}>
+                  <div style={{ background:`linear-gradient(135deg,#78350f,#92400e)`, padding:'14px 18px' }}>
+                    <div style={{ fontSize:16, fontWeight:800, color:'white' }}>⭐ 星評価別の記録</div>
+                    <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:2 }}>タップで日別タブに移動するぜ</div>
+                  </div>
+                  <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:12 }}>
+
+                    {/* 星選択タブ */}
+                    <div style={{ display:'flex', gap:6 }}>
+                      {[5,4,3,2,1].map(star=>(
+                        <button key={star} onClick={()=>{setStarFilterStar(star);setStarFilterPage(0);}}
+                          style={{ flex:1, padding:'8px 4px', borderRadius:12, border:`2px solid ${starFilterStar===star?C.amber:'#fcd34d'}`, background:starFilterStar===star?C.amber:(isDark?'rgba(245,158,11,0.08)':'#fffbeb'), cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:2 }}>
+                          <span style={{ fontSize:16, color:starFilterStar===star?'white':C.amber }}>{'★'.repeat(star)}</span>
+                          <span style={{ fontSize:10, fontWeight:700, color:starFilterStar===star?'white':C.textMuted }}>{starCounts[star]||0}件</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* ソート選択 */}
+                    <div style={{ overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+                      <div style={{ display:'flex', gap:6, minWidth:'max-content' }}>
+                        {SORT_OPTIONS.map(({v,l})=>(
+                          <button key={v} onClick={()=>{setStarFilterSort(v);setStarFilterPage(0);}}
+                            style={{ padding:'5px 12px', borderRadius:10, border:`1.5px solid ${starFilterSort===v?C.primary:C.border}`, background:starFilterSort===v?C.primary:C.card, color:starFilterSort===v?'white':C.textSecondary, fontSize:11, fontWeight:starFilterSort===v?700:400, cursor:'pointer', whiteSpace:'nowrap' }}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 記録リスト */}
+                    {pageItems.length>0?(
+                      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                        {pageItems.map(s=>(
+                          <button key={s.id}
+                            onClick={()=>{ setSelectedDate(s.date); setActiveTab('calendar'); }}
+                            style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(255,255,255,0.03)':'#fafafa', border:`1px solid ${C.border}`, borderRadius:12, padding:'10px 14px', cursor:'pointer', textAlign:'left' }}>
+                            <div>
+                              <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>{s.date}</div>
+                              <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>
+                                {s.machine?.name||s.machineFreeName||s.machineNameSnapshot||'機種未設定'}
+                                {s.shop&&` / ${s.shop}`}
+                              </div>
+                            </div>
+                            <div style={{ textAlign:'right', flexShrink:0 }}>
+                              <div style={{ fontWeight:800, fontSize:14, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</div>
+                              <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>
+                                {getWorkVolumeYen(s.metrics)!==null&&`仕事量 ${fmtYen(Math.round(getWorkVolumeYen(s.metrics)))}`}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ):(
+                      <div style={{ textAlign:'center', padding:'20px', color:C.textMuted, fontSize:13 }}>
+                        {'★'.repeat(starFilterStar)} の評価記録はまだないぜ
+                      </div>
+                    )}
+
+                    {/* ページネーション */}
+                    {totalPages>1&&(
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                        <button onClick={()=>setStarFilterPage(p=>Math.max(0,p-1))} disabled={safePage===0}
+                          style={{ padding:'8px 16px', borderRadius:10, border:`1px solid ${C.border}`, background:C.card, color:safePage===0?C.textMuted:C.textPrimary, fontWeight:600, fontSize:13, cursor:safePage===0?'default':'pointer', opacity:safePage===0?0.4:1 }}>
+                          ← 前へ
+                        </button>
+                        <span style={{ fontSize:12, color:C.textMuted }}>{safePage+1} / {totalPages}ページ（全{sorted.length}件）</span>
+                        <button onClick={()=>setStarFilterPage(p=>Math.min(totalPages-1,p+1))} disabled={safePage>=totalPages-1}
+                          style={{ padding:'8px 16px', borderRadius:10, border:`1px solid ${C.border}`, background:C.card, color:safePage>=totalPages-1?C.textMuted:C.textPrimary, fontWeight:600, fontSize:13, cursor:safePage>=totalPages-1?'default':'pointer', opacity:safePage>=totalPages-1?0.4:1 }}>
+                          次へ →
+                        </button>
                       </div>
                     )}
                   </div>
@@ -6347,19 +6471,23 @@ export default function PachinkoCalculatorComplete() {
                     <label style={labelStyle}>背景画像</label>
                     {bgImage?(
                       <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                        {/* プレビュー */}
-                        <div style={{ position:'relative', borderRadius:16, overflow:'hidden', border:`1px solid ${C.border}`, height:120 }}>
-                          <img src={bgImage} alt="背景プレビュー" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-                          <div style={{ position:'absolute', inset:0, background:`rgba(0,0,0,${0.5-bgOpacity})`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <span style={{ color:'white', fontSize:12, fontWeight:700, textShadow:'0 1px 3px rgba(0,0,0,0.8)' }}>プレビュー（透明度 {Math.round(bgOpacity*100)}%）</span>
+                        {/* プレビュー：実際と同じopacity適用 */}
+                        <div style={{ position:'relative', borderRadius:16, overflow:'hidden', border:`1px solid ${C.border}`, height:180, background:isDark?'#0f172a':'#ffffff' }}>
+                          <img src={bgImage} alt="背景プレビュー" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', opacity:bgOpacity }}/>
+                          <div style={{ position:'relative', zIndex:1, height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
+                            <div style={{ fontWeight:800, fontSize:16, color:isDark?'white':'#1e293b' }}>PACHINKO ANALYZER</div>
+                            <div style={{ fontSize:12, color:isDark?'rgba(255,255,255,0.6)':'rgba(0,0,0,0.4)', background:isDark?'rgba(0,0,0,0.3)':'rgba(255,255,255,0.6)', borderRadius:8, padding:'3px 10px' }}>実際の表示イメージ（濃さ {Math.round(bgOpacity*100)}%）</div>
                           </div>
                         </div>
                         {/* 透明度スライダー */}
                         <div>
-                          <label style={labelStyle}>透明度（低いほど薄い）</label>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+                            <label style={labelStyle}>画像の濃さ</label>
+                            <span style={{ fontSize:12, color:C.primary, fontWeight:700 }}>{Math.round(bgOpacity*100)}%</span>
+                          </div>
                           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                             <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>薄</span>
-                            <input type="range" min="0.03" max="0.5" step="0.01" value={bgOpacity}
+                            <input type="range" min="0.05" max="0.9" step="0.05" value={bgOpacity}
                               onChange={e=>updateBgOpacity(Number(e.target.value))}
                               style={{ flex:1, accentColor:C.primary }}/>
                             <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>濃</span>
