@@ -237,7 +237,7 @@ function getSessionTrendData(session,settings) {
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
 function emptySession(settings=defaultSettings) {
-  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',spinsPerHourManual:'',currentBallsManual:'',starRating:0,prevSessionRate:0,notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
+  return { id:uid(),date:todayStr(),shop:'',machineId:'__none__',machineNameSnapshot:'',machineFreeName:'',machineNumber:'',exchangeCategory:'25',startRotation:'',sessionBorderOverride:'',totalSpinsManual:'',returnedBalls:'',endingBalls:'',endingUpperBalls:'',actualBalanceYen:'',hours:'',spinsPerHourManual:'',currentBallsManual:'',starRating:0,prevSessionRate:0,breaks:[],notes:'',freeMemo:'',inheritNotes:'',resultGoodMemo:'',resultBadMemo:'',rateHistoryPoints:[],tags:'',photos:[],firstHits:[],rateSections:[],measurementLogs:[],currentInputMode:'cash',startTime:'',endTime:'',status:'draft',updatedAt:Date.now(),rateEntries:[emptyRateEntry('cash',settings.defaultCashUnitYen,'')],inheritedCashInvestYen:0,inheritedBalanceYen:0,inheritedBalls:0 };
 }
 
 function hasMeaningfulSession(s) {
@@ -685,6 +685,9 @@ export default function PachinkoCalculatorComplete() {
   const [stopLossAlertOpen,setStopLossAlertOpen]=useState(false);
   const stopLossAlertShownRef=useRef(0);
   const [sphResetConfirmOpen,setSphResetConfirmOpen]=useState(false);
+  const [breakForgotDialogOpen,setBreakForgotDialogOpen]=useState(false);
+  const [breakForgotMinutes,setBreakForgotMinutes]=useState('');
+  const [breakFocusWarning,setBreakFocusWarning]=useState(false);
   const [showAllRateEntries,setShowAllRateEntries]=useState(false); // ⑪投資入力欄の折りたたみ
   const [summaryExpanded,setSummaryExpanded]=useState(true); // ⑫サマリー展開
   const [starFilterStar,setStarFilterStar]=useState(5);   // 星評価フィルター
@@ -743,6 +746,8 @@ export default function PachinkoCalculatorComplete() {
   const [tamaTargetYenInput,setTamaTargetYenInput]=useState('');
   const [detailMachineKey,setDetailMachineKey]=useState(null);
   const [detailChainSelect,setDetailChainSelect]=useState(10);
+  // B: 機種変更時に連チャン選択をデフォルト(10)に戻す
+  useEffect(()=>{ setDetailChainSelect(10); },[detailMachineKey]);
   const [chainSelectDialogOpen,setChainSelectDialogOpen]=useState(false);
   const [detailMachineDialogOpen,setDetailMachineDialogOpen]=useState(false);
   const [detailMachineSearchQuery,setDetailMachineSearchQuery]=useState('');
@@ -929,15 +934,16 @@ export default function PachinkoCalculatorComplete() {
       const m=selectedMachine;
       const holdRatio=Math.round(formMetrics.holdBallRatio);
       const exchCat=form.exchangeCategory||'25';
+      // 換金率：ボーダータブで手動変更済み（form.exchangeCategoryと異なる）場合は上書きしない
+      // 機種変更時やリセット直後（oneRoundPayoutが空）の場合のみ同期する
+      const shouldSyncExch=!p.oneRoundPayout||p.exchangeCategory==='25'&&exchCat!=='25';
       return {
         ...p,
-        // 機種が選択されていれば自動で選択
         selectedBorderMachineId: m ? m.id : p.selectedBorderMachineId,
         oneRoundPayout: m ? (avgOneRoundFromHits!==null ? String(avgOneRoundFromHits) : String(m.payoutPerRound||'')) : p.oneRoundPayout,
         totalRatePer1R: m && m.totalProbability>0 ? String(m.totalProbability) : p.totalRatePer1R,
-        // 回転率の交換率を同期
-        exchangeCategory: exchCat,
-        // 非等価の場合は回転率の持ち玉比率を自動入力
+        // 手動変更済みの場合は換金率を維持、初回or等価→非等価移行時のみ同期
+        exchangeCategory: shouldSyncExch ? exchCat : p.exchangeCategory,
         holdBallRatioInput: (exchCat!=='25' && holdRatio>0) ? String(holdRatio) : p.holdBallRatioInput,
       };
     });
@@ -1008,12 +1014,23 @@ export default function PachinkoCalculatorComplete() {
       alert('ゲーム数が入力されていません。\n少なくとも1件の回転数を入力してから終了してください。');
       return;
     }
+    // 案④：休憩中に終了ボタンを押したら休憩時間確認ダイアログを表示
+    if(isOnBreak){
+      setBreakForgotMinutes('');
+      setBreakForgotDialogOpen(true);
+      return;
+    }
+    openCompleteDialogCore();
+  }
+  function openCompleteDialogCore(extraBreakMinutes=0) {
     const endTime=nowTimeStr();
-    // 休憩中なら終了させる
+    // C: 休憩中の場合、state更新前に現在の休憩時間を直接計算（非同期問題を回避）
+    const currentBreakH=isOnBreak&&breaks.length>0&&!breaks[breaks.length-1].endTime
+      ?(calcElapsedHours(breaks[breaks.length-1].startTime,endTime)||0):0;
+    const totalBreakH=calcBreakHours(breaks)+currentBreakH+(extraBreakMinutes/60);
     if(isOnBreak) endBreak();
     const rawElapsed=calcElapsedHours(form.startTime,endTime);
-    const breakH=calcBreakHours(breaks);
-    const elapsed=rawElapsed!==null?Math.max(0,rawElapsed-breakH):null;
+    const elapsed=rawElapsed!==null?Math.max(0,rawElapsed-totalBreakH):null;
     applyFormUpdate(p=>({...p, endTime, hours:elapsed!==null?String(Math.round(elapsed*10)/10):p.hours}));
     // キーボードを確実に閉じてからダイアログを開く
     if(document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -1030,7 +1047,7 @@ export default function PachinkoCalculatorComplete() {
     const goodPart='';
     const badPart='';
     const combined=[inheritPart,autoNotes,freePart,goodPart,badPart].filter(Boolean).join('\n');
-    const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:combined,nailGrades:{...nailGrades},hesoDirections:[...hesoDirections]},'completed');
+    const p=buildPersistedSession({...form,returnedBalls:resultReturnedBalls>0?String(resultReturnedBalls):form.returnedBalls,notes:combined,nailGrades:{...nailGrades},hesoDirections:[...hesoDirections],breaks:[...breaks]},'completed');
     upsertSession(p); setSelectedDate(p.date); setCurrentMonth(monthKey(p.date)); setCurrentYear(yearKey(p.date));
     // 釘チェックをリセット
     setNailGrades({}); setHesoDirections([]);
@@ -1150,10 +1167,12 @@ export default function PachinkoCalculatorComplete() {
     const defaultKind=met.currentBalls!==null&&met.currentBalls>0?'balls':'cash';
     const defaultAmount=defaultKind==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
     const nextEntry=emptyRateEntry(defaultKind,defaultAmount,'');
+    // D: normalアーカイブ時もrateHistoryPointsを更新して1万円ごとの計算に反映
+    const historyPoints=buildSectionRateHistoryPoints(p,settings);
     return {
       ...p,
       measurementLogs:[...(p.measurementLogs||[]),newLog],
-      // 新枠のstartRotationを前枠の最終ゲーム数に設定（継続計測）
+      rateHistoryPoints:[...(p.rateHistoryPoints||[]),...historyPoints],
       startRotation: kind==='normal'?String(baseReading):p.startRotation,
       rateEntries:[nextEntry],
     };
@@ -1207,10 +1226,11 @@ export default function PachinkoCalculatorComplete() {
     // ボーダータブの持ち玉比率・1R出玉をリセット（前回セッションの値が残らないように）
     setBorderCalc(p=>({
       ...p,
-      holdBallRatioInput: '', // 持ち玉比率をクリア
+      holdBallRatioInput: '',
+      planSpinsPerH: '',       // A: 1hあたりの回転数をリセット
       oneRoundPayout: p.selectedBorderMachineId
         ? String(machines.find(m=>m.id===p.selectedBorderMachineId)?.payoutPerRound||'')
-        : '',                 // 機種登録値に戻す（hits実測値をクリア）
+        : '',
     }));
   }
 
@@ -2536,7 +2556,18 @@ export default function PachinkoCalculatorComplete() {
                             <input
                               ref={el=>{readingInputRefs.current[index]=el;}}
                               value={entry.reading}
-                              onChange={e=>{const v=e.target.value; updateRateEntry(entry.id,'reading',v); moveFocusToNextReading(entry.id,index,v);}}
+                              onChange={e=>{
+                                const v=e.target.value;
+                                // 案②：休憩中にゲーム数を入力したら自動で休憩終了
+                                if(isOnBreak&&v.length>0) endBreak();
+                                updateRateEntry(entry.id,'reading',v);
+                                moveFocusToNextReading(entry.id,index,v);
+                              }}
+                              onFocus={()=>{
+                                // 案②：休憩中にフォーカスしたら警告を一時表示
+                                if(isOnBreak) setBreakFocusWarning(true);
+                              }}
+                              onBlur={()=>setBreakFocusWarning(false)}
                               style={{
                                 width:'100%', boxSizing:'border-box',
                                 textAlign:'center', fontSize:24, fontWeight:800,
@@ -3573,6 +3604,63 @@ export default function PachinkoCalculatorComplete() {
                       {isOnBreak&&<span style={{ fontSize:10, background:C.amber, color:'white', borderRadius:6, padding:'1px 5px' }}>中</span>}
                     </button>
                   </div>
+
+                  {/* 案②：休憩中にゲーム数入力欄にフォーカスした時の警告バナー */}
+                  {breakFocusWarning&&isOnBreak&&(
+                    <div style={{ background:isDark?'rgba(245,158,11,0.15)':'#fffbeb', border:`2px solid ${C.amber}`, borderRadius:12, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:C.amber }}>
+                        ☕ 休憩中です。ゲーム数を入力すると自動で休憩が終了します
+                      </div>
+                      <button onClick={()=>{endBreak();setBreakFocusWarning(false);}}
+                        style={{ background:C.amber, color:'white', border:'none', borderRadius:8, padding:'6px 12px', fontWeight:700, fontSize:12, cursor:'pointer', flexShrink:0, marginLeft:8 }}>
+                        今すぐ終了
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 案④：休憩終了し忘れダイアログ */}
+                  {breakForgotDialogOpen&&(
+                    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:'0 20px' }} onClick={()=>setBreakForgotDialogOpen(false)}>
+                      <div style={{ background:C.card, borderRadius:20, padding:'24px 20px', width:'100%', maxWidth:380 }} onClick={e=>e.stopPropagation()}>
+                        <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary, marginBottom:8 }}>☕ 休憩の終了忘れを検出</div>
+                        <div style={{ fontSize:13, color:C.textSecondary, marginBottom:18, lineHeight:1.6 }}>
+                          まだ休憩中になっています。<br/>
+                          実際に休憩した時間を入力してください。<br/>
+                          <span style={{ fontSize:11, color:C.textMuted }}>スキップすると休憩なしとして終了します</span>
+                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:18 }}>
+                          <input
+                            value={breakForgotMinutes}
+                            onChange={e=>setBreakForgotMinutes(e.target.value.replace(/[^0-9]/g,''))}
+                            style={{ ...inputStyle, flex:1, fontSize:20, fontWeight:700, textAlign:'center' }}
+                            inputMode="numeric" placeholder="0" autoFocus
+                          />
+                          <span style={{ fontSize:14, color:C.textMuted, fontWeight:600 }}>分</span>
+                        </div>
+                        {/* よく使う時間のクイック選択 */}
+                        <div style={{ display:'flex', gap:6, marginBottom:18, flexWrap:'wrap' }}>
+                          {[5,10,15,30,45,60].map(m=>(
+                            <button key={m} onClick={()=>setBreakForgotMinutes(String(m))}
+                              style={{ padding:'6px 12px', borderRadius:10, border:`1.5px solid ${breakForgotMinutes===String(m)?C.amber:C.border}`, background:breakForgotMinutes===String(m)?C.amber:C.card, color:breakForgotMinutes===String(m)?'white':C.textSecondary, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                              {m}分
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                          <button onClick={()=>{setBreakForgotDialogOpen(false); openCompleteDialogCore(0);}}
+                            style={{ ...btnSecondary, padding:'12px', borderRadius:12, fontSize:13 }}>スキップ</button>
+                          <button onClick={()=>{
+                            const mins=numberOrZero(breakForgotMinutes);
+                            setBreakForgotDialogOpen(false);
+                            openCompleteDialogCore(mins);
+                          }}
+                            style={{ ...btnPrimary, padding:'12px', borderRadius:12, fontSize:13 }}>
+                            {breakForgotMinutes?`${breakForgotMinutes}分として終了`:'終了'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 休憩選択ダイアログ */}
                   {breakDialogOpen&&(
@@ -4899,6 +4987,42 @@ export default function PachinkoCalculatorComplete() {
                                     </div>
                                     {st&&et&&<div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{st} → {et}</div>}
                                     {st&&!et&&<div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{st} 〜</div>}
+                                    {/* 休憩情報 */}
+                                    {(()=>{
+                                      const bks=(s.breaks||[]).filter(b=>b.startTime&&b.endTime);
+                                      if(bks.length===0) return null;
+                                      const tabako=bks.filter(b=>b.type==='タバコ');
+                                      const gohan=bks.filter(b=>b.type==='ご飯');
+                                      const sumMins=list=>Math.round(list.reduce((acc,b)=>{
+                                        const h=calcElapsedHours(b.startTime,b.endTime)||0;
+                                        return acc+h*60;
+                                      },0));
+                                      const fmtMins=m=>m>=60?`${Math.floor(m/60)}時間${m%60>0?`${m%60}分`:''}`:m>0?`${m}分`:'';
+                                      const tabMins=sumMins(tabako);
+                                      const goMins=sumMins(gohan);
+                                      return (
+                                        <div style={{ marginTop:6, paddingTop:6, borderTop:`1px solid ${isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'}`, display:'flex', flexWrap:'wrap', gap:10 }}>
+                                          {tabako.length>0&&(
+                                            <span style={{ fontSize:11, color:C.textMuted }}>
+                                              🚬 タバコ休憩 <b style={{ color:C.textPrimary }}>{tabako.length}回</b>
+                                              {tabMins>0&&<> · <b style={{ color:C.textPrimary }}>{fmtMins(tabMins)}</b></>}
+                                            </span>
+                                          )}
+                                          {gohan.length>0&&(
+                                            <span style={{ fontSize:11, color:C.textMuted }}>
+                                              🍱 ご飯休憩 <b style={{ color:C.textPrimary }}>{gohan.length}回</b>
+                                              {goMins>0&&<> · <b style={{ color:C.textPrimary }}>{fmtMins(goMins)}</b></>}
+                                            </span>
+                                          )}
+                                          {(tabMins+goMins)>0&&(
+                                            <span style={{ fontSize:11, color:C.textMuted, width:'100%', marginTop:2, paddingTop:4, borderTop:`1px dashed ${isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.08)'}` }}>
+                                              ⏸ 休憩合計 <b style={{ color:C.textPrimary }}>{bks.length}回 · {fmtMins(tabMins+goMins)}</b>
+                                              <span style={{ marginLeft:8, color:C.textMuted }}>（稼働時間から除外済み）</span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                   {sph&&sph>=50&&sph<=600&&(
                                     <div style={{ textAlign:'right' }}>
