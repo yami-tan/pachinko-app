@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from './supabaseClient';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -585,6 +586,98 @@ export default function PachinkoCalculatorComplete() {
 
   // ── ダークモード判定 ──
   const [sysDark,setSysDark]=useState(()=>typeof window!=='undefined'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  // ── Supabase認証state ──
+  const [supaUser,setSupaUser]=useState(null);
+  const [authLoading,setAuthLoading]=useState(true);
+  const [syncStatus,setSyncStatus]=useState('idle'); // idle | syncing | synced | error
+  const syncTimerRef=useRef(null);
+
+  // 全データをSupabaseに保存する関数
+  const saveToSupabase=async(data)=>{
+    if(!supaUser) return;
+    setSyncStatus('syncing');
+    try{
+      const{error}=await supabase.from('sessions').upsert({
+        user_id:supaUser.id,
+        data,
+        updated_at:new Date().toISOString(),
+      },{onConflict:'user_id'});
+      if(error) throw error;
+      setSyncStatus('synced');
+    }catch(e){
+      console.error('Supabase保存エラー:',e);
+      setSyncStatus('error');
+    }
+  };
+
+  // デバウンスして保存（連続変更時に負荷をかけない）
+  const scheduleSyncToSupabase=()=>{
+    if(!supaUser) return;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current=setTimeout(()=>{
+      const data={
+        sessions:loadJSON(STORAGE_KEYS.sessions,[]),
+        machines:loadJSON(STORAGE_KEYS.machines,[]),
+        settings:loadJSON(STORAGE_KEYS.settings,{}),
+        counters:JSON.parse(localStorage.getItem('pachi_counters2')||'[]'),
+        gachiMemos:JSON.parse(localStorage.getItem('pachi_gachi_memos')||'[]'),
+        makers:JSON.parse(localStorage.getItem('pachi_makers')||'[]'),
+        favorites:JSON.parse(localStorage.getItem('pachi_favorites')||'[]'),
+        favShops:JSON.parse(localStorage.getItem('pachi_fav_shops')||'[]'),
+      };
+      saveToSupabase(data);
+    },2000);
+  };
+
+  // Supabaseからデータを読み込み・localStorageに反映
+  const loadFromSupabase=async(uid)=>{
+    try{
+      const{data:rows,error}=await supabase.from('sessions').select('data').eq('user_id',uid).single();
+      if(error||!rows) return false;
+      const d=rows.data;
+      if(d.sessions?.length)  saveJSON(STORAGE_KEYS.sessions,d.sessions);
+      if(d.machines?.length)  saveJSON(STORAGE_KEYS.machines,d.machines);
+      if(d.settings)          saveJSON(STORAGE_KEYS.settings,d.settings);
+      if(d.counters?.length)  localStorage.setItem('pachi_counters2',JSON.stringify(d.counters));
+      if(d.gachiMemos?.length)localStorage.setItem('pachi_gachi_memos',JSON.stringify(d.gachiMemos));
+      if(d.makers?.length)    localStorage.setItem('pachi_makers',JSON.stringify(d.makers));
+      if(d.favorites?.length) localStorage.setItem('pachi_favorites',JSON.stringify(d.favorites));
+      if(d.favShops?.length)  localStorage.setItem('pachi_fav_shops',JSON.stringify(d.favShops));
+      return true;
+    }catch(e){
+      console.error('Supabase読み込みエラー:',e);
+      return false;
+    }
+  };
+
+  // 認証状態の監視・初期化
+  useEffect(()=>{
+    supabase.auth.getSession().then(async({data:{session}})=>{
+      if(session?.user){
+        setSupaUser(session.user);
+        // Supabaseからデータを読み込んでページをリロード
+        const loaded=await loadFromSupabase(session.user.id);
+        if(loaded) window.location.reload();
+      }
+      setAuthLoading(false);
+    });
+    const{data:{subscription}}=supabase.auth.onAuthStateChange(async(event,session)=>{
+      if(event==='SIGNED_IN'&&session?.user){
+        setSupaUser(session.user);
+        const loaded=await loadFromSupabase(session.user.id);
+        if(loaded) window.location.reload();
+        else setAuthLoading(false);
+      }else if(event==='SIGNED_OUT'){
+        setSupaUser(null);
+        setSyncStatus('idle');
+      }
+    });
+    return ()=>subscription.unsubscribe();
+  },[]);
+
+  // データ変更時にSupabaseへ自動同期
+  useEffect(()=>{ scheduleSyncToSupabase(); },[sessions,machines,settings]);
+  useEffect(()=>{ scheduleSyncToSupabase(); },[counters,gachiMemos,makers,favoriteMachineIds,favoriteShopNames]);
   const [bgImage,setBgImage]=useState(()=>{try{return localStorage.getItem('pachi_bg_image')||null;}catch{return null;}});
   const [bgOpacity,setBgOpacity]=useState(()=>{try{return Number(localStorage.getItem('pachi_bg_opacity'))||0.15;}catch{return 0.15;}});
 
@@ -1605,6 +1698,36 @@ export default function PachinkoCalculatorComplete() {
     {id:'tamadama',label:'💰 端玉'},
     {id:'settings',label:'⚙️ 設定'},
   ];
+
+  // 認証ローディング中
+  if(authLoading) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#0f172a' }}>
+      <div style={{ textAlign:'center', color:'white' }}>
+        <div style={{ fontSize:32, marginBottom:12 }}>🎰</div>
+        <div style={{ fontSize:16, fontWeight:700 }}>読み込み中...</div>
+      </div>
+    </div>
+  );
+
+  // 未ログイン時のログイン画面
+  if(!supaUser) return (
+    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'linear-gradient(135deg,#0f172a,#1e1b4b)', padding:'20px' }}>
+      <div style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:24, padding:'40px 32px', width:'100%', maxWidth:380, textAlign:'center' }}>
+        <div style={{ fontSize:48, marginBottom:16 }}>🎰</div>
+        <div style={{ fontSize:24, fontWeight:800, color:'white', marginBottom:4 }}>PACHINKO ANALYZER</div>
+        <div style={{ fontSize:13, color:'rgba(255,255,255,0.5)', marginBottom:32 }}>実戦・回転率管理アプリ</div>
+        <button
+          onClick={()=>supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:'https://pachinko-app-2duy.vercel.app'}})}
+          style={{ width:'100%', padding:'14px 20px', borderRadius:14, border:'none', background:'white', color:'#1e293b', fontWeight:700, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:'0 4px 16px rgba(0,0,0,0.3)' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Googleでログイン
+        </button>
+        <div style={{ marginTop:16, fontSize:11, color:'rgba(255,255,255,0.3)' }}>
+          ログインするとAndroid・iOSでデータが同期されます
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary, position:'relative' }}>
@@ -6575,6 +6698,22 @@ export default function PachinkoCalculatorComplete() {
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {[
               { title:'カラーテーマ', icon:<Palette size={16} color={C.primary}/>, content:(
+                <>
+                {/* アカウント情報・同期状態 */}
+                <div style={{ background:isDark?'rgba(99,102,241,0.1)':'#eef2ff', border:`1px solid ${isDark?'rgba(99,102,241,0.3)':'#c7d2fe'}`, borderRadius:14, padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+                  <div>
+                    <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:3 }}>ログイン中</div>
+                    <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>{supaUser?.email}</div>
+                    <div style={{ fontSize:11, marginTop:3, color:syncStatus==='synced'?C.positive:syncStatus==='syncing'?C.amber:syncStatus==='error'?C.negative:C.textMuted }}>
+                      {syncStatus==='synced'?'✅ クラウド同期済み':syncStatus==='syncing'?'☁️ 同期中...':syncStatus==='error'?'❌ 同期エラー':'☁️ クラウド保存対応'}
+                    </div>
+                  </div>
+                  <button onClick={()=>supabase.auth.signOut()}
+                    style={{ padding:'8px 14px', borderRadius:10, border:`1px solid ${C.negativeBorder}`, background:C.card, color:C.negative, fontWeight:700, fontSize:12, cursor:'pointer', flexShrink:0 }}>
+                    ログアウト
+                  </button>
+                </div>
+                </>
                 <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
                   {/* テーマモード */}
                   <div>
