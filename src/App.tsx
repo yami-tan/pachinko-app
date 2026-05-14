@@ -6713,7 +6713,6 @@ export default function PachinkoCalculatorComplete() {
                     ログアウト
                   </button>
                 </div>
-                </React.Fragment>
                 <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
                   {/* テーマモード */}
                   <div>
@@ -6807,6 +6806,7 @@ export default function PachinkoCalculatorComplete() {
                     💡 変更は即時反映されるぜ。好みのカラーで使ってくれ。
                   </div>
                 </div>
+                </React.Fragment>
               )},
               { title:'期待値計算の詳細設定', icon:<Settings size={16} color={C.primary}/>, content:(
                 <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
