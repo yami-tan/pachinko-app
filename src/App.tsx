@@ -2638,7 +2638,7 @@ export default function PachinkoCalculatorComplete() {
                     const visibleEntries=collapsible?entries.slice(-SHOW_RECENT):entries;
                     const hiddenCount=collapsible?total-SHOW_RECENT:0;
                     return (
-                      <>
+                      <React.Fragment>
                         {collapsible&&(
                           <button onClick={()=>setShowAllRateEntries(true)}
                             style={{ padding:'8px 14px', borderRadius:12, border:`1.5px dashed ${C.border}`, background:C.card, color:C.textMuted, fontSize:12, fontWeight:600, cursor:'pointer', textAlign:'center' }}>
@@ -2783,7 +2783,7 @@ export default function PachinkoCalculatorComplete() {
                             ▼ 折りたたむ
                           </button>
                         )}
-                      </>
+                      </React.Fragment>
                     );
                   })()}
                 </div>
@@ -3870,7 +3870,7 @@ export default function PachinkoCalculatorComplete() {
                         <div style={{ fontWeight:800, fontSize:16, color:C.textPrimary, marginBottom:8 }}>通常回転時速をリセット</div>
                         <div style={{ fontSize:13, color:C.textSecondary, marginBottom:20, lineHeight:1.6 }}>
                           手動入力をクリアして初期値（200回転/h）に戻しますか？
-                          {numberOrZero(form.hours)>0&&<><br/><span style={{ color:C.primary }}>※稼働時間から自動計算した値が反映されます</span></>}
+                          {numberOrZero(form.hours)>0&&<React.Fragment><br/><span style={{ color:C.primary }}>※稼働時間から自動計算した値が反映されます</span></React.Fragment>}
                         </div>
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                           <button onClick={()=>setSphResetConfirmOpen(false)}
@@ -4248,8 +4248,8 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
                       {bc.holdBallRatioInput&&Number(bc.holdBallRatioInput)===Math.round(formMetrics.holdBallRatio)&&formMetrics.holdBallRatio>0
                         ? <span style={{ color:C.positive, fontWeight:600 }}>✅ 回転率タブから自動入力（{bc.holdBallRatioInput}%）</span>
-                        : <>入力なし=現金のみ(0%)で計算。<button onClick={()=>setBorderCalc(p=>({...p,holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio))}))}
-                            style={{ marginLeft:4, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>回転率から取込（{Math.round(formMetrics.holdBallRatio)}%）</button></>
+                        : <React.Fragment>入力なし=現金のみ(0%)で計算。<button onClick={()=>setBorderCalc(p=>({...p,holdBallRatioInput:String(Math.round(formMetrics.holdBallRatio))}))}
+                            style={{ marginLeft:4, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>回転率から取込（{Math.round(formMetrics.holdBallRatio)}%）</button></React.Fragment>
                       }
                     </div>
                   </div>
@@ -5128,13 +5128,13 @@ export default function PachinkoCalculatorComplete() {
                                           {tabako.length>0&&(
                                             <span style={{ fontSize:11, color:C.textMuted }}>
                                               🚬 タバコ休憩 <b style={{ color:C.textPrimary }}>{tabako.length}回</b>
-                                              {tabMins>0&&<> · <b style={{ color:C.textPrimary }}>{fmtMins(tabMins)}</b></>}
+                                              {tabMins>0&&<React.Fragment> · <b style={{ color:C.textPrimary }}>{fmtMins(tabMins)}</b></React.Fragment>}
                                             </span>
                                           )}
                                           {gohan.length>0&&(
                                             <span style={{ fontSize:11, color:C.textMuted }}>
                                               🍱 ご飯休憩 <b style={{ color:C.textPrimary }}>{gohan.length}回</b>
-                                              {goMins>0&&<> · <b style={{ color:C.textPrimary }}>{fmtMins(goMins)}</b></>}
+                                              {goMins>0&&<React.Fragment> · <b style={{ color:C.textPrimary }}>{fmtMins(goMins)}</b></React.Fragment>}
                                             </span>
                                           )}
                                           {(tabMins+goMins)>0&&(
@@ -5435,7 +5435,7 @@ export default function PachinkoCalculatorComplete() {
                   const yWork=yr.reduce((a,s)=>a+(getWorkVolumeYen(s.metrics)??0),0);
                   const yHours=yr.reduce((a,s)=>a+numberOrZero(s.hours),0);
                   const ySpins=yr.reduce((a,s)=>a+s.metrics.totalSpins,0);
-                  return (<>
+                  return (<React.Fragment>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                       <SummaryMetric title="年間収支" value={fmtYen(yBal)} positive={yBal>=0} sub={`稼働 ${yr.length}件`}/>
                       <SummaryMetric title="年間仕事量" value={fmtYen(Math.round(yWork))} positive={yWork>=0} sub="-"/>
@@ -5448,7 +5448,7 @@ export default function PachinkoCalculatorComplete() {
                         </div>
                       ))}
                     </div>
-                  </>);
+                  </React.Fragment>);
                 })()}
               </div>
             </div>
@@ -5542,7 +5542,7 @@ export default function PachinkoCalculatorComplete() {
                         style={{ width:'100%', padding:'12px 16px', borderRadius:14, border:`1.5px solid ${detailMachineKey?C.primary:C.border}`, background:detailMachineKey?C.primaryLight:C.card, cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', textAlign:'left' }}>
                         <div>
                           {detailMachineKey?(
-                            <>
+                            <React.Fragment>
                               <div style={{ fontSize:14, fontWeight:700, color:C.primary }}>{detailMachineKey}</div>
                               {(()=>{
                                 const m=machines.find(mc=>mc.name===detailMachineKey);
@@ -5551,7 +5551,7 @@ export default function PachinkoCalculatorComplete() {
                                 if(!b&&!m?.totalProbability) return null;
                                 return <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{b?`等価B:${b} `:''}{m?.totalProbability?`1/${m.totalProbability}`:''}</div>;
                               })()}
-                            </>
+                            </React.Fragment>
                           ):(
                             <span style={{ fontSize:13, color:C.textMuted }}>機種を選んでください</span>
                           )}
@@ -6698,7 +6698,7 @@ export default function PachinkoCalculatorComplete() {
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {[
               { title:'カラーテーマ', icon:<Palette size={16} color={C.primary}/>, content:(
-                <>
+                <React.Fragment>
                 {/* アカウント情報・同期状態 */}
                 <div style={{ background:isDark?'rgba(99,102,241,0.1)':'#eef2ff', border:`1px solid ${isDark?'rgba(99,102,241,0.3)':'#c7d2fe'}`, borderRadius:14, padding:'12px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
                   <div>
@@ -6713,7 +6713,7 @@ export default function PachinkoCalculatorComplete() {
                     ログアウト
                   </button>
                 </div>
-                </>
+                </React.Fragment>
                 <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
                   {/* テーマモード */}
                   <div>
@@ -6923,7 +6923,7 @@ export default function PachinkoCalculatorComplete() {
                     return profiles.length===0
                       ? <div style={{ fontSize:13, color:C.textMuted }}>まだ登録がないぜ。</div>
                       : (
-                        <>
+                        <React.Fragment>
                           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                             {pageProfiles.map(p=>(
                               <div key={p.name} style={{ border:`1px solid ${C.border}`, borderRadius:14, padding:'12px 14px', background:C.card }}>
@@ -6965,7 +6965,7 @@ export default function PachinkoCalculatorComplete() {
                               </button>
                             </div>
                           )}
-                        </>
+                        </React.Fragment>
                       );
                   })()}
                 </div>
