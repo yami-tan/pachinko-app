@@ -2179,7 +2179,7 @@ export default function PachinkoCalculatorComplete() {
                       </div>
 
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                        <div><label style={labelStyle}>台番号</label><input value={form.machineNumber} onChange={e=>updateForm('machineNumber',e.target.value)} style={inputStyle} placeholder="任意"/></div>
+                        <div><label style={labelStyle}>台番号</label><input value={form.machineNumber} onChange={e=>updateForm('machineNumber',e.target.value.replace(/[^0-9]/g,''))} style={inputStyle} inputMode="numeric" pattern="[0-9]*" placeholder="任意"/></div>
                         <div><label style={labelStyle}>機種名フリー入力</label><input value={form.machineFreeName} onChange={e=>updateForm('machineFreeName',e.target.value)} style={inputStyle} placeholder="未登録時用"/></div>
                       </div>
 
@@ -2513,12 +2513,12 @@ export default function PachinkoCalculatorComplete() {
                           <input
                             value={form.currentBallsInput||''}
                             onChange={e=>{
-                              const v=e.target.value;
+                              const v=e.target.value.replace(/[^0-9]/g,'');
                               const stored=numberOrZero(form.storedBallsInput);
                               applyFormUpdate(p=>({...p,currentBallsInput:v,inheritedBalls:numberOrZero(v)+stored}));
                             }}
-                            style={{ width:72, textAlign:'right', fontSize:13, fontWeight:700, border:`1px solid ${C.amberBorder}`, borderRadius:8, padding:'3px 8px', color:C.amber, background:C.card, outline:'none', boxSizing:'border-box' }}
-                            inputMode="numeric" placeholder="2500"
+                            style={{ width:80, textAlign:'right', fontSize:14, fontWeight:700, border:`1px solid ${C.amberBorder}`, borderRadius:8, padding:'4px 8px', color:C.amber, background:C.card, outline:'none', boxSizing:'border-box' }}
+                            inputMode="numeric" pattern="[0-9]*" placeholder="2500"
                           />
                           <span style={{ fontSize:10, color:C.textMuted }}>玉</span>
                         </div>
@@ -2556,12 +2556,12 @@ export default function PachinkoCalculatorComplete() {
                           <input
                             value={form.storedBallsInput||''}
                             onChange={e=>{
-                              const v=e.target.value;
+                              const v=e.target.value.replace(/[^0-9]/g,'');
                               const hold=numberOrZero(form.currentBallsInput);
                               applyFormUpdate(p=>({...p,storedBallsInput:v,inheritedBalls:hold+numberOrZero(v)}));
                             }}
-                            style={{ width:72, textAlign:'right', fontSize:13, fontWeight:700, border:'1px solid #c4b5fd', borderRadius:8, padding:'3px 8px', color:'#7c3aed', background:C.card, outline:'none', boxSizing:'border-box' }}
-                            inputMode="numeric" placeholder="2375"
+                            style={{ width:80, textAlign:'right', fontSize:14, fontWeight:700, border:'1px solid #c4b5fd', borderRadius:8, padding:'4px 8px', color:'#7c3aed', background:C.card, outline:'none', boxSizing:'border-box' }}
+                            inputMode="numeric" pattern="[0-9]*" placeholder="2375"
                           />
                           <span style={{ fontSize:10, color:C.textMuted }}>玉</span>
                         </div>
@@ -2745,33 +2745,36 @@ export default function PachinkoCalculatorComplete() {
                                 </span>
                               </div>
                             ) : (
-                              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                                <button
-                                  onClick={()=>updateRateEntry(entry.id,'kind',entry.kind==='balls'?'cash':'balls')}
-                                  style={{ flexShrink:0, padding:'7px 10px', borderRadius:8, border:'none', cursor:'pointer', fontWeight:700, fontSize:12, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent }}
-                                >
-                                  {entry.kind==='balls'?'持ち玉':'現金'}
-                                </button>
+                              <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                                {/* 上段：種別切替 + 前行コピー */}
+                                <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                                  <button
+                                    onClick={()=>updateRateEntry(entry.id,'kind',entry.kind==='balls'?'cash':'balls')}
+                                    style={{ flex:1, padding:'5px 8px', borderRadius:7, border:'none', cursor:'pointer', fontWeight:700, fontSize:12, background:entry.kind==='balls'?C.positiveBg:C.accentLight, color:entry.kind==='balls'?C.positive:C.accent }}
+                                  >
+                                    {entry.kind==='balls'?'持ち玉':'現金'}
+                                  </button>
+                                  {(()=>{
+                                    const prevEntry=index>0?form.rateEntries[index-1]:null;
+                                    const prevAmt=numberOrZero(prevEntry?.amount);
+                                    if(!prevAmt||prevEntry?.kind==='restart'||prevEntry?.kind==='jackpot_after') return null;
+                                    return (
+                                      <button
+                                        onClick={()=>updateRateEntry(entry.id,'amount',String(prevAmt))}
+                                        title={`前行と同じ ${prevAmt.toLocaleString()}${entry.kind==='balls'?'玉':'円'}`}
+                                        style={{ padding:'5px 8px', borderRadius:7, border:`1.5px solid ${C.border}`, background:C.card, cursor:'pointer', fontSize:12, color:C.textMuted, fontWeight:700, flexShrink:0 }}
+                                      >↑ {prevAmt.toLocaleString()}</button>
+                                    );
+                                  })()}
+                                </div>
+                                {/* 下段：金額入力（全幅） */}
                                 <input
                                   value={entry.amount}
-                                  onChange={e=>updateRateEntry(entry.id,'amount',e.target.value)}
-                                  style={{ flex:1, textAlign:'right', fontSize:16, fontWeight:700, border:`1.5px solid ${C.border}`, borderRadius:8, padding:'7px 10px', background:C.card, color:C.textPrimary, outline:'none', width:'100%', boxSizing:'border-box' }}
+                                  onChange={e=>updateRateEntry(entry.id,'amount',e.target.value.replace(/[^0-9]/g,''))}
+                                  style={{ width:'100%', boxSizing:'border-box', textAlign:'center', fontSize:20, fontWeight:800, border:`1.5px solid ${C.border}`, borderRadius:8, padding:'8px 6px', background:C.card, color:C.textPrimary, outline:'none' }}
                                   inputMode="numeric" enterKeyHint="done"
                                   placeholder={entry.kind==='balls'?'250':'1000'}
                                 />
-                                {/* 前行コピーボタン */}
-                                {(()=>{
-                                  const prevEntry=index>0?form.rateEntries[index-1]:null;
-                                  const prevAmt=numberOrZero(prevEntry?.amount);
-                                  if(!prevAmt||prevEntry?.kind==='restart'||prevEntry?.kind==='jackpot_after') return null;
-                                  return (
-                                    <button
-                                      onClick={()=>updateRateEntry(entry.id,'amount',String(prevAmt))}
-                                      title={`前行と同じ ${prevAmt.toLocaleString()}${entry.kind==='balls'?'玉':'円'}`}
-                                      style={{ flexShrink:0, width:30, height:34, borderRadius:8, border:`1.5px solid ${C.border}`, background:C.card, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, color:C.textMuted }}
-                                    >↑</button>
-                                  );
-                                })()}
                               </div>
                             )}
                           </div>
@@ -5047,7 +5050,7 @@ export default function PachinkoCalculatorComplete() {
                             <label style={{ fontSize:11, color:C.textMuted, fontWeight:600, display:'block', marginBottom:4 }}>台番号</label>
                             <input
                               value={s.machineNumber||''}
-                              onChange={e=>{const v=e.target.value;upsertSession({...s,machineNumber:v,updatedAt:Date.now()});}}
+                              onChange={e=>{const v=e.target.value.replace(/[^0-9]/g,'');upsertSession({...s,machineNumber:v,updatedAt:Date.now()});}}
                               style={{ width:'100%', boxSizing:'border-box', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 10px', fontSize:13, background:C.card, color:C.textPrimary }}
                               placeholder="台番号"
                             />
