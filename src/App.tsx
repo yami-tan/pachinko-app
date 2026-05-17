@@ -597,6 +597,7 @@ export default function PachinkoCalculatorComplete() {
   const [sysDark,setSysDark]=useState(()=>typeof window!=='undefined'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
   const [bgImage,setBgImage]=useState(()=>{try{return localStorage.getItem('pachi_bg_image')||null;}catch{return null;}});
   const [bgOpacity,setBgOpacity]=useState(()=>{try{return Number(localStorage.getItem('pachi_bg_opacity'))||0.15;}catch{return 0.15;}});
+  const [cardAlpha,setCardAlpha]=useState(()=>{try{return Number(localStorage.getItem('pachi_card_alpha'))||0;}catch{return 0;}});
 
   function handleBgImageUpload(file) {
     if(!file) return;
@@ -616,6 +617,10 @@ export default function PachinkoCalculatorComplete() {
     setBgOpacity(v);
     try{localStorage.setItem('pachi_bg_opacity',String(v));}catch{}
   }
+  function updateCardAlpha(v) {
+    setCardAlpha(v);
+    try{localStorage.setItem('pachi_card_alpha',String(v));}catch{}
+  }
   useEffect(()=>{
     const mq=window.matchMedia('(prefers-color-scheme: dark)');
     const handler=e=>setSysDark(e.matches);
@@ -624,6 +629,18 @@ export default function PachinkoCalculatorComplete() {
   },[]);
   const isDark=settings.themeMode==='dark'||(settings.themeMode==='system'&&sysDark);
   C=buildColorSystem(settings.colorTheme||'indigo', isDark);
+  // 背景画像 + カード透明度が設定されている場合は C.card を半透明化
+  if(bgImage&&cardAlpha>0){
+    const solidAlpha=Math.max(0.08, 1-cardAlpha); // 最低8%の不透明度を確保
+    C={...C,
+      card: isDark
+        ? `rgba(30,41,59,${solidAlpha})`
+        : `rgba(255,255,255,${solidAlpha})`,
+      border: isDark
+        ? `rgba(51,65,85,${Math.min(1,solidAlpha+0.2)})`
+        : `rgba(226,232,240,${Math.min(1,solidAlpha+0.3)})`,
+    };
+  }
   const [activeTab,setActiveTab]=useState('rate');
   const [search,setSearch]=useState('');
   const [periodMode,setPeriodMode]=useState('month');
@@ -1626,7 +1643,9 @@ export default function PachinkoCalculatorComplete() {
   function moveYear(delta) { setCurrentYear(String(Number(currentYear)+delta)); }
 
   /* ─── スタイル定数 ─── */
-  const cardStyle={ background:C.card, border:`1px solid ${C.border}`, borderRadius:24, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.07)' };
+  // cardAlpha > 0 かつ bgImage あり → backdrop-filter blur でガラスエフェクト
+  const glassFilter=bgImage&&cardAlpha>0?{backdropFilter:`blur(${Math.round(cardAlpha*20)}px)`,WebkitBackdropFilter:`blur(${Math.round(cardAlpha*20)}px)`}:{};
+  const cardStyle={ background:C.card, border:`1px solid ${C.border}`, borderRadius:24, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.07)', ...glassFilter };
   const inputStyle={ background:C.card, border:`1.5px solid ${C.border}`, borderRadius:14, padding:'13px 16px', fontSize:16, color:C.textPrimary, width:'100%', boxSizing:'border-box', outline:'none' };
   const labelStyle={ fontSize:13, fontWeight:600, color:C.textSecondary, display:'block', marginBottom:6 };
   const btnPrimary={ background:C.primary, color:'white', border:'none', borderRadius:14, padding:'14px 20px', fontWeight:700, fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', gap:6, justifyContent:'center' };
@@ -1657,7 +1676,7 @@ export default function PachinkoCalculatorComplete() {
   ];
 
   return (
-    <div style={{ minHeight:'100vh', background:C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary, position:'relative' }}>
+    <div style={{ minHeight:'100vh', background:bgImage?'transparent':C.bg, fontFamily:'system-ui,-apple-system,sans-serif', color:C.textPrimary, position:'relative' }}>
       {/* 背景画像オーバーレイ */}
       {bgImage&&(
         <div style={{
@@ -6674,11 +6693,30 @@ export default function PachinkoCalculatorComplete() {
                           <label style={labelStyle}>透明度（低いほど薄い）</label>
                           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                             <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>薄</span>
-                            <input type="range" min="0.03" max="0.5" step="0.01" value={bgOpacity}
+                            <input type="range" min="0.03" max="1.0" step="0.01" value={bgOpacity}
                               onChange={e=>updateBgOpacity(Number(e.target.value))}
                               style={{ flex:1, accentColor:C.primary }}/>
                             <span style={{ fontSize:12, color:C.textMuted, minWidth:24 }}>濃</span>
                           </div>
+                        </div>
+                        {/* カード透明度スライダー */}
+                        <div>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                            <label style={labelStyle}>カード透明度（背景を透かす）</label>
+                            <span style={{ fontSize:12, fontWeight:700, color:C.primary }}>{Math.round(cardAlpha*100)}%</span>
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <span style={{ fontSize:12, color:C.textMuted, minWidth:28 }}>不透明</span>
+                            <input type="range" min="0" max="0.85" step="0.05" value={cardAlpha}
+                              onChange={e=>updateCardAlpha(Number(e.target.value))}
+                              style={{ flex:1, accentColor:C.primary }}/>
+                            <span style={{ fontSize:12, color:C.textMuted, minWidth:28 }}>透明</span>
+                          </div>
+                          {cardAlpha>0&&(
+                            <div style={{ marginTop:6, padding:'8px 12px', borderRadius:10, background:isDark?'rgba(99,102,241,0.12)':C.primaryLight, border:`1px solid ${C.primaryMid}`, fontSize:11, color:C.primary }}>
+                              💡 カード透明度 {Math.round(cardAlpha*100)}% / ぼかし {Math.round(cardAlpha*20)}px — 背景画像が透けて見えるぜ
+                            </div>
+                          )}
                         </div>
                         {/* 変更・削除ボタン */}
                         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
