@@ -23,7 +23,51 @@ const STORAGE_KEYS = {
   sessions: 'pachi_complete_sessions_v12',
   settings: 'pachi_complete_settings_v12',
   photos:   'pachi_complete_photos_v12',  // 写真だけ別キー（容量圧迫対策）
+  backupMeta: 'pachi_backup_meta_v1',     // バックアップの一覧（日付→keyの対応）
 };
+// バックアップ操作ヘルパー
+function saveBackup(machines, sessions, settings) {
+  try {
+    const today = todayStr();
+    const key = `pachi_backup_${today}`;
+    const meta = loadJSON(STORAGE_KEYS.backupMeta, {});
+    // 当日分はそのまま上書き保存
+    const blob = JSON.stringify({ machines, sessions, settings, savedAt: Date.now() });
+    localStorage.setItem(key, blob);
+    meta[today] = key;
+    // 直近7日分のみ保持（古いバックアップを削除）
+    const dates = Object.keys(meta).sort().reverse();
+    dates.slice(7).forEach(d => {
+      try { localStorage.removeItem(meta[d]); } catch {}
+      delete meta[d];
+    });
+    saveJSON(STORAGE_KEYS.backupMeta, meta);
+  } catch(e) {
+    console.warn('[saveBackup] バックアップ失敗:', e);
+  }
+}
+function listBackups() {
+  const meta = loadJSON(STORAGE_KEYS.backupMeta, {});
+  return Object.keys(meta).sort().reverse().map(date => {
+    try {
+      const raw = localStorage.getItem(meta[date]);
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return { date, key: meta[date], savedAt: d.savedAt, sessionCount: (d.sessions||[]).length, machineCount: (d.machines||[]).length };
+    } catch { return null; }
+  }).filter(Boolean);
+}
+function restoreBackup(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (Array.isArray(d.machines)) saveJSON(STORAGE_KEYS.machines, d.machines);
+    if (Array.isArray(d.sessions)) saveJSON(STORAGE_KEYS.sessions, d.sessions);
+    if (d.settings) saveJSON(STORAGE_KEYS.settings, d.settings);
+    return true;
+  } catch { return false; }
+}
 
 const EXCHANGE_PRESETS = {
   '25':   { label: '25個(等価)',      yenPerBall: 4.0,          short: '等価'  },
@@ -1094,6 +1138,8 @@ export default function PachinkoCalculatorComplete() {
     setNailGrades({}); setHesoDirections([]);
     try{localStorage.removeItem('pachi_nail_grades');localStorage.removeItem('pachi_heso_dirs');}catch{}
     saveCounterSnapshot(); setCounters(DEFAULT_COUNTERS); // 振り分けカウンターも終了時リセット
+    // 終了時に明示的バックアップ
+    saveBackup(machines,[...sessions.filter(s=>s.id!==p.id),p],settings);
     setBreaks([]); setIsOnBreak(false);
     skipAutosaveRef.current=true; setUndoStack([]); setForm(emptySession(settings)); setSaveStatus('saved'); setResultDialogOpen(false); setActiveTab('history');
     // ボーダータブの持ち玉比率・1R出玉をリセット
@@ -1724,7 +1770,14 @@ export default function PachinkoCalculatorComplete() {
     }));
     setEditingHitId(null);
   }
-  function exportData() { const blob=new Blob([JSON.stringify({machines,sessions,settings},null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`pachinko-complete-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url); }
+  function exportData() {
+    // 写真も含めた完全バックアップ
+    const photoMap=loadJSON(STORAGE_KEYS.photos,{});
+    const sessionsWithPhotos=sessions.map(s=>({...s,photos:photoMap[s.id]||s.photos||[]}));
+    const blob=new Blob([JSON.stringify({machines,sessions:sessionsWithPhotos,settings,exportedAt:Date.now()},null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url;
+    a.download=`pachinko-backup-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url);
+  }
   function importData(file) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(String(r.result||'{}')); if(Array.isArray(d.machines))setMachines(d.machines); if(Array.isArray(d.sessions))setSessions(d.sessions); if(d.settings)setSettings({...defaultSettings,...d.settings}); } catch { alert('JSONの読み込みに失敗したぜ'); } }; r.readAsText(file); }
   function moveMonth(delta) { const d=new Date(`${currentMonth}-01T00:00:00`); d.setMonth(d.getMonth()+delta); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
   function moveYear(delta) { setCurrentYear(String(Number(currentYear)+delta)); }
@@ -7412,13 +7465,75 @@ export default function PachinkoCalculatorComplete() {
                 </div>
               )},
               { title:'データ管理', icon:<Database size={16} color={C.primary}/>, content:(
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <button onClick={exportData} style={{ ...btnOutline, width:'100%' }}><Download size={15}/>JSONを書き出す</button>
+                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                  {/* 警告 */}
+                  <div style={{ background:isDark?'rgba(239,68,68,0.12)':'#fef2f2', border:'1.5px solid #fca5a5', borderRadius:12, padding:'10px 14px' }}>
+                    <div style={{ fontWeight:700, color:'#dc2626', fontSize:13, marginBottom:4 }}>⚠️ データ消失に注意</div>
+                    <div style={{ fontSize:12, color:isDark?'#fca5a5':'#7f1d1d', lineHeight:1.7 }}>
+                      データはこの端末のブラウザにのみ保存されます。<br/>
+                      ブラウザのキャッシュクリア・機種変更・アプリ削除でデータが消えます。<br/>
+                      <b>定期的にJSONで書き出してください。</b>
+                    </div>
+                  </div>
+                  {/* バックアップ・復元 */}
+                  <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary }}>📤 バックアップ</div>
+                  <button onClick={exportData} style={{ ...btnOutline, width:'100%', justifyContent:'center', gap:8 }}>
+                    <Download size={15}/>完全バックアップを書き出す（写真込み）
+                  </button>
                   <label style={{ cursor:'pointer', display:'block' }}>
-                    <div style={{ ...btnOutline, width:'100%', boxSizing:'border-box' }}><Upload size={15}/>JSONを読み込む</div>
+                    <div style={{ ...btnOutline, width:'100%', boxSizing:'border-box', justifyContent:'center', gap:8 }}>
+                      <Upload size={15}/>JSONを読み込んで復元する
+                    </div>
                     <input type="file" accept="application/json" style={{ display:'none' }} onChange={e=>e.target.files?.[0]&&importData(e.target.files[0])}/>
                   </label>
-                  <div style={{ fontSize:12, color:C.textMuted }}>途中保存も終了データも全部端末保存だ。画像を入れすぎると容量に当たるから、その時はJSON退避だぜ。</div>
+                  {/* 自動バックアップ一覧 */}
+                  {(()=>{
+                    const backups=listBackups();
+                    if(!backups.length) return (
+                      <div style={{ fontSize:12, color:C.textMuted, background:isDark?'rgba(255,255,255,0.03)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 12px' }}>
+                        自動バックアップはまだありません。<br/>稼働を終了するたびに自動保存されます（直近7日分）。
+                      </div>
+                    );
+                    return (
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:13, color:C.textPrimary, marginBottom:8 }}>🔄 自動バックアップ（直近7日）</div>
+                        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                          {backups.map(b=>(
+                            <div key={b.date} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:isDark?'rgba(255,255,255,0.04)':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:10, padding:'8px 12px' }}>
+                              <div>
+                                <div style={{ fontSize:13, fontWeight:700, color:C.textPrimary }}>{b.date}</div>
+                                <div style={{ fontSize:11, color:C.textMuted, marginTop:1 }}>
+                                  記録{b.sessionCount}件 / 機種{b.machineCount}台
+                                  {b.savedAt&&` / ${new Date(b.savedAt).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}保存`}
+                                </div>
+                              </div>
+                              <button
+                                onClick={()=>{
+                                  if(!window.confirm(`${b.date}のバックアップに戻しますか？
+現在のデータは上書きされます。`)) return;
+                                  if(restoreBackup(b.key)){
+                                    const restoredM=loadJSON(STORAGE_KEYS.machines,defaultMachines);
+                                    const restoredS=loadJSON(STORAGE_KEYS.sessions,[]);
+                                    const restoredSet={...defaultSettings,...loadJSON(STORAGE_KEYS.settings,defaultSettings)};
+                                    setMachines(restoredM); setSessions(restoredS); setSettings(restoredSet);
+                                    alert('復元しました！');
+                                  } else {
+                                    alert('復元に失敗しました。');
+                                  }
+                                }}
+                                style={{ padding:'5px 12px', borderRadius:8, border:`1px solid ${C.primaryMid}`, background:C.primaryLight, color:C.primary, fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+                                復元
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div style={{ fontSize:11, color:C.textMuted, lineHeight:1.7 }}>
+                    自動バックアップは稼働終了ごとにこの端末内に保存（直近7日）。<br/>
+                    機種変更・PC移行時は「完全バックアップを書き出す」を使ってください。
+                  </div>
                 </div>
               )},
             ].map(({title,icon,content})=>(
