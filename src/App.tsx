@@ -128,7 +128,8 @@ function calcElapsedHours(start, end) {
   if(!start||!end) return null;
   const [sh,sm]=start.split(':').map(Number);
   const [eh,em]=end.split(':').map(Number);
-  const mins=(eh*60+em)-(sh*60+sm);
+  let mins=(eh*60+em)-(sh*60+sm);
+  if(mins<0) mins+=24*60; // 日またぎ対応（23:00→01:00 など）
   if(mins<=0) return null;
   return mins/60;
 }
@@ -1510,7 +1511,9 @@ export default function PachinkoCalculatorComplete() {
     const unrecordedSpinsNow=Math.max(0,hitSpins-confirmedSpinsNow);
     // 機種カウンター絶対値 = 最後の確定reading + 未記録分
     const hitReadingForEntry=hitSpins>0?Math.max(hitSpins, lastReadingNow+unrecordedSpinsNow):hitSpins;
-    const diffBalls=(currentBallsNow!==null&&hitSpins>0&&effectiveStartBalls<currentBallsNow)
+    // 差玉: 開始持ち玉を明示的に入力した場合のみ計算（effectiveStartBalls>0）
+    // 未入力(=0)のとき currentBalls 全量が差玉として計上されるのを防ぐ
+    const diffBalls=(effectiveStartBalls>0&&currentBallsNow!==null&&hitSpins>0&&effectiveStartBalls<currentBallsNow)
       ? (currentBallsNow - effectiveStartBalls)
       : 0;
 
@@ -1518,8 +1521,10 @@ export default function PachinkoCalculatorComplete() {
     const cashInvestInput=numberOrZero(firstHitForm.cashInvestInput);
     // cashInvestInput は「確定済み以降の追加・未記録の現金投資額」
     // 開始持ち玉+上皿玉を差し引いた純投資額を最後の未確定行にセット
+    // cashInvestInput は「追加の現金投資（未記録分）」= 純粋な現金額
+    // effectiveStartBalls の差し引きは不要（ラベルの通り純現金として適用）
     const netCashInvest=form.currentInputMode==='cash'&&cashInvestInput>0
-      ? Math.max(0, cashInvestInput - effectiveStartBalls*4)
+      ? cashInvestInput
       : 0;
 
     applyFormUpdate(prev=>{
@@ -3708,7 +3713,7 @@ export default function PachinkoCalculatorComplete() {
                               if(hitSpins<=0||cashInvest<=0) return (
                                 <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>初当たりゲーム数と現金投資額を入力すると回転率を計算するぜ。</div>
                               );
-                              const netThisSection=Math.max(0,cashInvest-(effectiveStart*4)); // 開始持ち玉+上皿玉を差し引いた純投資
+                              const netThisSection=cashInvest; // 純粋な現金として加算（差し引きなし）
                               // confirmedInvest = 確定済み(rateEntries読み取り済み分)
                               // cashInvestInput = まだ記録していない追加現金 → 足すだけで正しい
                               const confirmedInvest=formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0);
