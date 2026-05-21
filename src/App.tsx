@@ -31,8 +31,9 @@ function saveBackup(machines, sessions, settings) {
     const today = todayStr();
     const key = `pachi_backup_${today}`;
     const meta = loadJSON(STORAGE_KEYS.backupMeta, {});
-    // 当日分はそのまま上書き保存
-    const blob = JSON.stringify({ machines, sessions, settings, savedAt: Date.now() });
+    // 当日分はそのまま上書き保存（写真はbase64で大容量になるため除外）
+    const sessionsForBackup = sessions.map(s=>({...s,photos:[]}));
+    const blob = JSON.stringify({ machines, sessions: sessionsForBackup, settings, savedAt: Date.now() });
     localStorage.setItem(key, blob);
     meta[today] = key;
     // 直近7日分のみ保持（古いバックアップを削除）
@@ -642,10 +643,21 @@ function MonthCalendar({ currentMonth, sessions, selectedDate, onSelectDate, onP
 
 /* ─── メインコンポーネント ─── */
 export default function PachinkoCalculatorComplete() {
-  const [machines,setMachines]=useState([]);
-  const [sessions,setSessions]=useState([]);
-  const [settings,setSettings]=useState(defaultSettings);
-  const [form,setForm]=useState(emptySession(defaultSettings));
+  // ── lazy initializer: 最初から localStorage を読む（保存エフェクトより前に確定する）──
+  const [machines,setMachines]=useState(()=>loadJSON(STORAGE_KEYS.machines,defaultMachines));
+  const [sessions,setSessions]=useState(()=>{
+    const raw=loadJSON(STORAGE_KEYS.sessions,[]);
+    const photoMap=loadJSON(STORAGE_KEYS.photos,{});
+    return raw.map(s=>({...s,photos:photoMap[s.id]||s.photos||[]}));
+  });
+  const [settings,setSettings]=useState(()=>({...defaultSettings,...loadJSON(STORAGE_KEYS.settings,defaultSettings)}));
+  const [form,setForm]=useState(()=>{
+    const raw=loadJSON(STORAGE_KEYS.sessions,[]);
+    const lset={...defaultSettings,...loadJSON(STORAGE_KEYS.settings,defaultSettings)};
+    const draft=[...raw].filter(s=>s.status==='draft').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+    const today=todayStr();
+    return draft?{...emptySession(lset),...draft,date:draft.date===today?draft.date:today}:emptySession(lset);
+  });
 
   // ── ダークモード判定 ──
   const [sysDark,setSysDark]=useState(()=>typeof window!=='undefined'&&window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -729,6 +741,8 @@ export default function PachinkoCalculatorComplete() {
   const readingInputRefs=useRef([]);
   const autosaveTimerRef=useRef(null);
   const skipAutosaveRef=useRef(false);
+  const machinesRef=useRef(machines);   // saveBackup のクロージャ問題を回避
+  const settingsRef=useRef(settings);   // useEffect deps なしで最新値を参照
   const [judgeForm,setJudgeForm]=useState({observedRate:'',border:'',note:''});
   // ── ボーダーライン算出 ──
   const [borderCalc,setBorderCalc]=useState({
@@ -864,23 +878,11 @@ export default function PachinkoCalculatorComplete() {
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
 
   useEffect(()=>{
-    const lm=loadJSON(STORAGE_KEYS.machines,defaultMachines);
-    const lsRaw=loadJSON(STORAGE_KEYS.sessions,[]);
-    const photoMap=loadJSON(STORAGE_KEYS.photos,{});
-    // 保存時に除いた写真を sessions に復元
-    const ls=lsRaw.map(s=>({...s,photos:photoMap[s.id]||s.photos||[]}));
-    const lset={...defaultSettings,...loadJSON(STORAGE_KEYS.settings,defaultSettings)};
-    setMachines(lm); setSessions(ls); setSettings(lset);
-    const draft=[...ls].filter(s=>s.status==='draft').sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+    // lazy initializer で machines/sessions/settings/form は既にロード済み
+    // ここでは初期フラグのみ設定
     skipAutosaveRef.current=true; setUndoStack([]); setSaveStatus('saved');
-    const today=todayStr();
-    // ドラフトの日付が今日と違う場合は今日の日付に更新してロード
-    const restoredForm=draft
-      ?{...emptySession(lset),...draft, date:draft.date===today?draft.date:today}
-      :emptySession(lset);
-    setForm(restoredForm);
   },[]);
-  useEffect(()=>saveJSON(STORAGE_KEYS.machines,machines),[machines]);
+  useEffect(()=>{ machinesRef.current=machines; saveJSON(STORAGE_KEYS.machines,machines); },[machines]);
   useEffect(()=>{
     // 写真(base64)は sessions 本体から除いて別キーに保存（localStorage 容量圧迫対策）
     const sessionsWithoutPhotos=sessions.map(s=>({...s,photos:[]}));
@@ -889,8 +891,10 @@ export default function PachinkoCalculatorComplete() {
     const photoMap={};
     sessions.forEach(s=>{ if((s.photos||[]).length>0) photoMap[s.id]=s.photos; });
     saveJSON(STORAGE_KEYS.photos,photoMap);
+    // 自動バックアップ（machinesRef/settingsRef 経由でクロージャ stale を回避）
+    saveBackup(machinesRef.current, sessions, settingsRef.current);
   },[sessions]);
-  useEffect(()=>saveJSON(STORAGE_KEYS.settings,settings),[settings]);
+  useEffect(()=>{ settingsRef.current=settings; saveJSON(STORAGE_KEYS.settings,settings); },[settings]);
 
   const enrichedSessions=useMemo(()=>sessions.map(s=>{ const m=machines.find(m=>m.id===s.machineId)||null; return {...s,machine:m,metrics:calcRateMetrics(s,m,settings)}; }).sort((a,b)=>{
     // まず日付の新しい順、同日は更新時刻の新しい順
@@ -1474,6 +1478,7 @@ export default function PachinkoCalculatorComplete() {
   }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine||firstHitMetrics.oneRound===null)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
+    const secId=uid(); // sec・jackpotLog・jLog・hit を紐づけるID（全パスで共有）
     const label=firstHitForm.label||`初当たり${(form.firstHits||[]).length+1}回目`;
     const crl=getChainResultLabel(firstHitForm.chainCount);
     const rh=numberOrZero(firstHitForm.remainingHolds);
@@ -1667,6 +1672,7 @@ export default function PachinkoCalculatorComplete() {
       const jackpotLog={
         id:uid(),
         kind:'jackpot_before',
+        sectionId:secId,
         label:`大当たり前 計測${logCount}`,
         entries:[...nb.rateEntries],
         spins:met.currentSpins,
@@ -1693,7 +1699,6 @@ export default function PachinkoCalculatorComplete() {
       const na=finalMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
       const nextEntry=emptyRateEntry(finalMode,na,'');
 
-      const secId=uid(); // sec・jLog・hit を紐づけるID
       const sec={id:secId,label:sl,startRotation:numberOrZero(nb.startRotation),endRotation:met.currentEndRotation,spins:met.currentSpins,investYen:met.currentInvestYen,cashInvestYen:met.currentCashInvestYen,ballInvestBalls:met.currentBallInvestBalls,ballInvestYen:met.currentBallInvestYen,spinPerThousand:Number(met.currentSpinPerThousand.toFixed(2)),estimatedEVYen:Math.round(met.currentEstimatedEVYen),restartReasonLabel:rrl};
       const ap=buildSectionRateHistoryPoints(nb,settings);
 
@@ -1778,7 +1783,29 @@ export default function PachinkoCalculatorComplete() {
     const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url;
     a.download=`pachinko-backup-${todayStr()}.json`; a.click(); URL.revokeObjectURL(url);
   }
-  function importData(file) { const r=new FileReader(); r.onload=()=>{ try { const d=JSON.parse(String(r.result||'{}')); if(Array.isArray(d.machines))setMachines(d.machines); if(Array.isArray(d.sessions))setSessions(d.sessions); if(d.settings)setSettings({...defaultSettings,...d.settings}); } catch { alert('JSONの読み込みに失敗したぜ'); } }; r.readAsText(file); }
+  function importData(file) {
+    const r=new FileReader();
+    r.onload=()=>{
+      try {
+        const d=JSON.parse(String(r.result||'{}'));
+        if(Array.isArray(d.machines)) setMachines(d.machines);
+        if(Array.isArray(d.sessions)) {
+          // sessions 内の photos を分離して別キー(STORAGE_KEYS.photos)に保存
+          const photoMap={};
+          const sessionsWithoutPhotos=d.sessions.map(s=>{
+            if((s.photos||[]).length>0) photoMap[s.id]=s.photos;
+            return {...s,photos:[]};
+          });
+          setSessions(sessionsWithoutPhotos.map(s=>({...s,photos:photoMap[s.id]||[]})));
+          // photos だけ別キーに保存
+          saveJSON(STORAGE_KEYS.photos,photoMap);
+        }
+        if(d.settings) setSettings({...defaultSettings,...d.settings});
+        alert('インポートが完了しました。');
+      } catch { alert('JSONの読み込みに失敗しました。'); }
+    };
+    r.readAsText(file);
+  }
   function moveMonth(delta) { const d=new Date(`${currentMonth}-01T00:00:00`); d.setMonth(d.getMonth()+delta); setCurrentMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); }
   function moveYear(delta) { setCurrentYear(String(Number(currentYear)+delta)); }
 
@@ -2733,8 +2760,17 @@ export default function PachinkoCalculatorComplete() {
                               <button onClick={()=>{
                                 const newRemain=numberOrZero(editingBallsVal);
                                 if(isAfterBigWin){
-                                  // 大当たり後はcurrentBallsManualで直接上書き
-                                  applyFormUpdate(p=>({...p,currentBallsManual:String(newRemain)}));
+                                  // 大当たり後: lastFirstHit.endBalls を更新して消費に自動追随させる
+                                  // newTotalRemain = newHoldRemain + 現在の貯玉残り
+                                  const curBalls=formMetrics.currentBalls||0;
+                                  const tc=Math.max(0,lastEndBallsFH+storedInit-curBalls);
+                                  const curStoredRemain=Math.max(0,storedInit-Math.max(0,tc-lastEndBallsFH));
+                                  const newTotalRemain=newRemain+curStoredRemain;
+                                  const newEndBalls=Math.max(0,newTotalRemain+lastEndBallsFH-curBalls);
+                                  applyFormUpdate(p=>({...p,
+                                    firstHits:(p.firstHits||[]).map((h,i)=>i===(p.firstHits||[]).length-1?{...h,endBalls:newEndBalls}:h),
+                                    currentBallsManual:'',
+                                  }));
                                 } else {
                                   const holdConsumed=Math.min(holdInit,totalConsumed);
                                   const newHoldInit=newRemain+holdConsumed;
@@ -2814,7 +2850,16 @@ export default function PachinkoCalculatorComplete() {
                               <button onClick={()=>{
                                 const newRemain=numberOrZero(editingBallsVal);
                                 if(isAfterBigWin){
-                                  applyFormUpdate(p=>({...p,currentBallsManual:String(newRemain)}));
+                                  // 大当たり後: newTotalRemain = 現在の持ち玉残り + newStoredRemain
+                                  const curBalls=formMetrics.currentBalls||0;
+                                  const tc=Math.max(0,lastEndBallsFH+storedInit-curBalls);
+                                  const curHoldRemain=Math.max(0,lastEndBallsFH-tc);
+                                  const newTotalRemain=curHoldRemain+newRemain;
+                                  const newEndBalls=Math.max(0,newTotalRemain+lastEndBallsFH-curBalls);
+                                  applyFormUpdate(p=>({...p,
+                                    firstHits:(p.firstHits||[]).map((h,i)=>i===(p.firstHits||[]).length-1?{...h,endBalls:newEndBalls}:h),
+                                    currentBallsManual:'',
+                                  }));
                                 } else {
                                   const storedConsumed=Math.max(0,totalConsumed-holdInit);
                                   const newStoredInit=newRemain+storedConsumed;
@@ -2882,7 +2927,13 @@ export default function PachinkoCalculatorComplete() {
                                   // 新しい初期値 = 入力値 + 消費済み量（残り = 新初期値 - 消費量）
                                   const newHoldInit=newRemain+totalConsumed;
                                   if(isAfterBigWin){
-                                    applyFormUpdate(p=>({...p,currentBallsManual:String(newRemain)}));
+                                    // 大当たり後: newTotalRemain = newRemain を直接 endBalls に反映
+                                    const curBalls=formMetrics.currentBalls||0;
+                                    const newEndBalls=Math.max(0,newRemain+lastEndBallsFH-curBalls);
+                                    applyFormUpdate(p=>({...p,
+                                      firstHits:(p.firstHits||[]).map((h,i)=>i===(p.firstHits||[]).length-1?{...h,endBalls:newEndBalls}:h),
+                                      currentBallsManual:'',
+                                    }));
                                   } else {
                                     applyFormUpdate(p=>({...p,currentBallsInput:String(newHoldInit),storedBallsInput:'',inheritedBalls:newHoldInit}));
                                   }
