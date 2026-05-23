@@ -292,6 +292,39 @@ function buildSectionRateHistoryPoints(session,settings) {
 function getSessionTrendData(session,settings) {
   return [...(session.rateHistoryPoints||[]),...buildSectionRateHistoryPoints(session,settings)];
 }
+// 1万円ごとの回転率セグメント計算
+// allPoints: {totalSpins, totalInvestYen, cashInvestYen, ballInvestYen} の配列（累積値）
+function calcRateSegments(allPoints) {
+  if(!allPoints.length) return [];
+  // ① セッション開始点（{0,0}）を先頭に合成して prevP が常に定義されるようにする
+  const pts = allPoints[0].totalInvestYen > 0
+    ? [{totalSpins:0,cashInvestYen:0,ballInvestYen:0,totalInvestYen:0},...allPoints]
+    : allPoints;
+  const segments=[];
+  let segIdx=1, prevSpins=0;
+  pts.forEach(p=>{
+    while(p.totalInvestYen>=segIdx*10000){
+      const threshold=segIdx*10000;
+      const prevP=pts.filter(x=>x.totalInvestYen<threshold).slice(-1)[0];
+      const nextP=pts.find(x=>x.totalInvestYen>=threshold);
+      if(prevP&&nextP&&nextP.totalInvestYen>prevP.totalInvestYen){
+        const ratio=(threshold-prevP.totalInvestYen)/(nextP.totalInvestYen-prevP.totalInvestYen);
+        const spinsAt=prevP.totalSpins+(nextP.totalSpins-prevP.totalSpins)*ratio;
+        const segSpins=Math.round(spinsAt-prevSpins);
+        segments.push({label:`${segIdx}万円目`,spins:segSpins,rate:segSpins/10,isFinal:false,yen:10000});
+        prevSpins=spinsAt;
+      }
+      segIdx++;
+    }
+  });
+  const lastP=pts[pts.length-1];
+  const remain=lastP.totalInvestYen%10000;
+  if(remain>0&&lastP.totalSpins>prevSpins){
+    const segSpins=Math.round(lastP.totalSpins-prevSpins);
+    segments.push({label:`${segIdx}万円目(途中)`,spins:segSpins,rate:segSpins/(remain/1000),isFinal:true,yen:remain});
+  }
+  return segments;
+}
 
 function emptyRateEntry(kind='cash',amount=1000,reading='') { return { id:uid(),kind,amount:String(amount),reading }; }
 
@@ -1637,6 +1670,16 @@ export default function PachinkoCalculatorComplete() {
             rate:Number(met2.currentSpinPerThousand.toFixed(2)),
             endReading:met2.currentEndRotation, createdAt:Date.now(),
           };
+          // ★ rateSections にも追加（jLog は logTotals から除外されるため、
+          //    archived.spins に含めないと allTotalSpins から大当たり前の回転数が消える）
+          const sl2=`通常${(nb.rateSections||[]).length+1}区間`;
+          const sec2={
+            id:secId, label:sl2,
+            startRotation:numberOrZero(nb.startRotation), endRotation:met2.currentEndRotation,
+            spins:met2.currentSpins, investYen:met2.currentInvestYen,
+            cashInvestYen:met2.currentCashInvestYen, ballInvestBalls:met2.currentBallInvestBalls,
+            ballInvestYen:met2.currentBallInvestYen, estimatedEVYen:met2.currentEstimatedEVYen,
+          };
           // rateHistoryPointsも更新して1万円ごとの回転率に反映
           const ap2=buildSectionRateHistoryPoints(nb,settings);
           const rsr2=numberOrZero(firstHitForm.restartRotation);
@@ -1648,14 +1691,15 @@ export default function PachinkoCalculatorComplete() {
           // 終了持ち玉を currentBallsInput・inheritedBalls に反映
           // 貯玉が入力されている場合は endBalls + startStoredBalls を合計して引き継ぐ
           const storedBallsForRestart=numberOrZero(firstHitForm.startStoredBalls);
-          const totalEndBalls=endBallsNum+storedBallsForRestart;
           return {
             ...nb,
             measurementLogs:[...(nb.measurementLogs||[]),jLog],
+            rateSections:[...(nb.rateSections||[]),sec2],
             rateHistoryPoints:[...(nb.rateHistoryPoints||[]),...ap2],
             // startRotationを大当たり点に更新（以降の回転数が正しく計算される）
             startRotation:jackpotReading>0?String(jackpotReading):nb.startRotation,
             rateEntries:[afterEntry2, nextEntry2],
+            currentBallsManual:'',
             // 持ち玉: endBalls、貯玉: startStoredBalls を持ち玉パネルへセット
             // ※inheritedBalls はセッション開始値を保持（収支計算の基準点）
             currentBallsInput:String(endBallsNum),
@@ -2855,14 +2899,14 @@ export default function PachinkoCalculatorComplete() {
                               <button onClick={()=>{
                                 const newRemain=numberOrZero(editingBallsVal);
                                 if(isAfterBigWin){
-                                  // 大当たり後: newTotalRemain = 現在の持ち玉残り + newStoredRemain
+                                  // 大当たり後: storedBallsInput を更新（endBalls は変えない）
+                                  // storedConsumed = max(0, cBalls - endBalls) (貯玉消費分)
                                   const curBalls=formMetrics.currentBalls||0;
-                                  const tc=Math.max(0,lastEndBallsFH+storedInit-curBalls);
-                                  const curHoldRemain=Math.max(0,lastEndBallsFH-tc);
-                                  const newTotalRemain=curHoldRemain+newRemain;
-                                  const newEndBalls=Math.max(0,newTotalRemain+lastEndBallsFH-curBalls);
+                                  const cBallsNow=Math.max(0,lastEndBallsFH+storedInit-curBalls);
+                                  const storedConsumedNow=Math.max(0,cBallsNow-lastEndBallsFH);
+                                  const newStoredInit=newRemain+storedConsumedNow;
                                   applyFormUpdate(p=>({...p,
-                                    firstHits:(p.firstHits||[]).map((h,i)=>i===(p.firstHits||[]).length-1?{...h,endBalls:newEndBalls}:h),
+                                    storedBallsInput:String(newStoredInit),
                                     currentBallsManual:'',
                                   }));
                                 } else {
@@ -2932,11 +2976,20 @@ export default function PachinkoCalculatorComplete() {
                                   // 新しい初期値 = 入力値 + 消費済み量（残り = 新初期値 - 消費量）
                                   const newHoldInit=newRemain+totalConsumed;
                                   if(isAfterBigWin){
-                                    // 大当たり後: newTotalRemain = newRemain を直接 endBalls に反映
+                                    // 大当たり後: 現在の hold/stored の分割を維持しながら合計を変更
                                     const curBalls=formMetrics.currentBalls||0;
-                                    const newEndBalls=Math.max(0,newRemain+lastEndBallsFH-curBalls);
+                                    const cBallsNow=Math.max(0,lastEndBallsFH+storedInit-curBalls);
+                                    const holdConsumedNow=Math.min(lastEndBallsFH,cBallsNow);
+                                    const storedConsumedNow=Math.max(0,cBallsNow-lastEndBallsFH);
+                                    const holdRemainNow=Math.max(0,lastEndBallsFH-holdConsumedNow);
+                                    // 持ち玉を優先して残し、残りを貯玉に割り当て
+                                    const newHoldRemain=Math.min(holdRemainNow,newRemain);
+                                    const newStoredRemain=newRemain-newHoldRemain;
+                                    const newEndBalls=newHoldRemain+holdConsumedNow;
+                                    const newStoredInit=newStoredRemain+storedConsumedNow;
                                     applyFormUpdate(p=>({...p,
                                       firstHits:(p.firstHits||[]).map((h,i)=>i===(p.firstHits||[]).length-1?{...h,endBalls:newEndBalls}:h),
+                                      storedBallsInput:String(newStoredInit),
                                       currentBallsManual:'',
                                     }));
                                   } else {
@@ -4074,52 +4127,8 @@ export default function PachinkoCalculatorComplete() {
 
                   {/* 1万円ごとの回転率（開閉式） */}
                   {(()=>{
-                    // rateEntries + rateSections + measurementLogs から1万円ごとの区切りを生成
-                    const allPoints=[...(form.rateHistoryPoints||[]),...(()=>{
-                      const archived=form.rateHistoryPoints||[];
-                      let baseSpins=archived.length?numberOrZero(archived[archived.length-1].totalSpins):0;
-                      let baseCashInvestYen=archived.length?numberOrZero(archived[archived.length-1].cashInvestYen):0;
-                      let baseBallInvestYen=archived.length?numberOrZero(archived[archived.length-1].ballInvestYen):0;
-                      let prevReading=numberOrZero(form.startRotation);
-                      return (form.rateEntries||[]).flatMap((entry,index)=>{
-                        const reading=numberOrZero(entry.reading);
-                        if(!(reading>0&&reading>=prevReading)) return [];
-                        const amount=numberOrZero(entry.amount),spins=reading-prevReading;
-                        if(entry.kind==='balls') baseBallInvestYen+=amount*4; else baseCashInvestYen+=amount;
-                        baseSpins+=spins; prevReading=reading;
-                        const totalInvestYen=baseCashInvestYen+baseBallInvestYen;
-                        return [{totalSpins:baseSpins,cashInvestYen:baseCashInvestYen,ballInvestYen:baseBallInvestYen,totalInvestYen}];
-                      });
-                    })()];
-                    if(allPoints.length<2) return null;
-                    // 1万円ごとに区切ってスピン数を集計
-                    const segments=[];
-                    let segIdx=1;
-                    let prevThreshold=0;
-                    let prevSpins=0;
-                    allPoints.forEach(p=>{
-                      while(p.totalInvestYen>=segIdx*10000){
-                        const threshold=segIdx*10000;
-                        // 線形補間でspinsを推定
-                        const prevP=allPoints.filter(x=>x.totalInvestYen<threshold).slice(-1)[0];
-                        const nextP=allPoints.find(x=>x.totalInvestYen>=threshold);
-                        if(prevP&&nextP&&nextP.totalInvestYen>prevP.totalInvestYen){
-                          const ratio=(threshold-prevP.totalInvestYen)/(nextP.totalInvestYen-prevP.totalInvestYen);
-                          const spinsAtThreshold=prevP.totalSpins+(nextP.totalSpins-prevP.totalSpins)*ratio;
-                          const segSpins=Math.round(spinsAtThreshold-prevSpins);
-                          segments.push({label:`${segIdx}万円目`,spins:segSpins,rate:segSpins/10});
-                          prevSpins=spinsAtThreshold;
-                        }
-                        segIdx++;
-                      }
-                    });
-                    // 最後の区間（端数）
-                    const lastP=allPoints[allPoints.length-1];
-                    const remainInvest=lastP.totalInvestYen%(10000);
-                    if(remainInvest>0&&lastP.totalSpins>prevSpins){
-                      const segSpins=Math.round(lastP.totalSpins-prevSpins);
-                      segments.push({label:`${segIdx}万円目(途中)`,spins:segSpins,rate:segSpins/(remainInvest/1000)});
-                    }
+                    // sessionTrendData を使って1万円セグメントを計算
+                    const segments=calcRateSegments(sessionTrendData);
                     if(segments.length===0) return null;
                     const avgRate=segments.reduce((a,s)=>a+s.rate,0)/segments.length;
                     const border=formMetrics.machineBorder||0;
@@ -5683,30 +5692,7 @@ export default function PachinkoCalculatorComplete() {
 
                         {/* 1万円ごとの回転率 */}
                         {(()=>{
-                          const pts=getSessionTrendData(s,settings);
-                          if(pts.length<2) return null;
-                          const segments=[];
-                          let segIdx=1, prevSpins=0;
-                          pts.forEach(p=>{
-                            while(p.totalInvestYen>=segIdx*10000){
-                              const threshold=segIdx*10000;
-                              const prevP=pts.filter(x=>x.totalInvestYen<threshold).slice(-1)[0];
-                              const nextP=pts.find(x=>x.totalInvestYen>=threshold);
-                              if(prevP&&nextP&&nextP.totalInvestYen>prevP.totalInvestYen){
-                                const ratio=(threshold-prevP.totalInvestYen)/(nextP.totalInvestYen-prevP.totalInvestYen);
-                                const spinsAt=prevP.totalSpins+(nextP.totalSpins-prevP.totalSpins)*ratio;
-                                segments.push({label:`${segIdx}万円目`,spins:Math.round(spinsAt-prevSpins),rate:Math.round(spinsAt-prevSpins)/10,isFinal:false});
-                                prevSpins=spinsAt;
-                              }
-                              segIdx++;
-                            }
-                          });
-                          const lastP=pts[pts.length-1];
-                          const remain=lastP.totalInvestYen%10000;
-                          if(remain>0&&lastP.totalSpins>prevSpins){
-                            const segSpins=Math.round(lastP.totalSpins-prevSpins);
-                            segments.push({label:`${segIdx}万円目（${fmtYen(remain)}・途中）`,spins:segSpins,rate:segSpins/(remain/1000),isFinal:true});
-                          }
+                          const segments=calcRateSegments(getSessionTrendData(s,settings));
                           if(segments.length===0) return null;
                           const avgRate=segments.reduce((a,sg)=>a+sg.rate,0)/segments.length;
                           const border=s.metrics.machineBorder||0;
