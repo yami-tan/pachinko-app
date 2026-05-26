@@ -1577,12 +1577,40 @@ export default function PachinkoCalculatorComplete() {
   function saveMachine() { if(!machineDraft.name.trim())return; const newM={id:uid(),name:machineDraft.name.trim(),shopDefault:'',border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),border40:0,payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',maker:machineDraft.maker||'',memo:''}; setMachines(prev=>[newM,...prev]); setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:'',maker:''}); setAddMachineDialogOpen(false); }
   function openEditMachine(m) {
     setEditMachineId(m.id);
-    setMachineDraft({name:m.name,border25:String(m.border25||''),border28:String(m.border28||''),border30:String(m.border30||''),border33:String(m.border33||''),payoutPerRound:String(m.payoutPerRound||''),expectedBallsPerHit:String(m.expectedBallsPerHit||''),totalProbability:String(m.totalProbability||''),kanaReading:m.kanaReading||'',maker:m.maker||''});
+    setMachineDraft({
+      name:m.name,
+      border25:String(m.border25||''),
+      border28:String(m.border28||''),
+      border30:String(m.border30||''),
+      border33:String(m.border33||''),
+      // payoutPerRound: 0 のとき (0||'') = '' になって消えるバグ対策
+      // 登録済みの値は正確に文字列化 (0 は未設定扱い)
+      payoutPerRound:m.payoutPerRound>0?String(m.payoutPerRound):'',
+      expectedBallsPerHit:m.expectedBallsPerHit>0?String(m.expectedBallsPerHit):'',
+      totalProbability:m.totalProbability>0?String(m.totalProbability):'',
+      kanaReading:m.kanaReading||'',
+      maker:m.maker||''
+    });
     setEditMachineDialogOpen(true);
   }
   function saveEditMachine() {
     if(!machineDraft.name.trim()||!editMachineId) return;
-    setMachines(prev=>prev.map(m=>m.id===editMachineId?{...m,name:machineDraft.name.trim(),border25:numberOrZero(machineDraft.border25),border28:numberOrZero(machineDraft.border28),border30:numberOrZero(machineDraft.border30),border33:numberOrZero(machineDraft.border33),payoutPerRound:numberOrZero(machineDraft.payoutPerRound),expectedBallsPerHit:numberOrZero(machineDraft.expectedBallsPerHit),totalProbability:numberOrZero(machineDraft.totalProbability),kanaReading:machineDraft.kanaReading||'',maker:machineDraft.maker||''}:m));
+    // フィールドが空文字列のとき numberOrZero('') = 0 で元の値を消してしまうバグ対策
+    // → 空のままなら変更なし（元の登録値を維持）
+    const parseField=(draft,orig)=>draft.trim()!==''?numberOrZero(draft):orig;
+    setMachines(prev=>prev.map(m=>m.id===editMachineId?{
+      ...m,
+      name:machineDraft.name.trim(),
+      border25:parseField(machineDraft.border25,m.border25),
+      border28:parseField(machineDraft.border28,m.border28),
+      border30:parseField(machineDraft.border30,m.border30),
+      border33:parseField(machineDraft.border33,m.border33),
+      payoutPerRound:parseField(machineDraft.payoutPerRound,m.payoutPerRound),
+      expectedBallsPerHit:parseField(machineDraft.expectedBallsPerHit,m.expectedBallsPerHit),
+      totalProbability:parseField(machineDraft.totalProbability,m.totalProbability),
+      kanaReading:machineDraft.kanaReading||'',
+      maker:machineDraft.maker||'',
+    }:m));
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
     setMachineDraft({name:'',border25:'',border28:'',border30:'',border33:'',payoutPerRound:'',expectedBallsPerHit:'',totalProbability:'',kanaReading:''});
@@ -4032,7 +4060,13 @@ export default function PachinkoCalculatorComplete() {
                             実測1R: <b style={{ color:C.primary }}>{fmtRate(firstHitMetrics.oneRound)}玉</b>
                             　登録値: <b style={{ color:C.textMuted }}>{selectedMachine.payoutPerRound}玉</b>
                           </div>
-                          <button onClick={()=>applyFirstHitOneRoundToMachine()}
+                          <button onClick={()=>{
+                              const cur=selectedMachine.payoutPerRound;
+                              const nxt=Number(firstHitMetrics.oneRound.toFixed(1));
+                              if(window.confirm(`1R出玉を変更しますか？\n登録値: ${cur}玉 → 実測値: ${nxt}玉`)){
+                                applyFirstHitOneRoundToMachine();
+                              }
+                            }}
                             style={{ fontSize:11, fontWeight:700, color:C.primary, background:C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:8, padding:'4px 10px', cursor:'pointer', flexShrink:0, whiteSpace:'nowrap' }}>
                             機種に反映
                           </button>
