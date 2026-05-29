@@ -938,6 +938,11 @@ export default function PachinkoCalculatorComplete() {
   }
   const [machineSearchQuery,setMachineSearchQuery]=useState('');
   const [borderMachineSearchQuery,setBorderMachineSearchQuery]=useState('');
+  const [borderSubTab,setBorderSubTab]=useState('calc'); // 'calc' | 'compare'
+  const [compareMachineId,setCompareMachineId]=useState('');
+  const [compareMachineSearch,setCompareMachineSearch]=useState('');
+  const [compareRateInput,setCompareRateInput]=useState(''); // 比較タブで使う回転率（空=回転率タブの値）
+  // compareRateForCalc は formMetrics の後で定義（下記）
   const [shopSuggestOpen,setShopSuggestOpen]=useState(false);
 
   useEffect(()=>{
@@ -966,6 +971,10 @@ export default function PachinkoCalculatorComplete() {
   }),[sessions,machines,settings]);
   const selectedMachine=form.machineId&&form.machineId!=='__none__'?machines.find(m=>m.id===form.machineId)||null:null;
   const formMetrics=calcRateMetrics(form,selectedMachine,settings);
+  // ★ 比較に使う回転率（formMetrics の後で計算）
+  const _compareRateNum=(()=>{ const n=Number(compareRateInput); return Number.isFinite(n)&&n>0?n:0; })();
+  const compareRateForCalc=_compareRateNum>0?_compareRateNum:(formMetrics.avgSpinPerThousand||0);
+  const isCompareRateManual=_compareRateNum>0;
 
   // 初当たり記録から1R出玉の平均を算出
   const avgOneRoundFromHits=useMemo(()=>{
@@ -1622,7 +1631,13 @@ export default function PachinkoCalculatorComplete() {
     setEditMachineDialogOpen(false);
     setEditMachineId(null);
   }
-  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now(); setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'',startStoredBalls:'',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
+  function openFirstHitDialog() { const nc=(form.firstHits||[]).length+1; firstHitDialogOpenTimeRef.current=Date.now();
+    // ★ ダイアログを開いた時点の貯玉残高をスナップショットとして保存
+    // 　 startStoredBalls（ダイアログ入力）= 大当たり時点の「残り貯玉」
+    // 　 initialStoredSnapshot = セッション開始時（または前回再スタート後）の「初期貯玉」
+    // 　 消費貯玉 = initialStoredSnapshot - startStoredBalls → 正確な未記録玉数の算出に使用
+    const initialStored=numberOrZero(form.storedBallsInput);
+    setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:'',startStoredBalls:'',upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'',initialStoredSnapshot:initialStored>0?String(initialStored):''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() {
     const hits=form.firstHits||[]; if(!hits.length)return;
     const last=hits[hits.length-1];
@@ -1656,9 +1671,25 @@ export default function PachinkoCalculatorComplete() {
     const startBalls=numberOrZero(firstHitForm.startBalls);
     const startStoredBalls=numberOrZero(firstHitForm.startStoredBalls);
     const upperBalls=numberOrZero(firstHitForm.upperBalls);
-    // 上皿残り玉は「実際には使われなかった玉」なので投資から差し引く
-    // 投資対象 = 開始持ち玉 + 貯玉 - 上皿残り玉（未消費分を除外）
-    const effectiveStartBalls=Math.max(0,startBalls+startStoredBalls-upperBalls);
+    const cashInvestInputRaw=numberOrZero(firstHitForm.cashInvestInput);
+
+    // ── 消費貯玉の正確な算出 ──
+    // 「貯玉（払出可能）」= 大当たり時点の残り貯玉 (startStoredBalls)
+    // 「initialStoredSnapshot」= ダイアログを開いた時点の貯玉残高（セッション開始時の値）
+    // 消費貯玉 = 初期貯玉 - 残り貯玉
+    // 例: 初期2500 - 残り1375 = 消費1125玉 → そのうち34玉が上皿残り → 実際に回した玉=1091玉
+    const initialStoredSnapshot=numberOrZero(firstHitForm.initialStoredSnapshot);
+    const storedConsumed=initialStoredSnapshot>0&&startStoredBalls<=initialStoredSnapshot
+      ? Math.max(0,initialStoredSnapshot-startStoredBalls) // 正確な消費貯玉（初期-残り）
+      : startStoredBalls;                                   // フォールバック: 従来通り（残りを初期として扱う）
+    const hasAccurateStoredData=initialStoredSnapshot>0&&startStoredBalls>0&&startStoredBalls<initialStoredSnapshot;
+
+    // 上皿残り玉の帰属:
+    //   cashInvestInput>0 → 上皿玉はcash購入分 → cash側から差し引く
+    //   cashInvestInput=0 → 上皿玉は貯玉/持ち玉の未消費分 → balls側から差し引く
+    const effectiveStartBalls=cashInvestInputRaw>0
+      ? Math.max(0,startBalls+storedConsumed)             // 上皿はcash側で処理
+      : Math.max(0,startBalls+storedConsumed-upperBalls); // 上皿はballs側で処理（未消費分を除外）
     const effectiveHitSpins=hitSpins+(rh||0); // 初当たりゲーム数+残り保留数
     const currentBallsNow=formMetrics.currentBalls;
     const lastReadingNow=(form.rateEntries||[]).reduce((last,e)=>{
@@ -1697,12 +1728,13 @@ export default function PachinkoCalculatorComplete() {
       &&!(formMetrics.avgSpinPerThousand>0) // 確定済みレートがないとき限定
     ) ? (currentBallsNow-effectiveStartBalls) : 0;
 
-    // 現金モード：cashInvestInput から上皿残り玉の価値を差し引いた純投資額
+    // cashInvestInput から上皿残り玉の価値を差し引いた純投資額（モード問わず）
     // 例: cashInput=500円, upperBalls=53玉 → netCash = 500 - 53×4 = 288円
-    //     （500円で買った玉のうち212円分は未消費なので投資にカウントしない）
-    const cashInvestInput=numberOrZero(firstHitForm.cashInvestInput);
+    //     （500円で買った玉のうち212円分は未消費なのでカウントしない）
+    // ★ 持ち玉→現金移行時も記録される（isBalls でも cashInvestInput が入力されていれば有効）
+    const cashInvestInput=cashInvestInputRaw;
     const upperBallsYenDeduct=upperBalls*4; // 4円/玉 固定レートで換算
-    const netCashInvest=form.currentInputMode==='cash'&&cashInvestInput>0
+    const netCashInvest=cashInvestInput>0
       ? Math.max(0, cashInvestInput - upperBallsYenDeduct)
       : 0;
 
@@ -1748,24 +1780,55 @@ export default function PachinkoCalculatorComplete() {
           .filter(e=>e.kind==='balls'&&numberOrZero(e.reading)>0)
           .reduce((s,e)=>s+numberOrZero(e.amount),0);
         const confirmedRateForBalls=formMetrics.avgSpinPerThousand||0;
-        const unrecordedBalls=confirmedRateForBalls>0&&unrecordedSpinsNow>0
-          // 確定済みレート（回/千円）で未記録分を推定
-          ?Math.round(unrecordedSpinsNow/confirmedRateForBalls*250)
-          // フォールバック: 開始時持ち玉が入力されている場合のみ差分
-          :(effectiveStartBalls>0?Math.max(0,effectiveStartBalls-confirmedBalls):0);
+        // ── 未記録玉数の計算優先順位 ──
+        // ① 直接計算 (精度高): 正確な消費玉数が分かる場合
+        //    - 初期貯玉+残り貯玉の両方あり: storedConsumed = 初期-残り → effectiveStartBalls
+        //    - 純持ち玉モード (startBalls>0, storedBalls=0): effectiveStartBalls が正確
+        // ② レートベース推定 (精度低): 確定済みレートから計算
+        //    - 貯玉スナップショットなし かつ 確定済みレートあり
+        const directUnrecBalls=effectiveStartBalls>0?Math.max(0,effectiveStartBalls-confirmedBalls):0;
+        const rateUnrecBalls=confirmedRateForBalls>0&&unrecordedSpinsNow>0
+          ?Math.round(unrecordedSpinsNow/confirmedRateForBalls*250):0;
+        // 直接計算を優先する条件:
+        //   ① 正確な貯玉データあり (hasAccurateStoredData)
+        //   ② 純持ち玉モード (startBalls>0 かつ storedBalls の初期スナップなし)
+        const useDirect=directUnrecBalls>0&&(hasAccurateStoredData||(startBalls>0&&startStoredBalls===0));
+        const unrecordedBalls=useDirect
+          ? directUnrecBalls   // ① 直接計算（正確）
+          : (rateUnrecBalls>0?rateUnrecBalls:directUnrecBalls); // ② レートベース or フォールバック
         const emptyBallEntries=entries.filter(e=>e.kind==='balls'&&!numberOrZero(e.reading));
         if(emptyBallEntries.length>=1){
-          // 空行あり → 最初の空行に未記録分をセット
-          const newEntries=entries.map(e=>
-            (e.kind==='balls'&&!numberOrZero(e.reading))
-              ?{...e,amount:String(unrecordedBalls),reading:String(hitReadingForEntry)}
-              :e
-          );
+          // 空行あり → 最初の空行のみに未記録分をセット（複数空行があっても1行のみ更新）
+          let updatedFirst=false;
+          const newEntries=entries.map(e=>{
+            if(!updatedFirst&&e.kind==='balls'&&!numberOrZero(e.reading)){
+              updatedFirst=true;
+              return {...e,amount:String(unrecordedBalls),reading:String(hitReadingForEntry)};
+            }
+            return e;
+          });
           nb={...nb,rateEntries:newEntries};
         } else if(hitReadingForEntry>lastReadingNow){
           // 全行確定済み → 新しい行を追加
           const ballEntry={id:uid(),kind:'balls',amount:String(unrecordedBalls),reading:String(hitReadingForEntry)};
           nb={...nb,rateEntries:[...entries,ballEntry]};
+        }
+        // ★ 持ち玉モードでも追加現金投資があれば cash行を追加（今日の1台サマリーに反映）
+        // 同じ reading を付けることでスピン二重計上を防ぎつつ現金投資だけ加算される
+        if(netCashInvest>0){
+          const ents=nb.rateEntries||[];
+          // 既存の空 cash 行を探す（モード切替前に cash 行があった場合）
+          const emptyCashIdx=[...ents].map((e,i)=>({e,i})).reverse()
+            .find(({e})=>e.kind==='cash'&&!numberOrZero(e.reading));
+          if(emptyCashIdx!=null){
+            // 空のcash行に amount と reading をセット（balls行と同じ reading → spins=0）
+            nb={...nb,rateEntries:ents.map((e,i)=>i===emptyCashIdx.i
+              ?{...e,amount:String(netCashInvest),reading:String(hitReadingForEntry)}:e)};
+          } else {
+            // cash行なし → 新規追加（balls行と同じ reading → calcRateMetrics でspins=0になる）
+            const cashEntry={id:uid(),kind:'cash',amount:String(netCashInvest),reading:String(hitReadingForEntry)};
+            nb={...nb,rateEntries:[...(nb.rateEntries||[]),cashEntry]};
+          }
         }
       } else if(hitSpins>0&&hitReadingForEntry>lastReadingNow){
         // 差玉なし（現金モード等）でもhitSpinsを最新のreading欄に自動セット
@@ -3007,7 +3070,7 @@ export default function PachinkoCalculatorComplete() {
                     <div style={{ border:`1.5px solid #c4b5fd`, borderRadius:14, overflow:'hidden' }}>
                       {/* ヘッダー：ラベル＋初期入力 */}
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'7px 12px', background:isDark?'rgba(124,58,237,0.1)':'#f5f3ff' }}>
-                        <span style={{ fontSize:12, fontWeight:700, color:'#7c3aed' }}>貯玉（払出可能）</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:'#7c3aed' }}>貯玉</span>
                         <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                           <span style={{ fontSize:10, color:C.textMuted }}>初期</span>
                           <input
@@ -3572,15 +3635,9 @@ export default function PachinkoCalculatorComplete() {
                     const registered=numberOrZero(selectedMachine?.totalProbability);
                     const diff=registered>0?actualProb-registered:null;
                     items.push(
-                      <div key="prob" style={{ background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <div>
-                          <div style={{ fontSize:10, color:C.textMuted, fontWeight:600 }}>🎯 初当たり実績確率</div>
-                          <div style={{ fontSize:14, fontWeight:800, color:C.primary }}>1/{actualProb}</div>
-                        </div>
-                        {registered>0&&<div style={{ textAlign:'right', fontSize:11 }}>
-                          <div style={{ color:C.textMuted }}>登録値 1/{registered}</div>
-                          <div style={{ fontWeight:700, color:diff<=0?C.positive:C.negative }}>{diff<=0?'✅ 引き良し':`▼ ${diff}差`}</div>
-                        </div>}
+                      <div key="prob" style={{ background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1px solid ${C.primaryMid}`, borderRadius:12, padding:'8px 12px' }}>
+                        <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:2 }}>🎯 初当たり実績確率</div>
+                        <div style={{ fontSize:14, fontWeight:800, color:C.primary }}>1/{actualProb}</div>
                       </div>
                     );
                   }
@@ -3796,8 +3853,16 @@ export default function PachinkoCalculatorComplete() {
                             <Input value={firstHitForm.startBalls} onChange={e=>setFirstHitForm(p=>({...p,startBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric"/>
                           </div>
                           <div>
-                            <Label className="text-xs" style={{ color:'#7c3aed' }}>貯玉（払出可能）</Label>
-                            <Input value={firstHitForm.startStoredBalls} onChange={e=>setFirstHitForm(p=>({...p,startStoredBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder="例: 2375" style={{ borderColor:'#c4b5fd' }}/>
+                            <Label className="text-xs" style={{ color:'#7c3aed' }}>残り貯玉（大当たり時）</Label>
+                            <Input value={firstHitForm.startStoredBalls} onChange={e=>setFirstHitForm(p=>({...p,startStoredBalls:e.target.value}))} className="mt-1 rounded-xl h-9 text-sm" inputMode="numeric" placeholder={firstHitForm.initialStoredSnapshot?`例: ${numberOrZero(firstHitForm.initialStoredSnapshot)-500}（残り）`:"例: 1375"} style={{ borderColor:'#c4b5fd' }}/>
+                            {numberOrZero(firstHitForm.initialStoredSnapshot)>0&&(
+                              <div style={{fontSize:10,color:'#7c3aed',marginTop:3}}>
+                                開始時: {numberOrZero(firstHitForm.initialStoredSnapshot).toLocaleString()}玉
+                                {numberOrZero(firstHitForm.startStoredBalls)>0&&(
+                                  <span> → 消費: {Math.max(0,numberOrZero(firstHitForm.initialStoredSnapshot)-numberOrZero(firstHitForm.startStoredBalls)).toLocaleString()}玉</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                         {/* 合計持ち玉 表示 */}
@@ -3995,24 +4060,31 @@ export default function PachinkoCalculatorComplete() {
                                 </div>
                               );
                               // 持ち玉モード:
-                              //   実質投資 = (開始持ち玉 + 貯玉 - 上皿残り玉) × 4円
-                              //   上皿残り玉は未消費なので差し引く
-                              const grossStart=startBalls+startStoredBalls; // 開始持ち玉+貯玉
-                              const netStart=Math.max(0,grossStart-upperBalls); // 上皿残りを除外
-                              const investYen=netStart>0?netStart*4:0;
+                              //   cashInvestInput>0 → 上皿はcash購入分 → startBallsから引かずcashから差し引く
+                              //   cashInvestInput=0 → 上皿はstartBallsの未消費分 → startBallsから差し引く
+                              const cashInv=numberOrZero(firstHitForm.cashInvestInput);
+                              const grossStart=startBalls+startStoredBalls;
+                              const netStart=cashInv>0?Math.max(0,grossStart):Math.max(0,grossStart-upperBalls);
+                              const ballsInvestYen=netStart*4;
+                              const upperDeductYen=cashInv>0?upperBalls*4:0;
+                              const netCashAmt=cashInv>0?Math.max(0,cashInv-upperDeductYen):0;
+                              const investYen=ballsInvestYen+netCashAmt;
                               const rate=sectionSpins>0&&investYen>0?sectionSpins/(investYen/1000):0;
-                              if(grossStart<=0&&upperBalls<=0) return <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>開始時持ち玉か初当たりゲーム数を入力すると回転率を算出するぜ。</div>;
+                              if(grossStart<=0&&cashInv<=0) return <div style={{ fontSize:11, color:C.textMuted, marginTop:8 }}>開始時持ち玉か初当たりゲーム数を入力すると回転率を算出するぜ。</div>;
                               return (
                                 <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:6 }}>
                                   <div style={{ background:isDark?'rgba(245,158,11,0.1)':'white', borderRadius:10, padding:'8px 12px', border:`1px solid ${C.amberBorder}` }}>
                                     <div style={{ fontSize:11, color:C.textMuted, marginBottom:2 }}>計算の内訳</div>
                                     <div style={{ fontSize:12, color:C.amber, lineHeight:'1.8' }}>
-                                      {upperBalls>0?(
-                                        <span>開始持ち玉: <b>{grossStart.toLocaleString()}玉</b> − 上皿残り<b>{upperBalls}玉</b> = <b>{netStart.toLocaleString()}玉</b> × 4円 = <b>{fmtYen(investYen)}</b></span>
+                                      {grossStart>0&&(cashInv>0?(
+                                        <span>開始持ち玉: <b>{grossStart.toLocaleString()}玉</b> × 4円 = <b>{fmtYen(ballsInvestYen)}</b><br/></span>
+                                      ):(upperBalls>0?(
+                                        <span>開始持ち玉: <b>{grossStart.toLocaleString()}玉</b> − 上皿<b>{upperBalls}玉</b> = <b>{netStart.toLocaleString()}玉</b> × 4円 = <b>{fmtYen(ballsInvestYen)}</b><br/></span>
                                       ):(
-                                        <span>開始時持ち玉: <b>{netStart.toLocaleString()}玉</b> × 4円 = <b>{fmtYen(investYen)}</b></span>
-                                      )}<br/>
-                                      今回セクション: <b>{sectionSpins}回転</b>
+                                        <span>開始持ち玉: <b>{netStart.toLocaleString()}玉</b> × 4円 = <b>{fmtYen(ballsInvestYen)}</b><br/></span>
+                                      )))}
+                                      {cashInv>0&&<span>追加現金: <b>{fmtYen(cashInv)}</b>{upperBalls>0&&<span style={{color:C.textMuted}}> − 上皿{upperBalls}玉({fmtYen(upperDeductYen)}) = <b style={{color:C.amber}}>{fmtYen(netCashAmt)}</b></span>}<br/></span>}
+                                      合計投資: <b>{fmtYen(investYen)}</b> / 今回セクション: <b>{sectionSpins}回転</b>
                                     </div>
                                   </div>
                                   <div style={{ background:isDark?'rgba(245,158,11,0.15)':'#fffbeb', borderRadius:12, padding:'10px 14px', border:`1.5px solid ${C.amberBorder}`, textAlign:'center' }}>
@@ -4312,7 +4384,10 @@ export default function PachinkoCalculatorComplete() {
                             const good=border>0?diff>=0:seg.rate>=avgRate;
                             return (
                               <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:good?(isDark?'rgba(16,185,129,0.08)':'#f0fdf4'):(isDark?'rgba(239,68,68,0.08)':'#fef2f2'), border:`1px solid ${good?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 12px' }}>
-                                <div style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>{seg.label}</div>
+                                <div>
+                                  <span style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>{seg.label}</span>
+                                  {seg.isFinal&&<span style={{ fontSize:10, color:C.textMuted, marginLeft:6, background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9', borderRadius:6, padding:'1px 6px' }}>使用中 {fmtYen(seg.yen)}</span>}
+                                </div>
                                 <div style={{ display:'flex', gap:12, alignItems:'center' }}>
                                   <span style={{ fontSize:11, color:C.textMuted }}>{seg.spins.toLocaleString()}回転</span>
                                   <span style={{ fontSize:16, fontWeight:800, color:good?C.positive:C.negative }}>{fmtRate(seg.rate)}</span>
@@ -4797,15 +4872,28 @@ export default function PachinkoCalculatorComplete() {
             {/* ヘッダー */}
             <div style={{ ...cardStyle, overflow:'hidden' }}>
               <div style={{ background:`linear-gradient(135deg,#7c3aed,#4f46e5)`, padding:'16px 18px' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <Gauge size={22} color="white"/>
-                  <div>
-                    <div style={{ fontSize:18, fontWeight:800, color:'white' }}>ボーダーライン算出</div>
-                    <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)', marginTop:2 }}>1R平均出玉 × トータル確率から正確に算出するぜ</div>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <Gauge size={22} color="white"/>
+                    <div>
+                      <div style={{ fontSize:18, fontWeight:800, color:'white' }}>ボーダーライン算出</div>
+                      <div style={{ fontSize:12, color:'rgba(255,255,255,0.75)', marginTop:2 }}>1R平均出玉 × トータル確率から正確に算出するぜ</div>
+                    </div>
+                  </div>
+                  {/* サブタブ切替ボタン */}
+                  <div style={{ display:'flex', gap:4 }}>
+                    <button onClick={()=>setBorderSubTab('calc')}
+                      style={{ padding:'6px 12px', borderRadius:10, border:'1.5px solid rgba(255,255,255,0.4)', background:borderSubTab==='calc'?'white':'transparent', color:borderSubTab==='calc'?'#7c3aed':'white', fontSize:11, fontWeight:700, cursor:'pointer', transition:'all 0.15s' }}>
+                      📐 算出
+                    </button>
+                    <button onClick={()=>setBorderSubTab('compare')}
+                      style={{ padding:'6px 12px', borderRadius:10, border:'1.5px solid rgba(255,255,255,0.4)', background:borderSubTab==='compare'?'white':'transparent', color:borderSubTab==='compare'?'#7c3aed':'white', fontSize:11, fontWeight:700, cursor:'pointer', transition:'all 0.15s' }}>
+                      ⚖️ 比較
+                    </button>
                   </div>
                 </div>
               </div>
-              <div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:14 }}>
+              {borderSubTab==='calc'&&<div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:14 }}>
 
                 {/* 計算式説明 */}
                 <div style={{ background:C.accentLight, border:`1px solid #bae6fd`, borderRadius:12, padding:'11px 14px', fontSize:12, color:'#0369a1', lineHeight:1.7 }}>
@@ -4914,8 +5002,6 @@ export default function PachinkoCalculatorComplete() {
                     )}
                     {borderMachine&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>
                       機種登録値: {fmtRate(borderMachine.payoutPerRound)}玉
-                      <button onClick={()=>setBorderCalc(p=>({...p,oneRoundPayout:String(borderMachine.payoutPerRound||'')}))}
-                        style={{ marginLeft:6, background:'none', border:'none', color:C.accent, cursor:'pointer', fontSize:11, fontWeight:600 }}>取り込む</button>
                     </div>}
                   </div>
                   <div>
@@ -5003,7 +5089,7 @@ export default function PachinkoCalculatorComplete() {
                     )}
                   </div>
                 )}
-              </div>
+              </div>}
             </div>
 
             {/* 期待値テーブル */}
@@ -5122,6 +5208,256 @@ export default function PachinkoCalculatorComplete() {
                 <div style={{ fontSize:13, color:C.textMuted }}>機種データに登録済みの場合は「取り込む」ボタンで自動入力されるぜ。</div>
               </div>
             )}
+          {/* ──── 比較タブ ──── */}
+          {borderSubTab==='compare'&&(()=>{
+            // 現在の算出データ（算出タブの機種）
+            const machineA = borderMachine;
+            // ★ compareRateForCalc: コンポーネントレベルで計算済みの値を使用（クロージャ問題なし）
+            const rateA = compareRateForCalc;
+            const isManualRate = isCompareRateManual;
+            // 比較対象
+            const machineB = compareMachineId ? machines.find(m=>m.id===compareMachineId)||null : null;
+
+            // ボーダー計算ユーティリティ
+            function calcBorderFor(m, category) {
+              if(!m) return 0;
+              const r = numberOrZero(m.payoutPerRound);
+              const p = numberOrZero(m.totalProbability);
+              if(r<=0||p<=0) return 0;
+              const c = COEFF[category]||250;
+              return c/(r/p);
+            }
+            function calcEquivBorderFor(m){ return calcBorderFor(m,'25'); }
+            function calcMixedBorderFor(m, category, hold){
+              const eq = calcEquivBorderFor(m);
+              const cash = calcBorderFor(m, category);
+              if(!eq||!cash) return cash;
+              return eq*hold + cash*(1-hold);
+            }
+            const catList = [['25','等価(25個)'],['28','28個(3.57円)'],['30','30個(3.33円)'],['33','33個(3.03円)']];
+
+            return (
+              <div style={{ padding:'16px', display:'flex', flexDirection:'column', gap:14 }}>
+                {/* 機種A（現在の算出タブの機種） */}
+                <div style={{ background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:16, padding:'14px 16px' }}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:600, marginBottom:6 }}>🎯 機種A（現在の算出タブの機種）</div>
+                  {machineA ? (
+                    <div style={{ fontWeight:700, fontSize:14, color:C.primary }}>{machineA.name}</div>
+                  ) : (
+                    <div style={{ fontSize:12, color:C.textMuted }}>算出タブで機種を選んでください</div>
+                  )}
+                  {currentRate>0&&<div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>回転率タブ計測値: <b>{fmtRate(currentRate)}</b></div>}
+                </div>
+
+                {/* 比較に使う回転率 */}
+                <div style={{ background:isDark?'rgba(245,158,11,0.08)':'#fffbeb', border:`1.5px solid ${C.amberBorder}`, borderRadius:16, padding:'14px 16px' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:C.amber, marginBottom:10 }}>📊 比較に使う回転率</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ flex:1 }}>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={compareRateInput}
+                        onChange={e=>setCompareRateInput(e.target.value)}
+                        placeholder={currentRate>0?`例: ${fmtRate(currentRate)}（現在値）`:'例: 20.00'}
+                        style={{ ...inputStyle, textAlign:'center', fontWeight:700, fontSize:16 }}
+                      />
+                      <div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>
+                        空欄 = 回転率タブの現在値を自動反映 ({(formMetrics?.avgSpinPerThousand||0)>0?fmtRate(formMetrics.avgSpinPerThousand):'未計測'})
+                      </div>
+                    </div>
+                    {isManualRate&&(
+                      <button onClick={()=>setCompareRateInput('')}
+                        style={{ padding:'8px 12px', borderRadius:10, border:`1px solid ${C.amberBorder}`, background:'none', color:C.amber, cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap' }}>
+                        リセット
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ marginTop:8, fontSize:12, fontWeight:700, color:C.textPrimary }}>
+                    使用する回転率:&nbsp;
+                    <span style={{ color:isManualRate?C.amber:C.accent, fontSize:16 }}>
+                      {rateA>0?fmtRate(rateA):'—'}
+                    </span>
+                    <span style={{ fontSize:10, color:C.textMuted, marginLeft:6 }}>
+                      {isManualRate?'（手動入力）':'（自動・回転率タブ連携）'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 機種B 選択 */}
+                <div>
+                  <label style={labelStyle}>⚖️ 比較する機種B</label>
+                  {machineB ? (
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, background:isDark?'rgba(16,185,129,0.08)':'#f0fdf4', border:'1.5px solid #86efac', borderRadius:12, padding:'8px 12px' }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#059669', flex:1 }}>✅ {machineB.name}</span>
+                      <button onClick={()=>{setCompareMachineId('');setCompareMachineSearch('');}} style={{ background:'none', border:'none', color:C.textMuted, cursor:'pointer', fontSize:12 }}>✕ 解除</button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize:12, color:C.textMuted, marginBottom:6 }}>比較する機種を選んでください</div>
+                  )}
+                  <div style={{ position:'relative' }}>
+                    <input value={compareMachineSearch} onChange={e=>setCompareMachineSearch(e.target.value)}
+                      style={{ ...inputStyle, paddingLeft:36 }} placeholder="機種名を入力して検索…"/>
+                    <Search size={15} color={C.textMuted} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }}/>
+                  </div>
+                  {compareMachineSearch.trim()&&(()=>{
+                    const hits=machines.filter(m=>fuzzyMatchMachine(m,compareMachineSearch.trim())).slice(0,8);
+                    return hits.length>0?(
+                      <div style={{ border:`1px solid ${C.border}`, borderRadius:12, overflow:'hidden', marginTop:4 }}>
+                        {hits.map((m,i)=>(
+                          <button key={m.id} onClick={()=>{setCompareMachineId(m.id);setCompareMachineSearch('');}}
+                            style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', border:'none', borderBottom:i<hits.length-1?`1px solid ${C.border}`:'none', background:compareMachineId===m.id?'#f0fdf4':'white', cursor:'pointer', textAlign:'left' }}>
+                            <span style={{ fontSize:13, fontWeight:compareMachineId===m.id?700:400, color:compareMachineId===m.id?'#059669':C.textPrimary }}>{m.name}</span>
+                            {m.totalProbability>0&&<span style={{ fontSize:10, color:'#9333ea', background:'#fdf4ff', borderRadius:6, padding:'2px 6px' }}>確率✓</span>}
+                          </button>
+                        ))}
+                      </div>
+                    ):(<div style={{ fontSize:12, color:C.textMuted, padding:'8px 12px' }}>一致する機種が見つからないぜ</div>);
+                  })()}
+                  {/* 直近機種クイック選択 */}
+                  {!compareMachineSearch.trim()&&!machineB&&(
+                    <div style={{ marginTop:8 }}>
+                      <div style={{ fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600 }}>🕐 直近の機種</div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                        {machines.filter(m=>m.payoutPerRound>0&&m.totalProbability>0&&m.id!==machineA?.id).slice(0,5).map(m=>(
+                          <button key={m.id} onClick={()=>setCompareMachineId(m.id)}
+                            style={{ padding:'8px 12px', borderRadius:10, border:`1.5px solid ${C.border}`, background:C.card, cursor:'pointer', textAlign:'left', fontSize:12, fontWeight:500, color:C.textPrimary }}>
+                            {m.name}
+                            {m.totalProbability>0&&<span style={{ marginLeft:6, fontSize:10, color:'#9333ea' }}>確率 1/{m.totalProbability}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 比較テーブル（両機種が揃ったとき） */}
+                {machineA&&machineB&&(()=>{
+                  const rows = catList.map(([cat, label])=>{
+                    const bA = calcMixedBorderFor(machineA, cat, holdRatio);
+                    const bB = calcMixedBorderFor(machineB, cat, holdRatio);
+                    const aWin = bA>0&&bB>0 ? bA>=bB : bA>0;
+                    return { cat, label, bA, bB, aWin };
+                  });
+                  // EV比較（現在の回転率で）
+                  const exchangeRate = getExchangePreset(bc.exchangeCategory||'25').yenPerBall;
+                  function calcEVAt(m, rate){
+                    if(!m||rate<=0) return null;
+                    const r=numberOrZero(m.payoutPerRound);
+                    const p=numberOrZero(m.totalProbability);
+                    if(r<=0||p<=0) return null;
+                    const pps=r/p;
+                    const hold=(pps-250/rate)*exchangeRate;
+                    const cash=pps*exchangeRate-1000/rate;
+                    return (holdRatio*hold+(1-holdRatio)*cash)*planSpins;
+                  }
+                  const evA = calcEVAt(machineA, rateA);
+                  const evB = calcEVAt(machineB, rateA);
+                  const catRow = rows.find(r=>r.cat===bc.exchangeCategory)||rows[0];
+                  const bA = catRow.bA;
+                  const bB = catRow.bB;
+                  const rateAvsA = rateA>0 && bA>0 ? rateA-bA : null;
+                  const rateAvsB = rateA>0 && bB>0 ? rateA-bB : null;
+
+                  return (
+                    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                      {/* ボーダー比較 */}
+                      <div style={{ background:isDark?'#1e293b':'#f8fafc', borderRadius:16, overflow:'hidden', border:`1px solid ${C.border}` }}>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', padding:'10px 14px', background:isDark?'#0f172a':'#f1f5f9', fontWeight:700, fontSize:11, color:C.textMuted }}>
+                          <div>換金率</div>
+                          <div style={{ textAlign:'center', color:C.primary }}>A: {machineA.name.slice(0,8)}{machineA.name.length>8?'…':''}</div>
+                          <div style={{ textAlign:'center', color:'#059669' }}>B: {machineB.name.slice(0,8)}{machineB.name.length>8?'…':''}</div>
+                        </div>
+                        {rows.map(({cat,label,bA,bB,aWin})=>{
+                          const isCurrentCat = cat===bc.exchangeCategory;
+                          return (
+                            <div key={cat} style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', padding:'10px 14px', borderTop:`1px solid ${C.border}`, background:isCurrentCat?(isDark?'rgba(99,102,241,0.08)':'#eef2ff'):'transparent' }}>
+                              <div style={{ fontSize:12, color:C.textSecondary, fontWeight:isCurrentCat?700:400 }}>
+                                {label}{isCurrentCat&&<span style={{ marginLeft:4, fontSize:9, background:C.primaryMid, color:'white', borderRadius:4, padding:'1px 4px' }}>選択中</span>}
+                              </div>
+                              <div style={{ textAlign:'center' }}>
+                                {bA>0 ? (
+                                  <span style={{ fontSize:14, fontWeight:800, color:bA>=bB?C.primary:C.textSecondary }}>
+                                    {fmtRate(bA)}{bA>bB&&<span style={{ fontSize:9, marginLeft:2 }}>★</span>}
+                                  </span>
+                                ) : <span style={{ fontSize:11, color:C.textMuted }}>—</span>}
+                              </div>
+                              <div style={{ textAlign:'center' }}>
+                                {bB>0 ? (
+                                  <span style={{ fontSize:14, fontWeight:800, color:bB>=bA?'#059669':C.textSecondary }}>
+                                    {fmtRate(bB)}{bB>bA&&<span style={{ fontSize:9, marginLeft:2 }}>★</span>}
+                                  </span>
+                                ) : <span style={{ fontSize:11, color:C.textMuted }}>—</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* 現在の回転率での優位性 */}
+                      {rateA>0&&(bA>0||bB>0)&&(
+                        <div style={{ background:isDark?'rgba(99,102,241,0.08)':C.primaryLight, border:`1.5px solid ${C.primaryMid}`, borderRadius:16, padding:'14px 16px' }}>
+                          <div style={{ fontSize:11, color:C.primary, fontWeight:700, marginBottom:10 }}>
+                            📊 現在の回転率 {fmtRate(rateA)} での比較 ({getExchangePreset(bc.exchangeCategory||'25').label})
+                          </div>
+                          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                            {[
+                              {label:`A: ${machineA.name.slice(0,10)}`, border:bA, ev:evA, color:C.primary},
+                              {label:`B: ${machineB.name.slice(0,10)}`, border:bB, ev:evB, color:'#059669'},
+                            ].map(({label,border,ev,color})=>{
+                              const diff = rateA>0&&border>0 ? rateA-border : null;
+                              const good = diff!==null ? diff>=0 : null;
+                              return (
+                                <div key={label} style={{ background:C.card, borderRadius:12, padding:'10px 12px', border:`1.5px solid ${good===true?C.positiveBorder:good===false?C.negativeBorder:C.border}` }}>
+                                  <div style={{ fontSize:10, color:C.textMuted, fontWeight:600, marginBottom:4 }}>{label}</div>
+                                  {border>0&&<div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                                    <span style={{ fontSize:11, color:C.textMuted }}>ボーダー</span>
+                                    <span style={{ fontSize:12, fontWeight:700, color }}>{fmtRate(border)}</span>
+                                  </div>}
+                                  {diff!==null&&<div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                                    <span style={{ fontSize:11, color:C.textMuted }}>ボーダー差</span>
+                                    <span style={{ fontSize:12, fontWeight:800, color:good?C.positive:C.negative }}>{diff>=0?'+':''}{fmtRate(diff)}</span>
+                                  </div>}
+                                  {ev!==null&&<div style={{ display:'flex', justifyContent:'space-between' }}>
+                                    <span style={{ fontSize:11, color:C.textMuted }}>{planHours}h EV</span>
+                                    <span style={{ fontSize:12, fontWeight:800, color:ev>=0?C.positive:C.negative }}>{ev>=0?'+':''}{Math.round(ev).toLocaleString()}円</span>
+                                  </div>}
+                                  {border<=0&&<div style={{ fontSize:11, color:C.textMuted }}>1R出玉・確率を登録してください</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {/* 判定メッセージ */}
+                          {bA>0&&bB>0&&(()=>{
+                            const bothGood = rateA>=bA && rateA>=bB;
+                            const neitherGood = rateA<bA && rateA<bB;
+                            const aOnly = rateA>=bA && rateA<bB;
+                            const bOnly = rateA<bA && rateA>=bB;
+                            if(bothGood) return <div style={{ marginTop:8, padding:'8px 12px', borderRadius:10, background:isDark?'rgba(16,185,129,0.12)':'#f0fdf4', border:`1px solid ${C.positiveBorder}`, fontSize:12, fontWeight:700, color:C.positive }}>✅ A・B どちらもボーダー以上！どちらで打っても期待値あり</div>;
+                            if(aOnly) return <div style={{ marginTop:8, padding:'8px 12px', borderRadius:10, background:isDark?'rgba(99,102,241,0.12)':C.primaryLight, border:`1px solid ${C.primaryMid}`, fontSize:12, fontWeight:700, color:C.primary }}>📌 機種Aのみボーダー以上。機種Aを続けよう！</div>;
+                            if(bOnly) return <div style={{ marginTop:8, padding:'8px 12px', borderRadius:10, background:isDark?'rgba(16,185,129,0.12)':'#f0fdf4', border:`1px solid ${C.positiveBorder}`, fontSize:12, fontWeight:700, color:'#059669' }}>📌 機種Bのほうがボーダーが低い（有利）。台移動を検討！</div>;
+                            if(neitherGood) return <div style={{ marginTop:8, padding:'8px 12px', borderRadius:10, background:isDark?'rgba(239,68,68,0.12)':C.negativeBg, border:`1px solid ${C.negativeBorder}`, fontSize:12, fontWeight:700, color:C.negative }}>⚠️ どちらもボーダー以下。台移動か撤退を検討しよう。</div>;
+                            return null;
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* 片方しか揃っていないとき */}
+                {(!machineA||!machineB)&&(
+                  <div style={{ background:isDark?'#1e293b':'#f8fafc', border:`1px solid ${C.border}`, borderRadius:16, padding:'28px 20px', textAlign:'center' }}>
+                    <div style={{ fontSize:32, marginBottom:8 }}>⚖️</div>
+                    <div style={{ fontWeight:700, color:C.textPrimary, marginBottom:6 }}>
+                      {!machineA?'算出タブで機種Aを選んでください':'比較する機種Bを選んでください'}
+                    </div>
+                    <div style={{ fontSize:12, color:C.textMuted }}>2つの機種を選ぶとボーダーと期待値を比較できるぜ。</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           </div>
           );
         })()}
@@ -5707,7 +6043,63 @@ export default function PachinkoCalculatorComplete() {
                             <div style={{ fontSize:17, fontWeight:700, color:s.metrics.balanceYen>=0?C.positive:C.negative }}>{fmtYen(s.metrics.balanceYen)}</div>
                           </div>
                         </div>
-                        <div style={{ marginTop:6, fontSize:11, color:C.textMuted }}>タップで詳細を表示</div>
+                        {/* 回転率スパークライン（2点以上あるとき表示） */}
+                        {td.length>=2&&(()=>{
+                          const border=s.metrics.machineBorder||0;
+                          const rates=td.map(p=>p.rate);
+                          const minR=Math.min(...rates,border>0?border*0.9:Infinity);
+                          const maxR=Math.max(...rates,border>0?border*1.1:0);
+                          const range=maxR-minR||1;
+                          const W=260, H=36, PAD=4;
+                          // 折れ線の座標を計算
+                          const pts=td.map((p,i)=>{
+                            const x=PAD+i/(td.length-1)*(W-PAD*2);
+                            const y=PAD+(1-(p.rate-minR)/range)*(H-PAD*2);
+                            return [x,y];
+                          });
+                          const polyline=pts.map(([x,y])=>`${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+                          // ボーダーラインのY座標
+                          const borderY=border>0?PAD+(1-(border-minR)/range)*(H-PAD*2):null;
+                          // 最新レートが良いか
+                          const lastRate=rates[rates.length-1];
+                          const isGood=border>0?lastRate>=border:lastRate>=rates.reduce((a,b)=>a+b,0)/rates.length;
+                          const lineColor=isGood?'#10b981':'#ef4444';
+                          return (
+                            <div style={{ marginTop:8, marginBottom:2, position:'relative' }}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:3 }}>
+                                <div style={{ fontSize:9, color:C.textMuted, fontWeight:600 }}>📈 回転率推移</div>
+                                <div style={{ display:'flex', gap:8, fontSize:9, color:C.textMuted }}>
+                                  <span>最新 <b style={{ color:lineColor }}>{fmtRate(lastRate)}</b></span>
+                                  {border>0&&<span>B <b style={{ color:'#ef4444' }}>{fmtRate(border)}</b></span>}
+                                </div>
+                              </div>
+                              <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} style={{ display:'block', overflow:'visible' }}>
+                                {/* 塗りつぶしグラデーション */}
+                                <defs>
+                                  <linearGradient id={`sg-${s.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={lineColor} stopOpacity="0.18"/>
+                                    <stop offset="100%" stopColor={lineColor} stopOpacity="0.02"/>
+                                  </linearGradient>
+                                </defs>
+                                {/* エリア塗り */}
+                                <polygon
+                                  points={`${pts[0][0].toFixed(1)},${H} ${polyline} ${pts[pts.length-1][0].toFixed(1)},${H}`}
+                                  fill={`url(#sg-${s.id})`}
+                                />
+                                {/* ボーダーライン */}
+                                {borderY!==null&&borderY>=0&&borderY<=H&&(
+                                  <line x1={PAD} y1={borderY.toFixed(1)} x2={W-PAD} y2={borderY.toFixed(1)}
+                                    stroke="#ef4444" strokeWidth="1" strokeDasharray="3 2" opacity="0.7"/>
+                                )}
+                                {/* メインライン */}
+                                <polyline points={polyline} fill="none" stroke={lineColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                {/* 最新点 */}
+                                <circle cx={pts[pts.length-1][0].toFixed(1)} cy={pts[pts.length-1][1].toFixed(1)} r="3" fill={lineColor} stroke="white" strokeWidth="1.2"/>
+                              </svg>
+                            </div>
+                          );
+                        })()}
+                        <div style={{ marginTop:4, fontSize:11, color:C.textMuted }}>タップで詳細を表示</div>
                       </summary>
                       <div style={{ borderTop:`1px solid ${C.border}`, padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
                         {/* 店舗名・台番号 編集欄 */}
@@ -5883,9 +6275,9 @@ export default function PachinkoCalculatorComplete() {
                                   const good=border>0?diff>=0:seg.rate>=avgRate;
                                   return (
                                     <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', background:good?(isDark?'rgba(16,185,129,0.08)':'#f0fdf4'):(isDark?'rgba(239,68,68,0.08)':'#fef2f2'), border:`1px solid ${good?C.positiveBorder:C.negativeBorder}`, borderRadius:10, padding:'8px 12px' }}>
-                                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                      <div>
                                         <span style={{ fontSize:12, color:C.textSecondary, fontWeight:600 }}>{seg.label}</span>
-                                        {seg.isFinal&&<span style={{ fontSize:10, color:C.textMuted, background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9', borderRadius:6, padding:'1px 6px' }}>端数</span>}
+                                        {seg.isFinal&&<span style={{ fontSize:10, color:C.textMuted, marginLeft:6, background:isDark?'rgba(255,255,255,0.08)':'#f1f5f9', borderRadius:6, padding:'1px 6px' }}>使用中 {fmtYen(seg.yen)}</span>}
                                       </div>
                                       <div style={{ display:'flex', gap:12, alignItems:'center' }}>
                                         <span style={{ fontSize:11, color:C.textMuted }}>{seg.spins.toLocaleString()}回転</span>
