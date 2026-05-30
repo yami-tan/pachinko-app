@@ -4367,7 +4367,7 @@ export default function PachinkoCalculatorComplete() {
                     // sessionTrendData を使って1万円セグメントを計算
                     const segments=calcRateSegments(sessionTrendData);
                     if(segments.length===0) return null;
-                    const avgRate=segments.reduce((a,s)=>a+s.rate,0)/segments.length;
+                    const avgRate=(()=>{ const ts=segments.reduce((a,s)=>a+s.spins,0); const ty=segments.reduce((a,s)=>a+s.yen,0); return ts>0&&ty>0?ts/(ty/1000):0; })();
                     const border=formMetrics.machineBorder||0;
                     return (
                       <details style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
@@ -6258,7 +6258,7 @@ export default function PachinkoCalculatorComplete() {
                         {(()=>{
                           const segments=calcRateSegments(getSessionTrendData(s,settings));
                           if(segments.length===0) return null;
-                          const avgRate=segments.reduce((a,sg)=>a+sg.rate,0)/segments.length;
+                          const avgRate=(()=>{ const ts=segments.reduce((a,sg)=>a+sg.spins,0); const ty=segments.reduce((a,sg)=>a+sg.yen,0); return ts>0&&ty>0?ts/(ty/1000):0; })();
                           const border=s.metrics.machineBorder||0;
                           return (
                             <details style={{ border:`1px solid ${C.border}`, borderRadius:14, overflow:'hidden' }}>
