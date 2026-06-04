@@ -424,12 +424,19 @@ function calcRateMetrics(session,machine,settings) {
   // ── 全計測を合算した totals ──
   const allTotalSpins    = logTotals.spins     + totalSpins;
   const allTotalInvestYen= logTotals.investYen + totalInvestYen;             // 回転率計算用（今セッションのみ・引き継ぎ現金は含めない）
-  // cashInvestYen / ballInvestBalls / ballInvestYen は既に archived + 現在枠 の合計。
-  // ここで archived を再度加えると大当たりアーカイブ後に持ち玉・総投資が2倍になる（二重カウント）。
-  // logTotals は auto_pruned 等（rateSections に無い計測）のみ加算する。
-  const allCashInvestYen = logTotals.cashInvest + cashInvestYen + inheritedCash;   // 表示・収支用
-  const allBallInvestBalls=logTotals.ballBalls + ballInvestBalls;
+  // ★ 修正: archived（大当たり前セクション）の投資も allCashInvestYen に含める
+  // 大当たりがあるセッションでは rateSections に pre-jackpot セクションが保存されており
+  // archived.cashInvest / archived.ballBalls / archived.ballYen を加算しないと
+  // 大当たり前の投資が収支計算から抜け落ちてしまうバグが発生する
+  // archived フィールド名: cashInvestYen / ballInvestBalls / ballInvestYen（logTotals は別名）
+  const allCashInvestYen = logTotals.cashInvest + cashInvestYen + inheritedCash;   // 表示・収支用  ★ cashInvestYen=archived+cCash なので archived の重複加算を除去
+  // ★★★ 根本バグ修正 ★★★
+  // ballInvestYen = archived.ballInvestYen + cBallYen（L394で既にarchived込み）
+  // ballInvestBalls = archived.ballInvestBalls + cBalls（同上）
+  // → allBallInvestYen に archived.ballInvestYen を再度足すと二重カウントになる！
+  // 正しくは: allBallInvestYen = logTotals.ballYen + ballInvestYen（archivedの重複なし）
   const allBallInvestYen = logTotals.ballYen + ballInvestYen;
+  const allBallInvestBalls = allBallInvestYen>0 ? Math.round(allBallInvestYen/4) : (logTotals.ballBalls+ballInvestBalls);
   const allEstimatedEVYen= logTotals.evYen     + estimatedEVYen;
   // 回転率は現金＋持ち玉の合計で計算（実際の消費量ベース）
   const allSpinPerThousand=allTotalInvestYen>0?allTotalSpins/(allTotalInvestYen/1000):spinPerThousand;
@@ -1693,6 +1700,8 @@ export default function PachinkoCalculatorComplete() {
   }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine||firstHitMetrics.oneRound===null)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
   function completeFirstHit(restartAfter=false) {
+    if(!firstHitDialogOpen) return; // 二重押し防止
+    setFirstHitDialogOpen(false); // 先に閉じてから処理（二重送信防止）
     const secId=uid(); // sec・jackpotLog・jLog・hit を紐づけるID（全パスで共有）
     const label=firstHitForm.label||`初当たり${(form.firstHits||[]).length+1}回目`;
     const crl=getChainResultLabel(firstHitForm.chainCount);
@@ -1728,67 +1737,10 @@ export default function PachinkoCalculatorComplete() {
       : startStoredBalls;                                   // フォールバック: 従来通り（残りを初期として扱う）
     const hasAccurateStoredData=initialStoredSnapshot>0&&startStoredBalls>0&&startStoredBalls<initialStoredSnapshot;
 
-    // 上皿残り玉の帰属:
-    //   cashInvestInput>0 → 上皿玉はcash購入分 → cash側から差し引く
-    //   cashInvestInput=0 → 上皿玉は貯玉/持ち玉の未消費分 → balls側から差し引く
-    const effectiveStartBalls=cashInvestInputRaw>0
-      ? Math.max(0,startBalls+storedConsumed)             // 上皿はcash側で処理
-      : Math.max(0,startBalls+storedConsumed-upperBalls); // 上皿はballs側で処理（未消費分を除外）
-    const effectiveHitSpins=hitSpins+(rh||0); // 初当たりゲーム数+残り保留数
-    const currentBallsNow=formMetrics.currentBalls;
+    // lastReadingNow: 確定済みの最終reading（未記録スピン計算用）
     const lastReadingNow=(form.rateEntries||[]).reduce((last,e)=>{
       const r=numberOrZero(e.reading); return (r>0&&r>last)?r:last;
     }, numberOrZero(form.startRotation));
-    const spinsUsed=lastReadingNow>0?Math.max(0,effectiveHitSpins-lastReadingNow):effectiveHitSpins;
-    // hitSpins = セッション累積回転数（大当たりが来たときのセッション通算ゲーム数）
-    // → タブの「総回転」と同じ基準値なので: 今回セクション回転 = hitSpins - アーカイブ分
-    // 例: allTotalSpins=130(archived=70+current=60), hitSpins=140
-    //     → セクション内: 140-70=70, 未記録: 70-60=10
-    //     → total after: 70+70 = 140 (hitSpinsと一致)
-    const startRot=numberOrZero(form.startRotation);
-    const confirmedSpinsNow=formMetrics.currentSpins||0;
-    const archivedSpinsNow=(formMetrics.allTotalSpins||0)-(formMetrics.currentSpins||0);
-    const hitSpinsInSection=hitSpins-archivedSpinsNow; // セッション累積基準での差分
-    // hitSpins = 機種カウンター（絶対値）
-    // セクション内回転数 = hitSpins - startRot（セクション開始時のカウンター値）
-    // 非リセット機では startRot > 0 になるためこの計算が必要
-    // リセット機では startRot=0 なので hitSpinsFromStartRot = hitSpins（同じ）
-    const hitSpinsFromStartRot=Math.max(0,hitSpins-startRot);
-    // 優先順位: ① hitSpins-startRot（機種カウンター基準・最も正確）
-    //           ② hitSpinsInSection（セッション累積基準・リセット機向け互換）
-    //           ③ hitSpins そのまま（フォールバック）
-    const effectiveHitSpinsSection=hitSpinsFromStartRot>0?hitSpinsFromStartRot
-      :(hitSpinsInSection>0?hitSpinsInSection:hitSpins);
-    const unrecordedSpinsNow=Math.max(0,effectiveHitSpinsSection-confirmedSpinsNow);
-    // hitReadingForEntry: 機種カウンター値をそのまま使う（rateEntries の reading は機種カウンター値）
-    // ただし確定済み最終読みより小さい場合は lastReading+unrec を使う（データ異常対応）
-    const hitReadingForEntry=hitSpins>0?Math.max(hitSpins,lastReadingNow+unrecordedSpinsNow):0;
-    // 差玉: 以下の全条件を満たす場合のみ使用
-    // ・玉モード かつ 開始持ち玉が入力されている
-    // ・currentBalls > effectiveStart（app の持ち玉がユーザー申告より多い）
-    // ・確定済み回転数がゼロ（readings が一つもない＝pure なスタート）
-    // ・確定済みレートがゼロ（参照できる実績レートがない）
-    // 確定済みデータがある場合は diffBalls を使わず rate-based の path 2 を使う
-    // （大当たり出玉が formMetrics.currentBalls に含まれるため、差が過大になりやすい）
-    const diffBalls=(
-      form.currentInputMode==='balls'
-      &&effectiveStartBalls>0
-      &&currentBallsNow!==null
-      &&hitSpins>0
-      &&effectiveStartBalls<currentBallsNow
-      &&confirmedSpinsNow===0           // 確定済み回転がないとき限定
-      &&!(formMetrics.avgSpinPerThousand>0) // 確定済みレートがないとき限定
-    ) ? (currentBallsNow-effectiveStartBalls) : 0;
-
-    // cashInvestInput から上皿残り玉の価値を差し引いた純投資額（モード問わず）
-    // 例: cashInput=500円, upperBalls=53玉 → netCash = 500 - 53×4 = 288円
-    //     （500円で買った玉のうち212円分は未消費なのでカウントしない）
-    // ★ 持ち玉→現金移行時も記録される（isBalls でも cashInvestInput が入力されていれば有効）
-    const cashInvestInput=cashInvestInputRaw;
-    const upperBallsYenDeduct=upperBalls*4; // 4円/玉 固定レートで換算
-    const netCashInvest=cashInvestInput>0
-      ? Math.max(0, cashInvestInput - upperBallsYenDeduct)
-      : 0;
 
     applyFormUpdate(prev=>{
       let nb={
@@ -1798,133 +1750,129 @@ export default function PachinkoCalculatorComplete() {
         inheritedCashInvestYen:numberOrZero(prev.inheritedCashInvestYen),
       };
 
-      // 現金モード：cashInvestInput が明示入力されていたら未確定の最新投資行を純投資額で上書き
-      // ・明示ゼロ (cashInvestInputExplicit && netCashInvest=0) でも amount を 0 に更新
-      //   → ダイアログで「追加投資なし」と宣言した場合に既存 default amount を使わない
-      if(form.currentInputMode==='cash'&&cashInvestInputExplicit&&netCashInvest>=0){
-        const entries=nb.rateEntries||[];
-        const lastEmptyIdx=[...entries].reverse().findIndex(e=>e.kind==='cash'&&!numberOrZero(e.reading));
-        if(lastEmptyIdx>=0){
-          const realIdx=entries.length-1-lastEmptyIdx;
-          const newEntries=entries.map((e,i)=>i===realIdx?{...e,amount:String(netCashInvest)}:e);
-          nb={...nb,rateEntries:newEntries};
-        } else {
-          // 全行確定済み（空きcash行なし）→ 新しくcash行を追加
-          // hitSpinsブロックでreadingが設定されるので amount だけ持った空行を追加
-          const newEntry={id:uid(),kind:'cash',amount:String(netCashInvest),reading:''};
-          nb={...nb,rateEntries:[...(nb.rateEntries||[]),newEntry]};
-        }
-      }
+      // ──────────────────────────────────────────────────
+      // 回転率エントリの更新（シンプル版）
+      // hitSpins の時点で「確定済みを超えた分」を1行として追加/更新する
+      //
+      // 持ち玉モード:
+      //   startBalls入力あり → 直接計算（最も正確）
+      //     消費玉 = startBalls + 消費貯玉 - 上皿残り
+      //     未記録玉 = 消費玉 - 確定済み玉数
+      //   startBalls未入力 → 確定済みレートから推定
+      //     未記録玉 = 未記録スピン / レート × 玉単位
+      //
+      // 現金モード:
+      //   cashInvestInput入力あり → そのまま追加/更新
+      //   未入力 → hitSpinsにreadingを伸ばすだけ
+      // ──────────────────────────────────────────────────
 
-      // 差玉がある場合：差玉分の持ち玉投資行を挿入（hitSpinsあり）
-      if(diffBalls>0&&hitSpins>0){
-        const diffEntry={id:uid(),kind:'balls',amount:String(diffBalls),reading:String(hitReadingForEntry)};
-        const entries=nb.rateEntries||[];
-        // jackpot_after/restart はスキップして実際の投資行の前に挿入
-        const lastEmpty=entries.findIndex(e=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&!numberOrZero(e.reading));
-        const insertAt=lastEmpty>=0?lastEmpty:entries.length;
-        const newEntries=[...entries.slice(0,insertAt),diffEntry,...entries.slice(insertAt)];
-        nb={...nb,rateEntries:newEntries};
-        // ★ diffBalls パスでも追加現金があれば cash行を追加（Bug E 修正）
-        if(netCashInvest>0){
-          const ents=nb.rateEntries||[];
-          const emptyCashIdx=[...ents].map((e,i)=>({e,i})).reverse()
-            .find(({e})=>e.kind==='cash'&&!numberOrZero(e.reading));
-          if(emptyCashIdx!=null){
-            nb={...nb,rateEntries:ents.map((e,i)=>i===emptyCashIdx.i
-              ?{...e,amount:String(netCashInvest),reading:String(hitReadingForEntry)}:e)};
+      // 上皿残り玉の価値（現金換算、4円/玉固定）
+      const upperBallsYen = upperBalls * 4;
+      const netCashInvest = cashInvestInputRaw > 0
+        ? Math.max(0, cashInvestInputRaw - upperBallsYen)
+        : 0;
+
+      if(hitSpins > 0) {
+        const _entries = nb.rateEntries || [];
+        // 現在の最終reading（startRotation以上）
+        const _lastR = _entries.reduce((m,e)=>{
+          const r=numberOrZero(e.reading); return r>m?r:m;
+        }, numberOrZero(nb.startRotation));
+        // hitSpins が lastReading より小さい場合も考慮（機種カウンターリセット後など）
+        const _hitR = hitSpins >= _lastR ? hitSpins : Math.max(hitSpins, _lastR);
+
+        if(form.currentInputMode === 'balls') {
+          // ── 持ち玉モード ──
+          const _confBalls = _entries
+            .filter(e=>e.kind==='balls' && numberOrZero(e.reading)>0)
+            .reduce((s,e)=>s+numberOrZero(e.amount), 0);
+
+          let _unrecBalls = 0;
+          // 直接計算が可能な条件:
+          //   ① startBalls > 0 (物理持ち玉が入力されている)
+          //   ② 貯玉データが有効 (initialStoredSnapshot > 0 かつ startStoredBalls が入力済み)
+          //      ※ startBalls=0でも「貯玉のみで打った」ケースを正確に計算できる
+          const _hasStoredData = initialStoredSnapshot > 0
+            && firstHitForm.startStoredBalls !== '';  // 空文字でなければ入力済み
+          if(startBalls > 0 || _hasStoredData) {
+            // 直接計算（最も正確）
+            // 消費貯玉 = 開始時貯玉 - 大当たり時残り貯玉
+            const _storedConsumed = initialStoredSnapshot > 0
+              ? Math.max(0, initialStoredSnapshot - startStoredBalls)
+              : 0;
+            // 総消費玉 = 持ち玉 + 消費貯玉 - 上皿残り
+            const _totalConsumed = Math.max(0, startBalls + _storedConsumed - upperBalls);
+            _unrecBalls = Math.max(0, _totalConsumed - _confBalls);
           } else {
-            const ce={id:uid(),kind:'cash',amount:String(netCashInvest),reading:String(hitReadingForEntry)};
-            nb={...nb,rateEntries:[...(nb.rateEntries||[]),ce]};
+            // 入力データなし → 確定済みレートから推定
+            const _unrecSpins = Math.max(0, hitSpins - lastReadingNow);
+            const _rate = formMetrics.avgSpinPerThousand || 0;
+            const _unit = numberOrZero(settings.defaultBallUnit) || 250;
+            _unrecBalls = (_rate > 0 && _unrecSpins > 0)
+              ? Math.round(_unrecSpins / _rate * _unit)
+              : 0;
           }
-        }
-      } else if(form.currentInputMode==='balls'&&hitSpins>0){
-        // ─── 未記録玉数の計算 ───
-        // 優先: 確定済みレート × 未記録回転数 → 最も正確
-        // フォールバック: 開始時持ち玉 - 確定済み玉数（レートデータなし時）
-        const entries=nb.rateEntries||[];
-        const confirmedBalls=(entries)
-          .filter(e=>e.kind==='balls'&&numberOrZero(e.reading)>0)
-          .reduce((s,e)=>s+numberOrZero(e.amount),0);
-        const confirmedRateForBalls=formMetrics.avgSpinPerThousand||0;
-        // ── 未記録玉数の計算優先順位 ──
-        // ① 直接計算 (精度高): 正確な消費玉数が分かる場合
-        //    - 初期貯玉+残り貯玉の両方あり: storedConsumed = 初期-残り → effectiveStartBalls
-        //    - 純持ち玉モード (startBalls>0, storedBalls=0): effectiveStartBalls が正確
-        // ② レートベース推定 (精度低): 確定済みレートから計算
-        //    - 貯玉スナップショットなし かつ 確定済みレートあり
-        const directUnrecBalls=effectiveStartBalls>0?Math.max(0,effectiveStartBalls-confirmedBalls):0;
-        const rateUnrecBalls=confirmedRateForBalls>0&&unrecordedSpinsNow>0
-          ?Math.round(unrecordedSpinsNow/confirmedRateForBalls*250):0;
-        // 直接計算を優先する条件:
-        //   ① 正確な貯玉データあり (hasAccurateStoredData)  ← confirmedBalls>0でも使用可
-        //   ② 純持ち玉モード (startBalls>0 かつ stored=0) かつ 確定済みデータなし
-        //      ※ confirmedBalls>0 の場合はレートベース推定が正確なので直接計算を使わない
-        //      （startBalls=2000 かつ confirmedBalls=1000 → unrec=1000 という急落を防ぐ）
-        // ★ unrecordedSpinsNow=0 (ジャックポットが最終読み取りと同じ) のとき
-        //    directUnrecBalls>0 でも 0スピンに投資を追加してはいけない
-        const useDirect=directUnrecBalls>0&&unrecordedSpinsNow>0&&(
-          hasAccurateStoredData   // 貯玉スナップ+残り貯玉が揃っている場合は常に直接計算
-          ||(startBalls>0&&startStoredBalls===0&&confirmedBalls===0)  // 純持ち玉かつ確定データなし
-        );
-        const unrecordedBalls=useDirect
-          ? directUnrecBalls   // ① 直接計算（正確）
-          : (rateUnrecBalls>0
-              ? rateUnrecBalls           // ② レートベース推定（優先）
-              : (unrecordedSpinsNow>0    // ③ フォールバック: 未記録スピンがある場合のみ directUnrec を使う
-                  ? directUnrecBalls     //    未記録スピンあり → 直接計算で近似
-                  : 0));                 //    未記録スピンなし(0スピンに投資を追加しない)
-        const emptyBallEntries=entries.filter(e=>e.kind==='balls'&&!numberOrZero(e.reading));
-        if(emptyBallEntries.length>=1){
-          // 空行あり → 最初の空行のみに未記録分をセット（複数空行があっても1行のみ更新）
-          let updatedFirst=false;
-          const newEntries=entries.map(e=>{
-            if(!updatedFirst&&e.kind==='balls'&&!numberOrZero(e.reading)){
-              updatedFirst=true;
-              return {...e,amount:String(unrecordedBalls),reading:String(hitReadingForEntry)};
+
+          // 空の持ち玉行を埋める（なければ追加）
+          const _emptyBallIdx = _entries.findIndex(e=>e.kind==='balls'&&!numberOrZero(e.reading));
+          if(_emptyBallIdx >= 0) {
+            nb={...nb, rateEntries:_entries.map((e,i)=>
+              i===_emptyBallIdx ? {...e,amount:String(_unrecBalls),reading:String(_hitR)} : e)};
+          } else if(_hitR > _lastR) {
+            nb={...nb, rateEntries:[..._entries,
+              {id:uid(),kind:'balls',amount:String(_unrecBalls),reading:String(_hitR)}]};
+          } else {
+            // hitSpins が最終readingと同じ → 最後の行のreadingを上書き
+            const _lastBallIdx=[..._entries].map((e,i)=>({e,i})).reverse()
+              .find(({e})=>e.kind==='balls'&&numberOrZero(e.reading)>0)?.i;
+            if(_lastBallIdx!=null){
+              nb={...nb,rateEntries:_entries.map((e,i)=>
+                i===_lastBallIdx?{...e,reading:String(_hitR)}:e)};
             }
-            return e;
-          });
-          nb={...nb,rateEntries:newEntries};
-        } else if(hitReadingForEntry>lastReadingNow){
-          // 全行確定済み → 新しい行を追加
-          const ballEntry={id:uid(),kind:'balls',amount:String(unrecordedBalls),reading:String(hitReadingForEntry)};
-          nb={...nb,rateEntries:[...entries,ballEntry]};
-        }
-        // ★ 持ち玉モードでも追加現金投資があれば cash行を追加（今日の1台サマリーに反映）
-        // 同じ reading を付けることでスピン二重計上を防ぎつつ現金投資だけ加算される
-        if(netCashInvest>0){
-          const ents=nb.rateEntries||[];
-          // 既存の空 cash 行を探す（モード切替前に cash 行があった場合）
-          const emptyCashIdx=[...ents].map((e,i)=>({e,i})).reverse()
-            .find(({e})=>e.kind==='cash'&&!numberOrZero(e.reading));
-          if(emptyCashIdx!=null){
-            // 空のcash行に amount と reading をセット（balls行と同じ reading → spins=0）
-            nb={...nb,rateEntries:ents.map((e,i)=>i===emptyCashIdx.i
-              ?{...e,amount:String(netCashInvest),reading:String(hitReadingForEntry)}:e)};
-          } else {
-            // cash行なし → 新規追加（balls行と同じ reading → calcRateMetrics でspins=0になる）
-            const cashEntry={id:uid(),kind:'cash',amount:String(netCashInvest),reading:String(hitReadingForEntry)};
-            nb={...nb,rateEntries:[...(nb.rateEntries||[]),cashEntry]};
           }
-        }
-      } else if(hitSpins>0&&hitReadingForEntry>lastReadingNow){
-        // 差玉なし（現金モード等）でもhitSpinsを最新のreading欄に自動セット
-        const entries=nb.rateEntries||[];
-        // ★ jackpot_after/restart はスキップ（再スタート後に afterEntry が reading を奪うバグを防ぐ）
-        const lastEmptyIdx=entries.findIndex(e=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&!numberOrZero(e.reading));
-        if(lastEmptyIdx>=0){
-          // 未入力行がある → そこに hitSpins をセット
-          const newEntries=entries.map((e,i)=>i===lastEmptyIdx?{...e,reading:String(hitReadingForEntry)}:e);
-          nb={...nb,rateEntries:newEntries};
+
+          // 追加現金投資があれば cash行も追加（持ち玉→現金切替えがあった場合など）
+          if(netCashInvest > 0) {
+            const _ents2 = nb.rateEntries||[];
+            const _ec=[..._ents2].map((e,i)=>({e,i})).reverse()
+              .find(({e})=>e.kind==='cash'&&!numberOrZero(e.reading));
+            if(_ec!=null){
+              nb={...nb,rateEntries:_ents2.map((e,i)=>i===_ec.i
+                ?{...e,amount:String(netCashInvest),reading:String(_hitR)}:e)};
+            } else {
+              nb={...nb,rateEntries:[..._ents2,
+                {id:uid(),kind:'cash',amount:String(netCashInvest),reading:String(_hitR)}]};
+            }
+          }
+
         } else {
-          // 全行記録済み → 最後の有効行の reading を hitSpins に伸ばす
-          // （amount:'0' の新行を追加すると投資0でゲーム数だけ増えて回転率が狂う）
-          const lastValidIdx=[...entries].map((e,i)=>({e,i})).reverse()
-            .find(({e})=>e.kind!=='restart'&&e.kind!=='jackpot_after'&&numberOrZero(e.reading)>0)?.i;
-          if(lastValidIdx!=null){
-            const newEntries=entries.map((e,i)=>i===lastValidIdx?{...e,reading:String(hitReadingForEntry)}:e);
-            nb={...nb,rateEntries:newEntries};
+          // ── 現金モード ──
+          if(cashInvestInputExplicit) {
+            // cashInvestInput が入力されている → 最後の空cash行に金額とreadingをセット
+            const _ec=[..._entries].map((e,i)=>({e,i})).reverse()
+              .find(({e})=>e.kind==='cash'&&!numberOrZero(e.reading));
+            if(_ec!=null){
+              nb={...nb,rateEntries:_entries.map((e,i)=>i===_ec.i
+                ?{...e,amount:String(netCashInvest),reading:String(_hitR)}:e)};
+            } else if(_hitR > _lastR) {
+              nb={...nb,rateEntries:[..._entries,
+                {id:uid(),kind:'cash',amount:String(netCashInvest),reading:String(_hitR)}]};
+            }
+          } else if(_hitR > _lastR) {
+            // cashInvestInput未入力 → 最後の確定済みcash行のreadingを hitSpins に伸ばす
+            const _lastCashIdx=[..._entries].map((e,i)=>({e,i})).reverse()
+              .find(({e})=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&numberOrZero(e.reading)>0)?.i;
+            if(_lastCashIdx!=null){
+              nb={...nb,rateEntries:_entries.map((e,i)=>
+                i===_lastCashIdx?{...e,reading:String(_hitR)}:e)};
+            } else {
+              // 確定済み行なし → 空の行にreadingだけセット（投資0で回転数を記録）
+              const _emptyAny=_entries.findIndex(e=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&!numberOrZero(e.reading));
+              if(_emptyAny>=0){
+                nb={...nb,rateEntries:_entries.map((e,i)=>
+                  i===_emptyAny?{...e,reading:String(_hitR)}:e)};
+              }
+            }
           }
         }
       }
@@ -1994,6 +1942,11 @@ export default function PachinkoCalculatorComplete() {
       }
       const m=nb.machineId&&nb.machineId!=='__none__'?machines.find(m=>m.id===nb.machineId)||null:null;
       const met=calcRateMetrics(nb,m,settings);
+      // ★ sec・jackpotLog の ballInvestBalls は met から直接取得
+      //    met.currentBallInvestBalls = rateEntries の現セクション分のみ
+      //    rate計算と必ず一致するのでズレが生じない
+      const _secBallsBalls = met.currentBallInvestBalls || 0;
+      const _secBallsYen = met.currentBallInvestYen || 0;
       const rsr=numberOrZero(firstHitForm.restartRotation);
       const rrl=getRestartReasonLabel(firstHitForm.restartReason,firstHitForm.restartReasonNote);
       const sl=`通常${(nb.rateSections||[]).length+1}区間`;
@@ -2010,8 +1963,8 @@ export default function PachinkoCalculatorComplete() {
         spins:met.currentSpins,
         investYen:met.currentInvestYen,
         cashInvestYen:met.currentCashInvestYen,
-        ballInvestBalls:met.currentBallInvestBalls,
-        ballInvestYen:met.currentBallInvestYen,
+        ballInvestBalls:_secBallsBalls, // ★ 直接算出値（met との不一致防止）
+        ballInvestYen:_secBallsYen,
         estimatedEVYen:met.currentEstimatedEVYen,
         rate:Number(met.currentSpinPerThousand.toFixed(2)),
         endReading:met.currentEndRotation,
@@ -2031,7 +1984,7 @@ export default function PachinkoCalculatorComplete() {
       const na=finalMode==='balls'?numberOrZero(settings.defaultBallUnit)||250:numberOrZero(settings.defaultCashUnitYen)||1000;
       const nextEntry=emptyRateEntry(finalMode,na,'');
 
-      const sec={id:secId,label:sl,startRotation:numberOrZero(nb.startRotation),endRotation:met.currentEndRotation,spins:met.currentSpins,investYen:met.currentInvestYen,cashInvestYen:met.currentCashInvestYen,ballInvestBalls:met.currentBallInvestBalls,ballInvestYen:met.currentBallInvestYen,spinPerThousand:Number(met.currentSpinPerThousand.toFixed(2)),estimatedEVYen:Math.round(met.currentEstimatedEVYen),restartReasonLabel:rrl};
+      const sec={id:secId,label:sl,startRotation:numberOrZero(nb.startRotation),endRotation:met.currentEndRotation,spins:met.currentSpins,investYen:met.currentInvestYen,cashInvestYen:met.currentCashInvestYen,ballInvestBalls:_secBallsBalls,ballInvestYen:_secBallsYen,spinPerThousand:Number(met.currentSpinPerThousand.toFixed(2)),estimatedEVYen:Math.round(met.currentEstimatedEVYen),restartReasonLabel:rrl};
       const ap=buildSectionRateHistoryPoints(nb,settings).map(pt=>({...pt,sectionId:secId}));
 
       const endBallsForRestart=numberOrZero(firstHitForm.endBalls);
@@ -2051,14 +2004,19 @@ export default function PachinkoCalculatorComplete() {
           currentBallsInput:String(endBallsForRestart),
           currentInputMode:'balls',
         }:{}),
-        // 残り貯玉が入力されていたら endBalls の有無に関わらず storedBallsInput を更新
-        // (次の初当たりダイアログで initialStoredSnapshot が正しい値になるため)
-        ...(numberOrZero(firstHitForm.startStoredBalls)>0?{
-          storedBallsInput:String(numberOrZero(firstHitForm.startStoredBalls)),
+        // ★ 貯玉の有無に関わらず storedBallsInput を更新
+        //    initialStoredSnapshot がセットされていた（= セッション開始時に貯玉があった）場合は
+        //    残り貯玉で storedBallsInput を上書きする
+        //    startStoredBalls = '0' でも更新が必要（全部消費された = 0 に変わった）
+        //    initialStoredSnapshot = '' のとき（貯玉なしセッション）は更新しない
+        ...(firstHitForm.initialStoredSnapshot!==''?{
+          storedBallsInput:numberOrZero(firstHitForm.startStoredBalls)>0
+            ?String(numberOrZero(firstHitForm.startStoredBalls))
+            :'',   // 0 or '' → storedBallsInput を空に（次の openFirstHitDialog が正しい0を返す）
         }:{}),
       };
     });
-    setFirstHitDialogOpen(false);
+    // setFirstHitDialogOpen(false) は関数先頭に移動済み（二重押し防止）
     // 1R出玉の機種への反映は自動では行わない（手動ボタンから実施）
   }
   function removeFirstHit(hid) { applyFormUpdate(p=>{
@@ -3718,13 +3676,6 @@ export default function PachinkoCalculatorComplete() {
                   const border=formMetrics.machineBorder;
                   const diff=formMetrics.rateDiff;
                   const hasBalls=formMetrics.ballInvestBalls>0||formMetrics.currentBalls!==null;
-                  const lastHitForSummary=(form.firstHits||[]).slice(-1)[0];
-                  const lastEndBallsSummary=numberOrZero(lastHitForSummary?.endBalls);
-                  const storedForSummary=numberOrZero(form.storedBallsInput);
-                  const isAfterBigWinSummary=lastEndBallsSummary>0&&formMetrics.currentBalls!==null;
-                  const summaryBallBalls=isAfterBigWinSummary
-                    ?Math.max(0,lastEndBallsSummary+storedForSummary-(formMetrics.currentBalls||0))
-                    :numberOrZero(formMetrics.ballInvestBalls);
                   return (
                     <div style={{ position:'sticky', bottom:72, zIndex:10, background:C.surfaceOverlay||'rgba(255,255,255,0.97)', border:`1px solid ${C.border}`, borderRadius:24, backdropFilter:'blur(16px)', boxShadow:`${SHADOWS.xl}, 0 -1px 0 ${C.border}`, overflow:'hidden' }}>
                       {/* ボーダー差インジケーターバー */}
@@ -3763,7 +3714,7 @@ export default function PachinkoCalculatorComplete() {
                           {[
                             {l:'総回転', v:Math.round(formMetrics.totalSpins)+'回', c:null},
                             {l:'現金', v:fmtYen(formMetrics.totalInvestYen), c:null},
-                            ...(hasBalls?[{l:isAfterBigWinSummary?'持玉消費':'持ち玉', v:summaryBallBalls.toLocaleString()+'玉', c:C.amber}]:[]),
+                            ...(hasBalls?[{l:'持ち玉', v:(numberOrZero(formMetrics.ballInvestBalls)).toLocaleString()+'玉', c:C.amber}]:[]),
                             {l:'総投資', v:fmtYen(Math.round(formMetrics.cashInvestYen+(formMetrics.ballInvestYen||0))), c:C.primary},
                           ].map(({l,v,c})=>(
                             <div key={l} style={{ background:isDark?C.cardElevated:C.bg, borderRadius:12, padding:'6px 3px', textAlign:'center', border:`1px solid ${C.borderSubtle||C.border}` }}>
