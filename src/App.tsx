@@ -1683,7 +1683,14 @@ export default function PachinkoCalculatorComplete() {
     // 初期値: 残り持ち玉・残り貯玉を自動入力（0 のときは '' にして手動入力を促す）
     const autoStartBalls=holdInit>0?String(autoRemainHold):'';
     const autoStartStored=initialStored>0?String(autoRemainStored):'';
-    setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:autoStartBalls,startStoredBalls:autoStartStored,upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'',initialStoredSnapshot:initialStored>0?String(initialStored):''}); setFirstHitStep(1); setFirstHitDialogOpen(true); }
+    setFirstHitForm({label:`初当たり${nc}回目`,rounds:'0',startBalls:autoStartBalls,startStoredBalls:autoStartStored,upperBalls:'0',endBalls:'',hitSpins:'',cashInvestInput:'',restartRotation:'0',restartReason:'single',restartReasonNote:'',chainCount:'0',remainingHolds:'',
+      initialStoredSnapshot:initialStored>0?String(initialStored):'',
+      // ★ initialHoldSnapshot: セクション開始時の持ち玉（自動入力の基準値）
+      // isAfterBigWin=true → 前の大当たりのendBalls
+      // isAfterBigWin=false → currentBallsInput（セッション開始時に入力した値）
+      // ダイアログの「大当たり時の持ち玉」は「残り玉」→「holdInit - startBalls」で消費量を計算
+      initialHoldSnapshot:isAfterBigWin?String(lastEndBallsFH):(holdInit>0?String(holdInit):'')
+    }); setFirstHitStep(1); setFirstHitDialogOpen(true); }
   function undoLastFirstHit() {
     const hits=form.firstHits||[]; if(!hits.length)return;
     const last=hits[hits.length-1];
@@ -1788,20 +1795,31 @@ export default function PachinkoCalculatorComplete() {
             .reduce((s,e)=>s+numberOrZero(e.amount), 0);
 
           let _unrecBalls = 0;
-          // 直接計算が可能な条件:
-          //   ① startBalls > 0 (物理持ち玉が入力されている)
-          //   ② 貯玉データが有効 (initialStoredSnapshot > 0 かつ startStoredBalls が入力済み)
-          //      ※ startBalls=0でも「貯玉のみで打った」ケースを正確に計算できる
+          // ── 直接計算の条件 ──
+          // ① 持ち玉データが有効 (initialHoldSnapshot > 0 かつ startBalls が入力済み)
+          //    ※ initialHoldSnapshot = ダイアログ開時の「セクション開始持ち玉」
+          //       startBalls = 「大当たり時の残り持ち玉」（= 残量）
+          //       消費持ち玉 = initialHoldSnapshot - startBalls（差分）
+          // ② 貯玉データが有効 (initialStoredSnapshot > 0 かつ startStoredBalls が入力済み)
+          const initialHoldSnapshot = numberOrZero(firstHitForm.initialHoldSnapshot);
+          const _hasHoldData = initialHoldSnapshot > 0
+            && firstHitForm.startBalls !== '';  // 空文字=未入力はデータなし扱い
           const _hasStoredData = initialStoredSnapshot > 0
-            && firstHitForm.startStoredBalls !== '';  // 空文字でなければ入力済み
-          if(startBalls > 0 || _hasStoredData) {
+            && firstHitForm.startStoredBalls !== '';
+          if(_hasHoldData || _hasStoredData || startBalls > 0) {
             // 直接計算（最も正確）
+            // 持ち玉消費量:
+            //   initialHoldSnapshot あり → initialHoldSnapshot - startBalls（差分）
+            //   なし → startBalls をそのまま使用（後方互換: startBalls=初期値の古い動作）
+            const _holdConsumed = _hasHoldData
+              ? Math.max(0, initialHoldSnapshot - startBalls)
+              : startBalls;
             // 消費貯玉 = 開始時貯玉 - 大当たり時残り貯玉
             const _storedConsumed = initialStoredSnapshot > 0
               ? Math.max(0, initialStoredSnapshot - startStoredBalls)
               : 0;
-            // 総消費玉 = 持ち玉 + 消費貯玉 - 上皿残り
-            const _totalConsumed = Math.max(0, startBalls + _storedConsumed - upperBalls);
+            // 総消費玉 = 持ち玉消費 + 消費貯玉 - 上皿残り
+            const _totalConsumed = Math.max(0, _holdConsumed + _storedConsumed - upperBalls);
             _unrecBalls = Math.max(0, _totalConsumed - _confBalls);
           } else {
             // 入力データなし → 確定済みレートから推定
