@@ -279,6 +279,8 @@ function buildSectionRateHistoryPoints(session,settings) {
   let prevReading=numberOrZero(session.startRotation);
   const si=(session.rateSections||[]).length+1;
   return (session.rateEntries||[]).flatMap((entry,index)=>{
+    // ★ archived エントリは前区間のデータ → rateHistoryPoints に既に記録済みのためスキップ
+    if(entry.archived) return [];
     const reading=numberOrZero(entry.reading);
     if(!(reading>0&&reading>=prevReading)) return [];
     const amount=numberOrZero(entry.amount), spins=reading-prevReading;
@@ -1058,7 +1060,11 @@ export default function PachinkoCalculatorComplete() {
     if(!border||border<=0) return;
     const spins=formMetrics.totalSpins;
     if(spins<threshold) return;
-    if(formMetrics.rateDiff>=0) { belowBorderAlertSpinsRef.current=0; return; }
+    if(formMetrics.rateDiff>=0) {
+      belowBorderAlertSpinsRef.current=0;
+      setBelowBorderAlertOpen(false); // ★ ボーダー以上に回復したらダイアログを閉じる
+      return;
+    }
     // 次のマイルストーン（500回転ごと）に達したらアラート
     const milestone=Math.floor(spins/threshold)*threshold;
     if(milestone>belowBorderAlertSpinsRef.current){
@@ -1696,7 +1702,8 @@ export default function PachinkoCalculatorComplete() {
       .filter(e=>e.kind==='cash'&&!e.archived&&numberOrZero(e.reading)>0&&numberOrZero(e.reading)>=startRot)
       .reduce((s,e)=>s+numberOrZero(e.amount),0);
     // 未記録スピン → 未記録玉のデフォルト推定
-    const _lastReading=(form.rateEntries||[]).reduce((m,e)=>{
+    // ★ Bug修正: archived エントリ（前区間）を除外して現区間のみの最終reading を取得
+    const _lastReading=(form.rateEntries||[]).filter(e=>!e.archived).reduce((m,e)=>{
       const r=numberOrZero(e.reading); return r>m?r:m;
     }, startRot);
     const _rate=formMetrics.avgSpinPerThousand||0;
@@ -1740,7 +1747,21 @@ export default function PachinkoCalculatorComplete() {
       const newRateHistoryPoints2=sectionId
         ?(p.rateHistoryPoints||[]).filter(pt=>pt.sectionId!==sectionId)
         :(p.rateHistoryPoints||[]);
-      return {...p,firstHits:p.firstHits.slice(0,-1),notes:newNotes,rateSections:newRateSections,measurementLogs:newMeasurementLogs,rateHistoryPoints:newRateHistoryPoints2};
+      // ★ Fix7: rateEntries と startRotation を大当たり前の状態に復元
+      const jackpotLog2=sectionId?(p.measurementLogs||[]).find(l=>l.sectionId===sectionId&&l.kind==='jackpot_before')||null:null;
+      const restoredSection2=sectionId?(p.rateSections||[]).find(s=>s.id===sectionId)||null:null;
+      const restoredEntries2=jackpotLog2?.entries?.length>0?jackpotLog2.entries:null;
+      const restoredSR2=restoredSection2?String(restoredSection2.startRotation):null;
+      return {
+        ...p,
+        firstHits:p.firstHits.slice(0,-1),
+        notes:newNotes,
+        rateSections:newRateSections,
+        measurementLogs:newMeasurementLogs,
+        rateHistoryPoints:newRateHistoryPoints2,
+        ...(restoredEntries2?{rateEntries:restoredEntries2}:{}),
+        ...(restoredSR2?{startRotation:restoredSR2}:{}),
+      };
     });
   }
   function applyFirstHitOneRoundToMachine() { if(!selectedMachine||firstHitMetrics.oneRound===null)return; setMachines(p=>p.map(m=>m.id===selectedMachine.id?{...m,payoutPerRound:Number(firstHitMetrics.oneRound.toFixed(1))}:m)); }
@@ -1816,8 +1837,9 @@ export default function PachinkoCalculatorComplete() {
               {id:uid(),kind:'balls',amount:String(_netUnrecBalls),reading:String(_hitR)}]};
           } else if(_hitR > _lastR) {
             // 未記録玉なし: 最後の確定済みball行のreadingをhitSpinsまで伸ばしてスピン数を正確に記録
+            // ★ Bug修正: archived エントリ（前区間）を除外して現区間のみ検索
             const _lastBallIdx=[..._entries].map((e,i)=>({e,i})).reverse()
-              .find(({e})=>e.kind==='balls'&&numberOrZero(e.reading)>0)?.i;
+              .find(({e})=>!e.archived&&e.kind==='balls'&&numberOrZero(e.reading)>0)?.i;
             if(_lastBallIdx!=null){
               nb={...nb,rateEntries:_entries.map((e,i)=>
                 i===_lastBallIdx?{...e,reading:String(_hitR)}:e)};
@@ -1845,8 +1867,9 @@ export default function PachinkoCalculatorComplete() {
             }
           } else if(_hitR > _lastR) {
             // 未記録現金なし: 最後の行のreadingを伸ばしてスピン数を記録
+            // ★ Bug修正: archived 除外 + cash エントリのみ対象
             const _lastCashIdx=[..._entries].map((e,i)=>({e,i})).reverse()
-              .find(({e})=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&numberOrZero(e.reading)>0)?.i;
+              .find(({e})=>!e.archived&&e.kind==='cash'&&numberOrZero(e.reading)>0)?.i;
             if(_lastCashIdx!=null){
               nb={...nb,rateEntries:_entries.map((e,i)=>
                 i===_lastCashIdx?{...e,reading:String(_hitR)}:e)};
@@ -1854,7 +1877,7 @@ export default function PachinkoCalculatorComplete() {
               const _emptyAny=_entries.findIndex(e=>e.kind!=='jackpot_after'&&e.kind!=='restart'&&!numberOrZero(e.reading));
               if(_emptyAny>=0){
                 nb={...nb,rateEntries:_entries.map((e,i)=>
-                  i===_emptyAny?{...e,reading:String(_hitR)}:e)};
+                  i===_emptyAny?{...e,reading:String(_hitR),amount:'0'}:e)}; // 投資なし→amount='0'（偽投資防止）
               }
             }
           }
@@ -1896,7 +1919,6 @@ export default function PachinkoCalculatorComplete() {
       // 大当たり後の打ち始め読み取り値：
       //   rsr>0 → ユーザー指定の再スタート回転数（機種カウンターがリセットしない場合に使用）
       //   rsr=0 → デフォルト0（ほとんどのパチンコ機種は大当たり後にカウンターリセット）
-      const jackpotReadingTrue=rsr>0?rsr:(met.currentEndRotation>0?met.currentEndRotation:0);
       // 新セクションの startRotation: rsr指定があればその値、なければ0（リセット前提）
       const newStartRotation=rsr>0?rsr:0;
       const afterEntry={ id:uid(), kind:'jackpot_after', amount:'0', reading:newStartRotation>0?String(newStartRotation):'' };
@@ -1964,7 +1986,8 @@ export default function PachinkoCalculatorComplete() {
       :(p.rateHistoryPoints||[]);
     // ★ rateEntries と startRotation を大当たり前の状態に復元
     // jackpotLog.entries（kind:'jackpot_before'）に保存されている
-    const jackpotLog=sectionId?(newMeasurementLogs.find(l=>l.sectionId===sectionId&&l.kind==='jackpot_before')||null):null;
+    // ★ Bug修正: newMeasurementLogs は sectionId 除外済みのため p.measurementLogs から検索する
+    const jackpotLog=sectionId?(p.measurementLogs||[]).find(l=>l.sectionId===sectionId&&l.kind==='jackpot_before')||null:null;
     // 復元後も意図しない再計算を防ぐため、削除したヒットより前の最後の有効セクションを探す
     const restoredSection=sectionId?(p.rateSections||[]).find(s=>s.id===sectionId)||null:null;
     const restoredEntries=jackpotLog?.entries?.length>0?jackpotLog.entries:null;
